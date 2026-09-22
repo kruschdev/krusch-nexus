@@ -1,8 +1,7 @@
 """
-Unit Tests for KruschNexus REST API (HTTP Twin)
-==============================================
+Integration Tests for KruschNexus REST API (HTTP Twin).
 Tests /health, /v1/workspaces, /v1/ingest, /v1/search, and /v1/documents
-using FastAPI TestClient.
+using FastAPI TestClient against krusch_nexus.api.
 """
 
 import os
@@ -11,10 +10,10 @@ import tempfile
 import unittest
 from fastapi.testclient import TestClient
 
-from src.backend.config import NexusConfig
-from src.backend.db import init_db, get_engine
-import src.backend.main as main_module
-from src.backend.client import NexusIngestClient
+from krusch_nexus.config import NexusConfig
+from krusch_nexus.db import init_db, get_engine
+import krusch_nexus.api as api_module
+from krusch_nexus.client import Nexus
 
 
 class TestApiEndpoints(unittest.TestCase):
@@ -22,14 +21,16 @@ class TestApiEndpoints(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="nexus_api_test_")
         self.db_path = os.path.join(self.temp_dir, "test_api.db")
-        self.config = NexusConfig(database_url=f"sqlite:///{self.db_path}")
+        self.config = NexusConfig(
+            database_url=f"sqlite:///{self.db_path}",
+            allowed_ingest_roots=[self.temp_dir]
+        )
         self.engine = get_engine(self.config.database_url)
         init_db(self.engine)
 
-        # Reconfigure main module client
-        main_module.config = self.config
-        main_module.client = NexusIngestClient(self.config)
-        self.client = TestClient(main_module.app)
+        api_module.config = self.config
+        api_module.client = Nexus(self.config)
+        self.client = TestClient(api_module.app)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -37,7 +38,6 @@ class TestApiEndpoints(unittest.TestCase):
     def test_healthcheck_endpoint(self):
         """Verify /health returns structured service health status."""
         resp = self.client.get("/health")
-        # May be 200 or 503 depending on whether Ollama is reachable, but must return valid JSON
         self.assertIn(resp.status_code, [200, 503])
         data = resp.json()
         self.assertIn("database", data)
@@ -65,7 +65,6 @@ class TestApiEndpoints(unittest.TestCase):
 
     def test_ingest_and_search_endpoints(self):
         """Verify multipart document ingestion and hybrid search over HTTP."""
-        # 1. Ingest document via multipart upload
         file_content = b"Section 4.1 Indemnification\nEach party agrees to indemnify and hold harmless."
         files = {"file": ("indemnity.txt", file_content, "text/plain")}
         data = {"workspace": "Contracts", "doc_type": "authority"}
@@ -78,7 +77,7 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(report["filename"], "indemnity.txt")
         self.assertGreater(report["total_chunks"], 0)
 
-        # 2. Search corpus
+        # Search corpus
         search_payload = {
             "query": "indemnify and hold harmless under Section 4.1",
             "workspace": "Contracts",
@@ -93,14 +92,14 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(top_hit["filename"], "indemnity.txt")
         self.assertIn("Section 4.1", top_hit["citation"])
 
-        # 3. List documents
+        # List documents
         docs_resp = self.client.get("/v1/documents?workspace=Contracts")
         self.assertEqual(docs_resp.status_code, 200)
         docs = docs_resp.json()
         self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0]["filename"], "indemnity.txt")
 
-        # 4. Fetch IngestReport by file hash
+        # Fetch IngestReport by file hash
         file_hash = report["file_hash"]
         rep_resp = self.client.get(f"/v1/documents/{file_hash}/report")
         self.assertEqual(rep_resp.status_code, 200)

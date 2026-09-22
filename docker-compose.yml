@@ -25,7 +25,7 @@ services:
     networks:
       - nexus_net
     volumes:
-      - ./src/backend:/app/src/backend
+      - ./src:/app/src
       - ./ingest_watch:/app/ingest_watch
     ports:
       - "127.0.0.1:8000:8000"
@@ -35,6 +35,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-krusch_nexus_db}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_EMBED_HOST=${OLLAMA_EMBED_HOST:-http://host.docker.internal:11434}
+      - EMBEDDING_PROVIDER=ollama
       - PYTHONUNBUFFERED=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -47,6 +48,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    command: ["uvicorn", "krusch_nexus.api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
   ingest-worker:
@@ -56,7 +58,7 @@ services:
     networks:
       - nexus_net
     volumes:
-      - ./src/backend:/app/src/backend
+      - ./src:/app/src
       - ./ingest_watch:/app/ingest_watch
     deploy:
       resources:
@@ -68,13 +70,14 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-krusch_nexus_db}
       - OLLAMA_EMBED_HOST=${OLLAMA_EMBED_HOST:-http://host.docker.internal:11434}
+      - EMBEDDING_PROVIDER=ollama
       - PYTHONUNBUFFERED=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "-m", "src.backend.ingest_daemon"]
+    command: ["python", "-m", "krusch_nexus.ingest"]
     restart: unless-stopped
 
   mcp-server:
@@ -84,7 +87,7 @@ services:
     networks:
       - nexus_net
     volumes:
-      - ./src/backend:/app/src/backend
+      - ./src:/app/src
     ports:
       - "127.0.0.1:8002:8002"
     env_file:
@@ -95,13 +98,14 @@ services:
       - MCP_HOST=0.0.0.0
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-krusch_nexus_db}
       - OLLAMA_EMBED_HOST=${OLLAMA_EMBED_HOST:-http://host.docker.internal:11434}
+      - EMBEDDING_PROVIDER=ollama
       - PYTHONUNBUFFERED=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "-m", "src.backend.mcp_server"]
+    command: ["python", "-m", "krusch_nexus.mcp"]
     restart: unless-stopped
 
 volumes:

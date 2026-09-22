@@ -1,17 +1,23 @@
 """
 Generate test fixtures for KruschNexus test suite and citation evaluation.
+Includes:
+- Multi-page contract PDF
+- Scanned settlement release PDF with OCR text
+- Policy DOCX with an embedded table in the middle of a section
+- Privileged deal memo EML with RFC2047 MIME encoded headers
+- Municipal code text with § 1950.5 and Section 8.22.030 statutory tokens
 """
 
 import os
+import base64
 import zipfile
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 
 def create_scanned_pdf(output_path: str):
     """Generate an image-only PDF that requires OCR to extract text."""
     img = Image.new("RGB", (800, 600), color="white")
     draw = ImageDraw.Draw(img)
-    # Draw clear text that Tesseract OCR can easily read
     draw.text((50, 50), "EXHIBIT B: SCANNED SETTLEMENT RELEASE", fill="black")
     draw.text((50, 120), "Section 14.1 Liquidated Damages", fill="black")
     draw.text((50, 180), "The parties agree that liquidated damages shall be exactly fifty thousand dollars.", fill="black")
@@ -20,7 +26,7 @@ def create_scanned_pdf(output_path: str):
 
 
 def create_docx(output_path: str):
-    """Generate a valid DOCX file with headings and paragraph structures."""
+    """Generate a valid DOCX file with headings, paragraphs, and a table in the middle of a section."""
     xml_data = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
       <w:body>
@@ -36,7 +42,20 @@ def create_docx(output_path: str):
           <w:r><w:t>Section 1.2: Backup Retention Standards</w:t></w:r>
         </w:p>
         <w:p>
-          <w:r><w:t>Document archives in .ingested/ must be retained for a minimum of 7 years.</w:t></w:r>
+          <w:r><w:t>Document archives in .ingested/ must be retained according to the following schedule:</w:t></w:r>
+        </w:p>
+        <w:tbl>
+          <w:tr>
+            <w:tc><w:p><w:r><w:t>Document Class</w:t></w:r></w:p></w:tc>
+            <w:tc><w:p><w:r><w:t>Minimum Retention Period</w:t></w:r></w:p></w:tc>
+          </w:tr>
+          <w:tr>
+            <w:tc><w:p><w:r><w:t>Privileged Corporate Paper</w:t></w:r></w:p></w:tc>
+            <w:tc><w:p><w:r><w:t>Seven (7) Years</w:t></w:r></w:p></w:tc>
+          </w:tr>
+        </w:tbl>
+        <w:p>
+          <w:r><w:t>Purging of records prior to the expiration of seven years constitutes a policy violation.</w:t></w:r>
         </w:p>
       </w:body>
     </w:document>
@@ -46,16 +65,23 @@ def create_docx(output_path: str):
 
 
 def create_eml(output_path: str):
-    """Generate an RFC822 email file with headers and body."""
+    """Generate an RFC822 email file with MIME encoded headers and acquisition review text."""
+    # RFC 2047 encoded words for "Privileged - Acquisition Review Protocol"
+    raw_subject = "Privileged - Acquisition Review Protocol"
+    encoded_subject = "=?utf-8?B?" + base64.b64encode(raw_subject.encode("utf-8")).decode("ascii") + "?="
+
+    raw_from = "General Counsel <general.counsel@krusch.dev>"
+    encoded_from = "=?utf-8?B?" + base64.b64encode("General Counsel".encode("utf-8")).decode("ascii") + "?= <general.counsel@krusch.dev>"
+
     eml_content = (
-        "From: general.counsel@krusch.dev\n"
-        "To: executive@krusch.dev\n"
-        "Subject: Privileged - Acquisition Review Protocol\n"
+        f"From: {encoded_from}\n"
+        f"To: executive@krusch.dev\n"
+        f"Subject: {encoded_subject}\n"
         "Date: Tue, 22 Sep 2026 10:00:00 -0400\n"
         "Content-Type: text/plain; charset=utf-8\n"
         "\n"
         "Dear Executive Team,\n\n"
-        "Under Section 4.5 of the Purchase Agreement, closing conditions require regulatory clearance.\n"
+        "Under Section 4.5 of the Purchase Agreement, acquisition review protocol requires regulatory clearance.\n"
         "Please review the attached closing certificate before tomorrow's filing deadline.\n\n"
         "Best regards,\nGeneral Counsel"
     )

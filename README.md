@@ -1,151 +1,157 @@
-# 🚀 KruschNexus
+# ⚡ KruschNexus
 
-> **Universal Offline Document Ingestion Engine & Page-True Citation Spine**  
-> *Air-gapped multi-format document ingestion, local OCR fallback, structural chunking, and PostgreSQL/pgvector indexing for the Krusch Homelab Ecosystem.*
+> **Air-Gapped Document Ingestion Engine & Page-True Citation Spine**  
+> *A dedicated corpus factory: file → parse → chunk → embed → persist → search with citations.*
 
 ---
 
-## 🏛️ System Role in Homelab
+## 1. Prerequisites (Host Binaries)
 
-**KruschNexus** is the foundational document ingestion and corpus indexing spine for the homelab. It solves the hardest part of local RAG: turning arbitrary messy user files (**PDF, scanned documents, DOCX, email archives, spreadsheets, HTML, markdown**) into clean, structure-aware, deduplicated vector embeddings with exact 1-based page numbers and section citations.
+KruschNexus runs fully offline and requires the following host binaries:
 
-Specialized domain verticals and external agents talk to Nexus purely through the typed Python SDK, FastMCP tools, or the REST API:
-- **⚖️ KruschLaw** (Legal Vertical): Legal research, attorney-client privileged matters, court filings, discovery exhibits, municipal codes, and 4-part legal brief synthesis.
-- **🏢 KruschBiz** (Business Vertical): Corporate operations, financials, SOP execution checklists, policy-compliant email drafting, and role/SME discovery.
+- **Poppler Utilities** (`pdftotext`, `pdftoppm`): For layout-preserving PDF page extraction and rendering.
+  ```bash
+  sudo apt-get install poppler-utils
+  ```
+- **Tesseract OCR** (`tesseract` + `tesseract-ocr-eng`): For local OCR fallback on scanned or image-only pages.
+  ```bash
+  sudo apt-get install tesseract-ocr tesseract-ocr-eng
+  ```
+- **Ollama**: Local embedding host serving `bge-large` (1024 dimensions).
+  ```bash
+  ollama pull bge-large
+  ```
+- **PostgreSQL 16 with pgvector**: Relational storage with HNSW cosine (`vector(1024)`) and GIN `tsvector` indexes.
 
+---
+
+## 2. Quickstart
+
+### Option A: Docker Compose (Recommended)
+```bash
+# 1. Configure environment passwords
+cp .env.example .env
+# Edit .env and set a secure POSTGRES_PASSWORD
+
+# 2. Launch PostgreSQL, FastAPI, Ingestion Worker, and FastMCP
+docker compose up -d
+
+# 3. Verify air-gap and local node connectivity
+docker compose exec backend nexus verify --offline
 ```
-                    ┌────────────────────────────────────────────────────────┐
-                    │                      KruschNexus                       │
-                    │   (Universal Closed-Loop Document Ingestion Engine)     │
-                    │  - Multi-Format Parsers (PDF + Local OCR, DOCX, EML)    │
-                    │  - Structural Chunking (§, Headings, Deduplication)    │
-                    │  - Watchdog Staging State Machine (.ingested/.failed)  │
-                    │  - Local Embeddings (bge-large) & Hybrid PostgreSQL    │
-                    └───────────┬────────────────────────────────┬───────────┘
-                                │                                │
-                                ▼                                ▼
-           ┌──────────────────────────────┐ ┌──────────────────────────────────┐
-           │          KruschLaw           │ │            KruschBiz             │
-           │  (Legal Vertical)            │ │  (Business Vertical)            │
-           │ - Attorney-Client Privilege  │ │ - Confidential Corporate Data    │
-           │ - Municipal Codes & Case Law │ │ - P&L, Financials & Audit Memos  │
-           │ - Court Exhibits & Discovery │ │ - Operational SOP Action Lists   │
-           │ - 4-Part Legal Brief Format  │ │ - Policy-Compliant Email Drafts  │
-           │ - Statutory Citation Scans   │ │ - Role Owners & SME Discovery    │
-           └──────────────────────────────┘ └──────────────────────────────────┘
-```
 
----
+### Option B: Bare-Metal / Local Virtualenv
+```bash
+# 1. Install package in editable mode
+pip install -e .
 
-## 🌟 Key Capabilities
+# 2. Run test and eval suites
+make test
+make eval
 
-### 1. 📄 Multi-Format Ingestion Suite with Local OCR Fallback
-- **PDF**: Page-by-page layout extraction via Poppler `pdftotext -layout` preserving exact 1-based page numbers.
-- **Scanned PDF Fallback**: Pages with selectable characters below threshold trigger automatic local OCR (`pdftoppm -png` piped directly into host `tesseract-ocr`). Operates 100% offline.
-- **DOCX**: Native XML/ZIP parser extracting headings (`# Heading 1`, `## Heading 2`), tables, and paragraphs directly from `word/document.xml`.
-- **EML (RFC822 Email)**: Native MIME parser extracting `Subject`, `From`, `To`, `Date`, and clean plain text / HTML bodies.
-- **TXT / MD / HTML / CSV / JSON**: Encoding-resilient parsers with CSV table formatting and JSON prettification.
-
-### 2. 🧩 Structural Chunking & SHA-256 Deduplication
-- Breaks documents along structural boundaries (headings, sections like `§ 1950.5` / `Section 8.22.030` / `Article IV`, and paragraphs).
-- Context breadcrumbs attached to every chunk: `[{filename} - p.{page_number}] {header}`.
-- Context sliding window overlap across page and chunk boundaries.
-- Content-hash deduplication and alias handling for identical files uploaded with new names.
-
-### 3. 🛡️ Hardened Watchdog State Machine & Failure Isolation
-- Inotify file detection with staging locks (`staging/<workspace>/<file>.part`).
-- Multi-stage pipeline: Hash check -> Parse -> Chunk -> Embed -> DB Write.
-- **Success State**: Moves processed files safely to `.ingested/<workspace>/<hash>-<name>`.
-- **Failure State**: Isolates corrupted/unparseable files to `.failed/<workspace>/<name>` with a detailed `<name>.error.json` sidecar (error class, message, stack trace, duration). Never leaves poison files in the watch folder to retry in loops.
-- Bounded concurrency workers (default: 2 OCR jobs, 4 embed batches) preventing database stampedes.
-
-### 4. ⚡ Hybrid Retrieval (Dense Vector + FTS + RRF + Section Boost)
-- **PostgreSQL 16 + pgvector**: `krusch_nexus_db` on `localhost:5432` with HNSW cosine indexes (`vector(1024)`) and GIN full-text search indexes (`tsvector`).
-- **Local Ollama Embeddings**: `bge-large` 1024-dimensional embeddings with batching and SHA-256 text caching.
-- **Reciprocal Rank Fusion (RRF)**: Merges dense cosine similarity and lexical ranks with $k=60$.
-- **Section Heading Boost**: Automatically boosts matching section headings when queries contain patterns like `§ 1950.5` or `Section 8.22`.
-- **Canonical Footnotes**: Outputs ground-truth citations: `[filename, p. X, § Section]`.
-
----
-
-## 💻 Public Python SDK
-
-KruschNexus provides a clean, versioned SDK returning typed Pydantic models:
-
-```python
-from src.backend.config import NexusConfig
-from src.backend.client import NexusIngestClient
-from src.backend.models import IngestReport, SearchHit
-
-config = NexusConfig(
-    database_url="postgresql://krusch:password@localhost:5432/krusch_nexus_db",
-    ollama_url="http://127.0.0.1:11434",
-    embed_model="bge-large"
-)
-client = NexusIngestClient(config)
-
-# 1. Ingest file into workspace
-report: IngestReport = client.ingest_file(
-    filepath="/path/to/contract.pdf",
-    workspace="Matter_Smith",
-    doc_type="authority"
-)
-print(f"Ingested {report.filename} ({report.total_pages} pages, {report.total_chunks} chunks)")
-
-# 2. Hybrid search with canonical citations
-hits: list[SearchHit] = client.search(
-    query="liquidated damages clause under Section 14.1",
-    workspace="Matter_Smith",
-    limit=5
-)
-for hit in hits:
-    print(f"Citation: {hit.citation} (RRF: {hit.rrf_score})")
-    print(hit.content[:150])
+# 3. Start the watch daemon or MCP server
+nexus daemon --watch-dir ./ingest_watch
+nexus mcp
 ```
 
 ---
 
-## 🌐 HTTP REST API (Twin)
+## 3. Drop a File to Ingest
 
-KruschNexus runs an air-gapped FastAPI service mirroring all SDK operations:
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Diagnostic healthcheck verifying DB, pgvector, and Ollama |
-| `POST` | `/v1/ingest` | Multipart file upload or local filepath ingestion |
-| `POST` | `/v1/search` | Hybrid search returning ranked `SearchHit`s |
-| `GET` | `/v1/documents` | List indexed documents with workspace filtering |
-| `GET` | `/v1/documents/{id}/report` | Retrieve stored `IngestReport` |
-| `GET` | `/v1/workspaces` | List all document workspaces |
-| `POST` | `/v1/workspaces` | Create an isolated workspace |
-
----
-
-## 🔌 Model Context Protocol (MCP) Tools
-
-The FastMCP server (`nexus-mcp`) exposes 6 canonical tools to AI agents (Claude Desktop, Cursor, Antigravity):
-
-- **`nexus_ingest_file`**: Ingest a local file with OCR fallback and receive an Ingest Report.
-- **`nexus_ingest_directory`**: Batch-ingest all supported documents from a directory.
-- **`nexus_get_ingest_report`**: Retrieve metrics, page counts, OCR status, and chunk counts.
-- **`nexus_search_corpus`**: Execute hybrid vector + FTS search with exact citations.
-- **`nexus_list_workspaces`**: List document workspaces and counts.
-- **`nexus_list_documents`**: List indexed documents in a workspace.
-
----
-
-## 🧪 Testing & Grounded Evaluation
-
-Run the full layered test suite:
+Drop any supported file (**PDF, scanned PDF, DOCX, EML, HTML, CSV, TXT, MD**) into a workspace subdirectory inside `ingest_watch/`:
 
 ```bash
-# Run all 24 unit & state machine tests across all layers
-./mcp_env/bin/python3 -m unittest discover tests
-
-# Run the page-true citation evaluation benchmark (measures Recall@5)
-./mcp_env/bin/python3 -m unittest tests/test_citation_eval.py
+mkdir -p ingest_watch/Matter_Smith
+cp /path/to/lease_agreement.pdf ingest_watch/Matter_Smith/
 ```
 
-### Benchmark Results
-- **Corpus**: Multi-page lease PDF, Scanned settlement PDF (OCR), Policy DOCX, Deal memo EML, Municipal code.
-- **Metric**: **Recall@5 = 100.0%** (7/7 queries retrieved the exact correct page and section header).
+The daemon automatically acquires a `.part` staging lock, computes the SHA-256 hash, parses page boundaries, generates local `bge-large` embeddings, writes relational records, and archives the file to `.ingested/Matter_Smith/`.
+
+### Ingest Report (Sample Output)
+```json
+{
+  "status": "completed",
+  "document_id": 42,
+  "filename": "lease_agreement.pdf",
+  "workspace": "Matter_Smith",
+  "file_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "doc_type": "authority",
+  "total_pages": 14,
+  "total_chunks": 28,
+  "ocr_pages": [1],
+  "duration_ms": 342.15,
+  "citation_preview": "lease_agreement.pdf p.1 § 8.22 Permitted Use of Premises"
+}
+```
+
+---
+
+## 4. Search with Page-True Citations
+
+### CLI Search
+```bash
+nexus search "liquidated damages" --workspace Matter_Smith
+```
+
+### Sample Hit
+```
+Found 1 hit(s) in workspace 'Matter_Smith':
+============================================================
+
+[1] Citation: lease_agreement.pdf p.14 § 14.1 Liquidated Damages (Score: 0.0658)
+    Header:   Section 14.1 Liquidated Damages
+    Content:  [lease_agreement.pdf - p.14] Section 14.1 Liquidated Damages
+
+              The parties agree that in the event of default, liquidated damages
+              shall be assessed at fifty thousand dollars ($50,000)...
+============================================================
+```
+
+### Python SDK (`krusch_nexus`)
+```python
+from krusch_nexus import Nexus
+
+nx = Nexus.from_env()
+
+# Ingest
+report = nx.ingest("/data/lease.pdf", workspace="Matter_Smith", doc_type="authority")
+
+# Search
+hits = nx.search("liquidated damages", workspace="Matter_Smith", limit=5)
+for hit in hits:
+    print(f"Citation: {hit.citation} | RRF Score: {hit.rrf_score}")
+    print(hit.content)
+```
+
+---
+
+## 5. Model Context Protocol (MCP) Configuration
+
+To connect KruschNexus directly to **Claude Desktop**, **Cursor**, or any MCP-compatible agent:
+
+### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "krusch-nexus": {
+      "command": "python",
+      "args": [
+        "-m",
+        "krusch_nexus.mcp"
+      ],
+      "env": {
+        "DATABASE_URL": "postgresql://krusch:your_password@localhost:5432/krusch_nexus_db",
+        "OLLAMA_EMBED_HOST": "http://127.0.0.1:11434"
+      }
+    }
+  }
+}
+```
+
+### Available Tools:
+- `nexus_search_corpus(query, workspace_name, limit=5)`: Hybrid search with canonical `{filename} p.{n} § {header}` citations.
+- `nexus_ingest_file(file_path, workspace_name, doc_type)`: Ingest a document file into an isolated workspace.
+- `nexus_ingest_directory(directory_path, workspace_name)`: Batch-ingest an entire directory.
+- `nexus_get_ingest_report(doc_id_or_hash)`: Retrieve detailed ingestion provenance and OCR stats.
+- `nexus_list_workspaces()`: List workspaces and indexed document counts.
+- `nexus_list_documents(workspace_name)`: List documents within a workspace.

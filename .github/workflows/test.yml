@@ -37,7 +37,7 @@ jobs:
     - name: Homelab Path & Secret Hygiene Guard
       run: |
         echo "Verifying no absolute homelab machine paths exist in source or tests..."
-        ! grep -rn "/home/krusch" src/ tests/
+        ! grep -rn --exclude-dir=__pycache__ "/home/krusch" src/ tests/
 
     - name: Generate Fixtures
       run: |
@@ -48,4 +48,4 @@ jobs:
         DATABASE_URL: "sqlite:///:memory:"
         OLLAMA_BASE_URL: "http://127.0.0.1:11434"
       run: |
-        python -m unittest discover tests
+        python -m pytest tests/
