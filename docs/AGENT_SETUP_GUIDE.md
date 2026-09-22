@@ -32,11 +32,10 @@ Determine which client environment you are running inside or configuring:
      "mcpServers": {
        "krusch-nexus": {
          "command": "/bin/bash",
-         "args": ["/home/krusch/homelab/projects/krusch-nexus/scripts/run_mcp.sh"],
+         "args": ["/path/to/krusch-nexus/scripts/run_mcp.sh"],
          "env": {
            "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-           "TAGGING_PROVIDER": "openrouter",
-           "EMBEDDING_PROVIDER": "openrouter"
+           "EMBEDDING_PROVIDER": "ollama"
          }
        }
      }
@@ -55,11 +54,10 @@ Determine which client environment you are running inside or configuring:
        "krusch-nexus": {
          "command": "python3",
          "args": ["-m", "src.backend.mcp_server"],
-         "cwd": "/home/krusch/homelab/projects/krusch-nexus",
+         "cwd": "/path/to/krusch-nexus",
          "env": {
            "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-           "TAGGING_PROVIDER": "openrouter",
-           "EMBEDDING_PROVIDER": "openrouter"
+           "EMBEDDING_PROVIDER": "ollama"
          }
        }
      }

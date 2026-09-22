@@ -21,7 +21,8 @@ echo "Total Repositories to ingest: ${#REPOS[@]}"
 echo "=================================================="
 
 # Ensure we are in the project root
-cd /home/kruschdev/homelab/projects/krusch-nexus
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}/.."
 
 for repo in "${REPOS[@]}"; do
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting ingestion for $repo..."

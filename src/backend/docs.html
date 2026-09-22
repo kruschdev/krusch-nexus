@@ -485,22 +485,16 @@ use_mcp_tool({
         <!-- Dual-MCP Claude Desktop Setup -->
         <div class="card">
             <h2>🖥️ Claude Desktop Setup (Dual-MCP Configuration)</h2>
-            <p style="color: var(--text-muted);">Add Krusch-Nexus and Krusch-Context-MCP to your <code>claude_desktop_config.json</code> configuration file:</p>
+            <p style="color: var(--text-muted);">Add Krusch-Nexus to your <code>claude_desktop_config.json</code> configuration file:</p>
             <pre><code>{
   "mcpServers": {
     "krusch-nexus": {
       "command": "/bin/bash",
-      "args": ["/home/krusch/homelab/projects/krusch-nexus/scripts/run_mcp.sh"],
+      "args": ["/path/to/krusch-nexus/scripts/run_mcp.sh"],
       "env": {
         "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-        "TAGGING_PROVIDER": "openrouter",
-        "EMBEDDING_PROVIDER": "openrouter"
+        "EMBEDDING_PROVIDER": "ollama"
       }
-    },
-    "krusch-context": {
-      "command": "python3",
-      "args": ["-m", "krusch_context_mcp.server"],
-      "cwd": "/home/krusch/homelab/projects/krusch-context-mcp"
     }
   }
 }</code><button class="copy-btn" onclick="copySnippet(this)">Copy</button></pre>
@@ -515,7 +509,7 @@ use_mcp_tool({
     "krusch-nexus": {
       "command": "python3",
       "args": ["-m", "src.backend.mcp_server"],
-      "cwd": "/home/krusch/homelab/projects/krusch-nexus",
+      "cwd": "/path/to/krusch-nexus",
       "env": {
         "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE"
       }

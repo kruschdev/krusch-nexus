@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install system dependencies (Poppler & Tesseract)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-eng
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest
+
+    - name: Run Core Ingestion Tests
+      env:
+        DATABASE_URL: "sqlite:///:memory:"
+        EMBEDDING_PROVIDER: "ollama"
+        OLLAMA_EMBED_HOST: "http://127.0.0.1:11434"
+      run: |
+        python -m unittest src.backend.test_closed_loop_ingest

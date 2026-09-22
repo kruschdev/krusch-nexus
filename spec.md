@@ -1,88 +1,108 @@
-# Krusch-Nexus (Institutional Knowledge) — Specification
+# KruschNexus — System Specification
 
-> **Author**: kruschDev
-> **Date**: 2026-05-07
-> **Status**: Draft
+> **Version**: 1.0.0  
+> **Status**: Production Core  
+> **Architecture**: Local-First / Air-Gapped Document Ingestion & Hybrid RAG Engine  
+> **Author**: kruschDev  
 
 ---
 
-## 1. What Is This?
+## 1. Executive Summary
 
-Krusch-Nexus is a fully local, open-source alternative to enterprise Institutional Knowledge products. It is designed for privacy-conscious individuals and highly regulated businesses (e.g., legal, healthcare, enterprise operations, engineering) that need advanced RAG and document analysis without sending sensitive operational data to cloud providers. It combines robust document parsing (Docling), hybrid retrieval (PostgreSQL/pgvector + graph DBs), and local LLMs (Ollama) to deliver high accuracy and auto-compounding institutional intelligence in an air-gapped environment.
+**KruschNexus** is an open-source, local-first document ingestion and corpus indexing engine. It solves the foundational failure point of local RAG: transforming messy, heterogeneous files (scanned PDFs, Word documents, email archives, spreadsheets, HTML, markdown) into structure-aware, citation-preserving vector embeddings with exact 1-based page numbers and section headers.
 
-## 2. User Stories
+It operates primarily as a **corpus factory** serving downstream domain applications (such as legal assistants, business intelligence, and local AI agents) via a FastMCP server, Python client library, or REST API.
 
-- As a **knowledge worker**, I want **to chat with project files, spreadsheets, and memos**, so that **I can quickly extract precedents and risks without manual review.**
-- As a **business operations manager**, I want **new operational documents to be automatically ingested and cross-referenced**, so that **our institutional knowledge compounds without administrative overhead.**
-- As a **security officer**, I want **the entire system to run locally on our hardware**, so that **highly sensitive workspace data never leaves our network.**
+---
 
-## 3. Core Features
+## 2. Core Invariants
 
-| Feature | Priority | Notes |
-|---------|----------|-------|
-| Local RAG Engine | Must-have | LlamaIndex over PostgreSQL (pgvector) for document querying |
-| Document Parsing Pipeline | Must-have | Docling to handle complex PDFs, spreadsheets, and unstructured data |
-| Graph Knowledge Base | Must-have | LightRAG/GraphRAG variant for relational queries across workspaces (entities, relationships) |
-| Auto-Ingestion Daemon | Must-have | Cron/pipeline to monitor directories and automatically embed new workspace files |
-| Agentic Workflow Pipeline | Must-have | LangGraph to chain reasoning (screen → analysis → report) |
-| Local LLM Integration | Must-have | Ollama integration (e.g., Qwen/Llama3) for entirely air-gapped reasoning |
-| Three-Layer Audit Trail | Must-have | LangGraph exposes intermediate reasoning (Claim → Logic → Source) |
-| Auto-Categorization | Must-have | Local LLM extracts metadata (Industry, Risk) during ingestion |
-| Risk/Precedent Workflows | Must-have | Specific LangGraph entry points for common operational queries |
-| Native Structured Export | Nice-to-have | Streamlit export of metric extractions to Excel/CSV |
-| Point-of-Work API | Nice-to-have | Read-only REST endpoint for homelab integration |
-| Temporal Decay | Must-have | Time-based decay function prioritizing recent knowledge |
-| Cascade Router | Must-have | Dynamic model escalation based on query complexity |
-| Agentic Proxy | Must-have | Intelligent routing between RAG, GraphRAG, and SQL layers |
-| Text-to-SQL SLM | Must-have | Dedicated local SQL SLM for deterministic DB queries |
+1. **Air-Gapped & Local-First by Default**:
+   All core parsing, OCR fallback, structural chunking, embedding generation, and retrieval operate 100% locally without external cloud dependencies.
+   - Parsing: Native XML for DOCX, native RFC822 for EML, Poppler `pdftotext -layout` for PDF.
+   - OCR Fallback: Local `tesseract-ocr` via Poppler `pdftoppm` for scanned pages (< 30 characters).
+   - Embeddings: Local Ollama (`bge-large`, 1024-dim) with text hash caching.
+   - Database: PostgreSQL with `pgvector` (HNSW cosine index) and full-text search (`tsvector` GIN index).
 
-## 4. Technical Constraints
+2. **Citation & Structure Preservation**:
+   Every chunk retains:
+   - 1-based page number (`page_num`)
+   - Document section header breadcrumb (`header`, e.g., `§ 1950.5` or `### 2.1 Protocol`)
+   - Canonical citation string (e.g., `[contract.pdf, p. 3, § 4.2]`)
+   - Source SHA-256 hash for deduplication.
 
-- **Stack**: Python / FastAPI / `@krusch/toolkit` Python equivalents
-- **Frontend**: Streamlit (Chosen for maximum local security, auditability, and zero external telemetry)
-- **Database**: PostgreSQL (pgvector for embeddings, relational tables for Graph relationships). Chosen to minimize attack surface by avoiding additional DB containers (like Neo4j).
-- **Auth**: Simple local JWT / RBAC for internal deployment
-- **AI/LLM**: Local-first via Ollama (No frontier model fallback to ensure strict air-gap)
-- **Dependencies**: LlamaIndex, LangGraph, local embedding models
+3. **Safe Watch-Folder Archival**:
+   The ingestion daemon monitors the watch directory, processes new files, and moves them safely to `.ingested/` with timestamping and SHA-256 verification. Source files are never deleted destructively.
 
-## 5. Data Model
+4. **Hybrid Retrieval (RRF)**:
+   Search combines dense vector similarity (cosine) with PostgreSQL full-text search (`tsvector`), merged using standard Reciprocal Rank Fusion ($k=60$).
 
-```text
-Workspace → has many → Documents (Specs, Memos, Models)
-Document → parsed into → Chunks (Vector Embeddings in pgvector)
-Document → parsed into → Entities/Relationships (Graph Nodes/Edges)
-UserQuery → generates → RAG Context → generates → Response
+5. **Client Abstraction**:
+   External applications do not own document parsers. They consume the corpus through `NexusIngestClient` or the `KruschNexusMCP` server.
+
+---
+
+## 3. Architecture & Data Flow
+
+```
+   ┌──────────────────────────────────────────────────────────┐
+   │                       Input Sources                      │
+   │  - PDF (Vector & Scanned)   - DOCX (Office Open XML)     │
+   │  - EML (RFC822 MIME)        - TXT / MD / CSV / JSON      │
+   └─────────────────────────────┬────────────────────────────┘
+                                 │
+                                 ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │                      Ingest Core                         │
+   │  1. Multi-Format Parsers (with local Tesseract OCR)      │
+   │  2. Structural Chunking (§, headings, token budgets)     │
+   │  3. SHA-256 Hash Caching & Deduplication                 │
+   │  4. Safe Watch-Folder Archival (.ingested/)              │
+   └─────────────────────────────┬────────────────────────────┘
+                                 │
+                                 ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │                   PostgreSQL Substrate                   │
+   │  - workspaces        (isolated tenant/project scopes)    │
+   │  - documents         (metadata, page counts, SHA-256)   │
+   │  - document_chunks   (pgvector 1024d + tsvector GIN)     │
+   │  - ingest_reports    (audit logs, timings, chunk stats)  │
+   └─────────────────────────────┬────────────────────────────┘
+                                 │
+                                 ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │                    Serving Interfaces                    │
+   │  - FastMCP Server    (Standard Stdio & SSE for Agents)   │
+   │  - NexusIngestClient (Python library for domain apps)    │
+   │  - REST API          (FastAPI endpoints /chat, /search)  │
+   └──────────────────────────────────────────────────────────┘
 ```
 
-## 6. UI/UX
+---
 
-- **Chat Interface**: Standard conversational UI for querying the knowledge base.
-- **Workspace Dashboard**: Overview of uploaded workspaces, extraction status, and key entities.
-- **Source Citations**: Crucial for accuracy—every claim must link back to the exact page/table in the source document.
+## 4. Extension Boundaries (Pluggable Adapters)
 
-## 7. Edge Cases & Gotchas
+To ensure the ingestion core remains robust, auditable, and easily deployable by third parties, domain-specific and cloud features are isolated as optional extensions:
 
-- [ ] **Data Model Fidelity**: Open-source struggles with live data models. For maximum privacy, we will rely strictly on local Python libraries (pandas/openpyxl) to extract raw data, entirely avoiding third-party parsing APIs.
-- [ ] **Hallucinations**: Business and operational accuracy is paramount. We must tune the RAG pipeline (chunking strategy, PageIndex) to avoid hallucinating facts and numbers.
-- [ ] **Hardware Constraints**: Running local models + graph RAG is compute-intensive. Deployments will require dedicated local GPU hardware.
+- **Optional Cloud Embeddings**: Can route to OpenRouter (`baai/bge-large-en-v1.5`) via `EMBEDDING_PROVIDER=openrouter` when explicitly configured.
+- **Optional Polygres Cloud Database**: Can connect to remote PostgreSQL via `NEXUS_DB_TARGET=polygres` and `POLYGRES_URL`.
+- **Domain Applications**: Legal analysis rules (`krusch-law`), business profile management (`pocketlawyer`), and homelab agent swarms consume Nexus via MCP tools and do not pollute the core parser package.
 
-## 8. Acceptance Criteria
+---
 
-- [ ] System can ingest a complex PDF or spreadsheet and accurately answer questions about specific tables.
-- [ ] System runs entirely without internet access (once models are downloaded).
-- [ ] New documents dropped into a specific folder are automatically embedded within 5 minutes.
-- [ ] Answers include citations to the source document chunks.
+## 5. Standard Deployment Model
 
-## 9. Out of Scope
+### Single-Command Compose
+```bash
+docker compose up -d
+```
+Spins up:
+1. `db`: PostgreSQL 16 with `pgvector` pre-installed.
+2. `backend`: FastAPI server + FastMCP server.
+3. `ingest-worker`: Background watch-folder daemon monitoring `./ingest_watch`.
 
-- Native, interactive Excel plugin (for v1)
-- Advanced multi-tenant SaaS billing
-- Real-time stock price / external web browsing (to maintain air-gap)
-
-## 10. Delivery Phases
-
-| Phase | Scope | Acceptance |
-|-------|-------|------------|
-| 1 | Core Local RAG | Can ingest PDFs into pgvector and query them accurately via LlamaIndex + Ollama. |
-| 2 | Graph Relations | Integrate GraphRAG to answer cross-workspace questions (e.g., "Compare entities in Workspace A vs Workspace B"). |
-| 3 | Agentic Analysis & Workflows | LangGraph pipelines for multi-step reasoning, Three-Layer Audit Trail, Auto-Categorization, Native Structured Exports, Point-of-Work API, Temporal Decay weights, Cascade Router, Agentic Proxy, and Text-to-SQL SLM. |
+### Homelab Multi-Node Deployment
+Homelab operators orchestrating across cluster nodes (e.g., dual GPUs, DBOS background workers) use:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.homelab.yml up -d
+```

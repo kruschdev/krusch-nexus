@@ -626,9 +626,12 @@ def slack_webhook_ingest(payload: SlackWebhookPayload, db: Session = Depends(get
     return {"status": "ignored"}
 
 
-# --- Pocket Lawyer Business Pro API Endpoints ---
-from .pocketlawyer.business_profile_manager import save_profile, load_profile
-from .pocketlawyer.business_legal_tools import BusinessLegalTools
+# --- Pocket Lawyer Business Pro API Endpoints (Optional Extension) ---
+try:
+    from .pocketlawyer.business_profile_manager import save_profile, load_profile
+    from .pocketlawyer.business_legal_tools import BusinessLegalTools
+except ImportError:
+    save_profile = load_profile = BusinessLegalTools = None
 
 class BusinessProfileData(BaseModel):
     user_id: Optional[int] = 1
@@ -923,13 +926,17 @@ def get_nexus_docs():
 @app.get("/nexus/agent-setup.json")
 def get_nexus_agent_setup_json():
     """Machine-readable setup specification for AI web-browsing agents."""
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    launcher_path = os.getenv("NEXUS_MCP_LAUNCHER", os.path.join(base_dir, "scripts", "run_mcp.sh"))
+    base_url = os.getenv("NEXUS_BASE_URL", "http://localhost:8000")
+    mcp_sse_url = os.getenv("NEXUS_MCP_SSE_URL", "http://localhost:8002/sse")
     return {
         "service": "Krusch-Nexus Enterprise Business RAG",
         "description": "Machine-readable agent configuration for Claude Desktop, Cursor, Antigravity, OpenClaw, and mobile clients.",
-        "version": "open-beta-1.0",
-        "mcp_stdio_launcher": "/home/krusch/homelab/projects/krusch-nexus/scripts/run_mcp.sh",
-        "mcp_sse_endpoint": "http://10.0.0.85:8002/sse",
-        "ingestion_portal_url": "http://10.0.0.85:8001/chat",
+        "version": "1.0.0",
+        "mcp_stdio_launcher": launcher_path,
+        "mcp_sse_endpoint": mcp_sse_url,
+        "ingestion_portal_url": f"{base_url}/chat",
         "agent_directives": [
             "1. Register or authenticate tenant via POST /api/signup or POST /api/token.",
             "2. Store returning NEXUS_API_KEY in environment variables.",

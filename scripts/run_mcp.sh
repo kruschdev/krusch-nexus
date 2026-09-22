@@ -8,12 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH}"
-export TAGGING_PROVIDER="${TAGGING_PROVIDER:-openrouter}"
-export OPENROUTER_TAG_MODEL="${OPENROUTER_TAG_MODEL:-qwen/qwen-2.5-coder-32b-instruct}"
+export EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-ollama}"
+export OLLAMA_EMBED_HOST="${OLLAMA_EMBED_HOST:-http://127.0.0.1:11434}"
+export TAGGING_PROVIDER="${TAGGING_PROVIDER:-ollama}"
 
-echo "Starting Krusch-Nexus Business RAG MCP Server..." >&2
-echo "Engine: krusch-context-mcp vector + GraphRAG" >&2
-echo "Tagging Provider: ${TAGGING_PROVIDER} (${OPENROUTER_TAG_MODEL})" >&2
+echo "Starting KruschNexus Ingestion & RAG MCP Server..." >&2
+echo "Engine: PostgreSQL/pgvector + Local Ollama (${EMBEDDING_PROVIDER})" >&2
 
 # Run FastMCP stdio server
 exec python3 -m src.backend.mcp_server "$@"

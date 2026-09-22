@@ -5,23 +5,27 @@ import subprocess
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from src.backend.swarm import get_swarm_jobs, get_swarm_stats, get_jean_swarm_stats, get_human_reviews, get_debate_thread, update_review_status, execute_sandbox_test
+try:
+    from src.backend.swarm import get_swarm_jobs, get_swarm_stats, get_jean_swarm_stats, get_human_reviews, get_debate_thread, update_review_status, execute_sandbox_test
+except ImportError:
+    get_swarm_jobs = get_swarm_stats = get_jean_swarm_stats = get_human_reviews = get_debate_thread = update_review_status = execute_sandbox_test = None
 
-DATABASE_URL = os.getenv("DBOS_DATABASE_URL", "postgresql://openclaw:openclaw_password@10.0.0.85:5434/kruschdb")
+DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DBOS_DATABASE_URL", "postgresql://kdcode:password@localhost:5432/krusch_nexus_db"))
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openrouter").lower()
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_EMBED_MODEL = os.getenv("OPENROUTER_EMBED_MODEL", "baai/bge-large-en-v1.5")
-OLLAMA_EMBED_HOST = os.getenv("OLLAMA_EMBED_HOST", "http://10.0.0.85:11434")
+OLLAMA_EMBED_HOST = os.getenv("OLLAMA_EMBED_HOST", os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434"))
 EMBED_MODEL = "bge-large"
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 
 # Initialize fastMCP
-mcp = FastMCP("KruschRetrievalMCP")
+mcp = FastMCP("KruschNexusMCP")
 
 # DB connection
-engine = create_engine(DATABASE_URL)
+connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Lazy loading for the reranker so it doesn't block startup
@@ -346,9 +350,12 @@ def krusch_context_execute_on_sandbox(command: str, cwd: str = "~") -> str:
     """Submit a shell command to the DBOS queue to be executed on the kruschgame sandbox."""
     return json.dumps(execute_sandbox_test(command, cwd))
 
-# --- Pocket Lawyer Business Pro MCP Tools ---
-from src.backend.pocketlawyer.business_legal_tools import BusinessLegalTools
-from src.backend.pocketlawyer.business_profile_manager import save_profile, load_profile
+# --- Pocket Lawyer Business Pro MCP Tools (Optional Domain Extension) ---
+try:
+    from src.backend.pocketlawyer.business_legal_tools import BusinessLegalTools
+    from src.backend.pocketlawyer.business_profile_manager import save_profile, load_profile
+except ImportError:
+    BusinessLegalTools = save_profile = load_profile = None
 
 @mcp.tool()
 def krusch_business_review_contract(contract_text: str, contract_type: str = "service_agreement") -> str:

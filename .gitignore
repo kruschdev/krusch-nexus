@@ -39,10 +39,14 @@ ingest_watch/
 scratch/
 tmp/
 *.log
+*_INFLIGHT.md
+*_audit_log.md
+*_ROTATION.json
 
-# IDE
+# IDE & Agents
 .vscode/
 .idea/
+.agent/
 *.swp
 *.swo
 .DS_Store

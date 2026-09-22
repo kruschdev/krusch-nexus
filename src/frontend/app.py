@@ -1249,7 +1249,7 @@ if workspaces:
                     
                     if st.button("Export PUST JSONL Dataset", key="btn_export_pust"):
                         with st.spinner("Generating dataset..."):
-                            dataset_dir = "/home/krusch/homelab/projects/ai-watch/datasets"
+                            dataset_dir = os.getenv("AI_WATCH_DATASET_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data", "datasets"))
                             os.makedirs(dataset_dir, exist_ok=True)
                             dataset_path = os.path.join(dataset_dir, "pust_alignment_dataset.jsonl")
                             

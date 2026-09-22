@@ -7,8 +7,11 @@ import requests
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from .db import SessionLocal, GraphNode, GraphEdge, Employee, Document as DbDocument, is_polygres_backend, polygres_graph_walk, polygres_vector_search
-from .pocketlawyer.guardrail_router import check_guardrails, get_risk_level
-from .pocketlawyer.business_profile_manager import get_relevant_context, load_profile
+try:
+    from .pocketlawyer.guardrail_router import check_guardrails, get_risk_level
+    from .pocketlawyer.business_profile_manager import get_relevant_context, load_profile
+except ImportError:
+    check_guardrails = get_risk_level = get_relevant_context = load_profile = None
 try:
     from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Document
     from llama_index.vector_stores.postgres import PGVectorStore

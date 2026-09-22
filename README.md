@@ -10,8 +10,8 @@
 **KruschNexus** is the foundational document ingestion backbone for the homelab. It solves the hardest part of local RAG: turning arbitrary messy user files (**PDF, scanned documents, DOCX, email archives, spreadsheets, HTML, markdown**) into clean, structure-aware, deduplicated vector embeddings with exact 1-based page numbers and section citations.
 
 Specialized domain applications sit on top of KruschNexus:
-- **⚖️ KruschLaw** (`/home/krusch/homelab/projects/krusch-law`): Legal research, attorney-client privileged matters, court filings, discovery exhibits, municipal codes, and 4-part legal brief synthesis.
-- **🏢 KruschBiz** (See [`docs/KRUSCHBIZ_BLUEPRINT.md`](file:///home/krusch/homelab/projects/krusch-nexus/docs/KRUSCHBIZ_BLUEPRINT.md)): Confidential corporate data, P&L/financials, SOP execution checklists, policy-compliant email drafting, and role/SME discovery.
+- **⚖️ KruschLaw** (Legal Vertical): Legal research, attorney-client privileged matters, court filings, discovery exhibits, municipal codes, and 4-part legal brief synthesis.
+- **🏢 KruschBiz** (See [`docs/KRUSCHBIZ_BLUEPRINT.md`](docs/KRUSCHBIZ_BLUEPRINT.md)): Confidential corporate data, P&L/financials, SOP execution checklists, policy-compliant email drafting, and role/SME discovery.
 
 ```
                     ┌────────────────────────────────────────────────────────┐
