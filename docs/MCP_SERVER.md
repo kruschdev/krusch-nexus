@@ -1,109 +1,71 @@
-# Krusch-Nexus Cloud-Native Business RAG & MCP Server Guide
+# KruschNexus Local Document Ingestion & Search FastMCP Server
 
-The **Krusch-Nexus MCP Server** serves as the central Model Context Protocol (MCP) gateway for institutional knowledge, company SOPs, financial reports, client histories, and business protocols.
-
-It incorporates **`krusch-context-mcp`** as its foundational retrieval engine for vector search (`bge-large` 1024d), reranking, episodic memory, and GraphRAG entity linking. Whenever `krusch-context-mcp` receives capability updates (ACM token lifecycle, memory consolidation, Rubric4Setwise reranking), **Krusch-Nexus automatically inherits all updated context features**.
+The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gateway for closed-loop document ingestion, structural chunking, and hybrid vector/full-text retrieval. It enables local AI agents (Claude Desktop, Cursor, Antigravity, OpenClaw) to ingest messy files and perform citation-grounded searches directly against PostgreSQL/pgvector.
 
 ---
 
-## ☁️ Cloud-Native Architecture & Privacy Standards
+## 🏛️ Architectural Invariants
 
-- **Cloud-Native Provider Defaults**: OpenRouter Cloud AI (`qwen/qwen-2.5-coder-32b-instruct` & `baai/bge-large-en-v1.5`) paired with Polygres Cloud `pgvector` storage.
-- **End-to-End Encryption**: Mandatory TLS 1.3 / SSL (`sslmode=require`) for all Polygres cloud PostgreSQL database connections.
-- **Zero Data Retention**: AI inference requests sent to OpenRouter operate under strict zero-retention enterprise privacy policies.
-- **Role-Based Access Control (RBAC & ACLs)**: Enterprise document access isolation (`RoleAclPostprocessor`) ensures strict tenant isolation across workspaces.
-
----
-
-## 🔌 Comprehensive MCP Tool Catalog
-
-### 🏢 Business RAG & Knowledge Tools
-
-1. **`nexus_query_business_knowledge`**
-   - **Description**: Query company SOPs, financial reports, emails, policies, and client memos using hybrid 1024d vector search + GraphRAG relational entity linking.
-   - **Parameters**: `query` (str), `workspace_name_or_id` (optional str), `include_graph_context` (bool).
-
-2. **`nexus_get_email_draft_context`**
-   - **Description**: Formats company business guidelines, SOP rules, and client context to enable an AI agent to draft professional, policy-compliant email replies.
-   - **Parameters**: `email_subject_or_content` (str), `client_or_topic` (optional str), `workspace_name_or_id` (optional str).
-
-3. **`nexus_ingest_business_document`**
-   - **Description**: Ingest a new document (SOP, email thread, financial report, memo) into the knowledge base directly via MCP tool call.
-   - **Parameters**: `filename` (str), `content` (str), `workspace_name` (str), `category` (str).
-
-4. **`nexus_get_sop_checklist`**
-   - **Description**: Extract structured phase-by-phase action items and operational checklists for any business procedure.
-   - **Parameters**: `procedure_query` (str), `workspace_name_or_id` (optional str).
-
-5. **`nexus_find_expert`**
-   - **Description**: Identify internal team subject-matter experts (SMEs), role owners, or document authors for any topic or account.
-   - **Parameters**: `topic_or_query` (str).
-
-6. **`nexus_sync_google_workspace`**
-   - **Description**: 1-click synchronization of Gmail threads, Google Drive folders, Docs, Sheets, and Slides.
-   - **Parameters**: `workspace_id` (int), `sync_type` (str).
-
-7. **`nexus_list_workspaces` & `nexus_list_documents`**
-   - **Description**: Explore available knowledge spaces and ingested document catalogs.
+- **100% Air-Gapped & Local**: Uses Poppler `pdftotext`, local Tesseract OCR fallback, and local Ollama `bge-large` embeddings. No external cloud API egress.
+- **Strict Provenance**: Every chunk preserves exact 1-based page numbers (`p. N`), section heading breadcrumbs, and SHA-256 content hashes.
+- **Decoupled Spine**: Serves downstream applications (KruschLaw for legal workflows, KruschBiz for corporate ops) without polluting the core parser engine.
 
 ---
 
-### 🧠 Episodic Memory & Foundational Engine Tools (from `krusch-context-mcp`)
+## 🔌 Canonical MCP Tool Catalog
 
-- **`krusch_context_search_memory`**: Semantic search over historical lessons, bugs, decisions, and activity.
-- **`krusch_context_write_state`**: Save a new episodic memory record (`priorities`, `outcomes`, `lessons`, `bugs`, `activity`).
-- **`krusch_context_list_memories`**: Retrieve recent memories chronologically.
-- **`krusch_context_search_code`**: Perform vector + cross-encoder reranked code search across indexed repositories.
+### 1. Ingestion & Archival Tools
 
----
+- **`nexus_ingest_file(file_path, workspace_name, doc_type, archive)`**
+  - **Description**: Ingest a local document (PDF with automated local OCR fallback, DOCX, EML, CSV, HTML, TXT/MD). Preserves 1-based page numbers, computes SHA-256 hashes, generates 1024d local embeddings, and stores structural chunks with HNSW & tsvector indexes.
+  - **Parameters**:
+    - `file_path` (str, required): Absolute or relative path to the local document.
+    - `workspace_name` (str, optional, default: `"General"`): Target matter or workspace.
+    - `doc_type` (str, optional, default: `"general"`): Category (`"authority"`, `"work_product"`, `"fact_narrative"`, `"general"`).
+    - `archive` (bool, optional, default: `False`): If `True`, moves the file safely into `.ingested/` upon completion.
+  - **Returns**: JSON Ingest Report with page count, chunk count, OCR status, and processing duration.
 
-## 💾 Persistent Memory Workflow Protocol for AI Agents
+- **`nexus_ingest_directory(directory_path, workspace_name, archive, recursive)`**
+  - **Description**: Batch-ingest all supported documents from a directory into the corpus.
+  - **Parameters**: `directory_path` (str), `workspace_name` (str), `archive` (bool), `recursive` (bool).
+  - **Returns**: Batch summary report with per-document ingestion statistics.
 
-When interacting with Krusch-Nexus, AI Agents MUST execute the following three-phase memory workflow:
-
-1. **Recall Phase (Startup)**:
-   - Execute `krusch_context_search_memory(query="...")` or `krusch_context_list_memories()` at the start of a session or task to retrieve past decisions, resolved bugs, and architectural rules.
-
-2. **State Capture Phase (Execution)**:
-   - When a bug is fixed, invoke `krusch_context_write_state(category="bugs", content="...")`.
-   - When a design decision is made, invoke `krusch_context_write_state(category="decisions", content="...")`.
-   - When operational constraints are discovered, invoke `krusch_context_write_state(category="lessons", content="...")`.
-
-3. **Consolidation Phase (Shutdown/Close)**:
-   - Summarize work milestones under `category="activity"` and log active roadmap items under `category="priorities"`.
-   - Records are vector-indexed (`baai/bge-large-en-v1.5` 1024d) and stored in PostgreSQL for instant cross-session recall.
+- **`nexus_get_ingest_report(doc_id_or_hash)`**
+  - **Description**: Retrieve the detailed processing report for any document by database ID or SHA-256 hash.
 
 ---
 
-### 💼 Pocket Lawyer Small Business Tools
+### 2. Search & Retrieval Tools
 
-- **`krusch_business_review_contract`**: Analyze agreements for high/medium liability risks.
-- **`krusch_business_assess_risk`**: Evaluate overall legal risk exposure for a business profile.
-- **`krusch_business_demand_letter`**: Generate formal debt collection demand letters.
-- **`krusch_business_compliance_calendar`**: Calculate Statement of Information filing windows.
+- **`nexus_search_corpus(query, workspace_name, doc_type, limit)`**
+  - **Description**: Execute hybrid vector (HNSW cosine) + full-text (tsvector) Reciprocal Rank Fusion (RRF) search across all ingested document chunks. Returns exact page/section citations `[filename, p. X, § Section]` and grounded text snippets.
+  - **Parameters**:
+    - `query` (str, required): Natural language or keyword query.
+    - `workspace_name` (str, optional): Restrict search to a specific workspace.
+    - `doc_type` (str, optional): Filter by document category.
+    - `limit` (int, optional, default: 5): Maximum number of top chunks to return.
+
+- **`nexus_list_workspaces()`**
+  - **Description**: List all available workspaces/matters in the database.
+
+- **`nexus_list_documents(workspace_name_or_id, limit)`**
+  - **Description**: List ingested documents and metadata (page counts, chunk counts, hashes) in a workspace.
 
 ---
 
-## Configuration & Client Integration
+### 3. Governance & Review Tools
 
-### 1. Claude Desktop Setup (`claude_desktop_config.json`)
+- **`nexus_classify_document(doc_id, classification_level, allowed_roles)`**
+  - **Description**: Set security classification level (`"public"`, `"internal"`, `"confidential"`, `"management_only"`) and role-based access for a document.
 
-```json
-{
-  "mcpServers": {
-    "krusch-nexus": {
-      "command": "/bin/bash",
-      "args": ["/path/to/krusch-nexus/scripts/run_mcp.sh"],
-      "env": {
-        "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-        "EMBEDDING_PROVIDER": "ollama"
-      }
-    }
-  }
-}
-```
+- **`nexus_flag_document_for_review(doc_id, reason)`**
+  - **Description**: Flag a document as sensitive or suspicious for human review and audit.
 
-### 2. Cursor / Antigravity Setup (`.cursor/mcp.json`)
+---
+
+## 🛠️ Client Configuration
+
+### Claude Desktop (`claude_desktop_config.json`)
 
 ```json
 {
@@ -113,22 +75,44 @@ When interacting with Krusch-Nexus, AI Agents MUST execute the following three-p
       "args": ["-m", "src.backend.mcp_server"],
       "cwd": "/path/to/krusch-nexus",
       "env": {
-        "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-        "EMBEDDING_PROVIDER": "ollama"
+        "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
       }
     }
   }
 }
 ```
 
-### 3. Remote Network & Mobile Setup (SSE Mode over HTTP)
-
-For remote users, mobile apps, web clients, OpenClaw, or browser extensions connecting over the network:
+### Cursor / Antigravity IDE (`.cursor/mcp.json`)
 
 ```json
 {
   "mcpServers": {
-    "krusch-nexus-sse": {
+    "krusch-nexus": {
+      "command": "python3",
+      "args": ["-m", "src.backend.mcp_server"],
+      "cwd": "/path/to/krusch-nexus",
+      "env": {
+        "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
+      }
+    }
+  }
+}
+```
+
+### Remote Network (SSE Mode)
+
+Run the server with SSE transport:
+```bash
+MCP_TRANSPORT=sse MCP_PORT=8002 python3 -m src.backend.mcp_server
+```
+
+Connect remote clients via URL:
+```json
+{
+  "mcpServers": {
+    "krusch-nexus": {
       "url": "http://10.0.0.85:8002/sse",
       "transport": "sse"
     }

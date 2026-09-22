@@ -80,13 +80,14 @@ It operates primarily as a **corpus factory** serving downstream domain applicat
 
 ---
 
-## 4. Extension Boundaries (Pluggable Adapters)
+## 4. Extension Boundaries (Pluggable Interfaces)
 
-To ensure the ingestion core remains robust, auditable, and easily deployable by third parties, domain-specific and cloud features are isolated as optional extensions:
+To ensure the ingestion core remains robust, auditable, and easily deployable, downstream domain applications and clients consume Nexus via standardized interfaces:
 
-- **Optional Cloud Embeddings**: Can route to OpenRouter (`baai/bge-large-en-v1.5`) via `EMBEDDING_PROVIDER=openrouter` when explicitly configured.
-- **Optional Polygres Cloud Database**: Can connect to remote PostgreSQL via `NEXUS_DB_TARGET=polygres` and `POLYGRES_URL`.
-- **Domain Applications**: Legal analysis rules (`krusch-law`), business profile management (`pocketlawyer`), and homelab agent swarms consume Nexus via MCP tools and do not pollute the core parser package.
+- **Nexus FastMCP Server**: Stdio & SSE tool server enabling agents (Claude Desktop, Cursor, Antigravity) to ingest files, directories, search corpus, and inspect reports.
+- **NexusIngestClient**: Direct Python client library for domain apps (`krusch-law`, `krusch-biz`, CLI scripts) without IPC overhead.
+- **Downstream Applications**: Legal analysis rules and corporate workflows consume Nexus via MCP tools and client APIs, keeping the ingestion spine clean and decoupled.
+
 
 ---
 

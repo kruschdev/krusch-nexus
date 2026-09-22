@@ -2,17 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install system dependencies: build tools, PostgreSQL client libs, Poppler utilities, and Tesseract OCR
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     git \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-backend.txt .
 RUN pip install --no-cache-dir -r requirements-backend.txt
-
-# Pre-download NLTK data to avoid runtime internet dependency (air-gap compliance)
-RUN python -c "import nltk; nltk.download('punkt_tab', download_dir='/usr/local/lib/python3.11/site-packages/llama_index/core/_static/nltk_cache')"
 
 # Bake source into image for standalone deployment (dev volume mount overrides this)
 COPY src/ src/

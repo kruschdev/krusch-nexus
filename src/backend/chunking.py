@@ -94,6 +94,27 @@ def detect_header_candidate(line: str) -> Optional[str]:
     return None
 
 
+def _extract_overlap_tail(items: List[str], target_overlap: int, space_limit: int, separator_len: int = 2) -> List[str]:
+    """
+    Extract a suffix of items up to target_overlap characters,
+    ensuring total length with separators does not exceed space_limit.
+    """
+    if target_overlap <= 0 or space_limit <= 0 or not items:
+        return []
+
+    overlap: List[str] = []
+    accum = 0
+    for item in reversed(items):
+        item_len = len(item)
+        needed = item_len if not overlap else item_len + separator_len
+        if accum + needed <= target_overlap and accum + needed <= space_limit:
+            overlap.insert(0, item)
+            accum += needed
+        else:
+            break
+    return overlap
+
+
 def chunk_document_pages(
     pages: List[ParsedPage],
     filename: str,
@@ -104,7 +125,8 @@ def chunk_document_pages(
 ) -> List[Chunk]:
     """
     Split multi-page document into structure-aware chunks.
-    Preserves page boundaries, tracks section headings, and prepends context breadcrumbs.
+    Preserves page boundaries, tracks section headings, prepends context breadcrumbs,
+    and maintains sliding-window overlap between chunks on the same page.
     """
     chunks: List[Chunk] = []
     global_chunk_idx = 0
@@ -136,7 +158,17 @@ def chunk_document_pages(
 
             # If single paragraph exceeds max_chars, split along sentence boundaries
             if p_len > max_chars:
-                sentences = re.split(r'(?<=[.!?])\s+', p)
+                raw_sentences = re.split(r'(?<=[.!?])\s+', p)
+                # Further break down any individual sentence that exceeds max_chars
+                sentences: List[str] = []
+                for s in raw_sentences:
+                    if len(s) > max_chars:
+                        step = max(1, max_chars - overlap_chars)
+                        for i in range(0, len(s), step):
+                            sentences.append(s[i:i + max_chars])
+                    else:
+                        sentences.append(s)
+
                 for s in sentences:
                     s_len = len(s)
                     if current_len + s_len + 1 > max_chars and current_block:
@@ -158,8 +190,12 @@ def chunk_document_pages(
                             metadata=chunk_meta
                         ))
                         global_chunk_idx += 1
-                        current_block = [s]
-                        current_len = s_len
+
+                        # Carry over overlap from previous sentences
+                        space_avail = max(0, max_chars - (s_len + 1))
+                        overlap_tail = _extract_overlap_tail(current_block, overlap_chars, space_avail, separator_len=1)
+                        current_block = overlap_tail + [s]
+                        current_len = sum(len(x) for x in current_block) + max(0, len(current_block) - 1)
                     else:
                         current_block.append(s)
                         current_len += s_len + 1
@@ -182,8 +218,12 @@ def chunk_document_pages(
                     metadata=chunk_meta
                 ))
                 global_chunk_idx += 1
-                current_block = [p]
-                current_len = p_len
+
+                # Carry over overlap from previous paragraphs
+                space_avail = max(0, max_chars - (p_len + 2))
+                overlap_tail = _extract_overlap_tail(current_block, overlap_chars, space_avail, separator_len=2)
+                current_block = overlap_tail + [p]
+                current_len = sum(len(x) for x in current_block) + 2 * max(0, len(current_block) - 1)
             else:
                 current_block.append(p)
                 current_len += p_len + 2

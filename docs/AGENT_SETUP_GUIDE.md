@@ -1,15 +1,13 @@
-# 🤖 Autonomous AI Agent Setup Guide — Krusch-Nexus MCP
+# 🤖 AI Agent Setup Guide — KruschNexus MCP
 
-> **SYSTEM DIRECTIVE FOR THE AI AGENT**:
-> You are reading this setup guide on behalf of your user. Your goal is to configure the **Krusch-Nexus MCP Server** on your user's system so you can access their institutional knowledge, company SOPs, financial reports, and business context.
->
-> Follow the steps below sequentially to perform the configuration automatically.
+> **DIRECTIVE FOR THE AI AGENT**:
+> You are reading this setup guide on behalf of your user. Your goal is to configure the **KruschNexus MCP Server** on your user's system so you can perform closed-loop document ingestion, structural chunking, and hybrid citation search.
 
 ---
 
 ## 🎯 Step 1: Identify Your Client Environment
 
-Determine which client environment you are running inside or configuring:
+Determine which client environment you are configuring:
 
 - **Option A**: Claude Desktop app (`claude_desktop_config.json`)
 - **Option B**: Cursor IDE / Antigravity IDE (`.cursor/mcp.json`)
@@ -21,21 +19,22 @@ Determine which client environment you are running inside or configuring:
 
 ### Option A: Configuring Claude Desktop
 
-1. Locate the Claude Desktop configuration file:
+1. Locate the configuration file:
+   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
    - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
    - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-2. Add or merge the following JSON configuration:
+2. Add or merge the configuration:
    ```json
    {
      "mcpServers": {
        "krusch-nexus": {
-         "command": "/bin/bash",
-         "args": ["/path/to/krusch-nexus/scripts/run_mcp.sh"],
+         "command": "python3",
+         "args": ["-m", "src.backend.mcp_server"],
+         "cwd": "/path/to/krusch-nexus",
          "env": {
-           "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-           "EMBEDDING_PROVIDER": "ollama"
+           "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+           "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
          }
        }
      }
@@ -46,7 +45,7 @@ Determine which client environment you are running inside or configuring:
 
 ### Option B: Configuring Cursor / Antigravity IDE
 
-1. Open or create `.cursor/mcp.json` in the user's workspace root directory.
+1. Open or create `.cursor/mcp.json` in the user's workspace root.
 2. Insert the following configuration:
    ```json
    {
@@ -56,8 +55,8 @@ Determine which client environment you are running inside or configuring:
          "args": ["-m", "src.backend.mcp_server"],
          "cwd": "/path/to/krusch-nexus",
          "env": {
-           "NEXUS_API_KEY": "YOUR_NEXUS_API_KEY_HERE",
-           "EMBEDDING_PROVIDER": "ollama"
+           "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+           "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
          }
        }
      }
@@ -68,7 +67,7 @@ Determine which client environment you are running inside or configuring:
 
 ### Option C: Remote SSE Network Transport (Web / Mobile / OpenClaw)
 
-If connecting across the network without local script access, connect directly to the SSE HTTP endpoint:
+If connecting across the local network:
 ```json
 {
   "mcpServers": {
@@ -84,14 +83,8 @@ If connecting across the network without local script access, connect directly t
 
 ## 🧪 Step 3: Verify Setup & Test Tool Availability
 
-Once configured, execute the following verification steps:
+Once configured:
 
-1. Call `nexus_list_workspaces()` to inspect available knowledge spaces (e.g. `General`, `SOPs`, `Financials`).
-2. Call `nexus_query_business_knowledge(query="company refund policy")` to test hybrid vector retrieval + GraphRAG.
-3. Report back to your user with a summary of available Business RAG tools!
-
----
-
-## 💬 Message to Present to Your User Upon Completion
-
-> *"I have successfully configured the Krusch-Nexus MCP Server for you! I now have access to your institutional knowledge, business SOPs, financial reports, and expert finder tools. How can I assist you with your business tasks today?"*
+1. Call `nexus_list_workspaces()` to inspect available workspaces (e.g. `General`, `Legal`, `Corporate`).
+2. Call `nexus_search_corpus(query="retention policy")` to test hybrid vector + FTS retrieval.
+3. Test ingesting a test file via `nexus_ingest_file(file_path="...")` and verify the returned JSON Ingest Report.

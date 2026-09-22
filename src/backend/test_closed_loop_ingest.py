@@ -30,6 +30,21 @@ class TestClosedLoopIngestion(unittest.TestCase):
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp(prefix="nexus_ingest_test_")
         cls.ws_name = f"TestWS_{uuid.uuid4().hex[:8]}"
+        cls.pdf_path = os.path.join(cls.test_dir, "sample_deal.pdf")
+        pdf_content = (
+            b"%PDF-1.4\n"
+            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+            b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n"
+            b"4 0 obj << /Length 44 >> stream\n"
+            b"BT /F1 12 Tf 100 700 Td (Project Alpha Merger Deal) Tj ET\n"
+            b"endstream\nendobj\n"
+            b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n"
+            b"xref\n0 6\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000266 00000 n \n0000000360 00000 n \n"
+            b"trailer << /Size 6 /Root 1 0 R >>\nstartxref\n437\n%%EOF\n"
+        )
+        with open(cls.pdf_path, "wb") as f:
+            f.write(pdf_content)
 
     @classmethod
     def tearDownClass(cls):
@@ -37,8 +52,7 @@ class TestClosedLoopIngestion(unittest.TestCase):
 
     def test_01_pdf_parsing_with_page_preservation(self):
         """Verify PDF parser extracts text and preserves 1-based page numbers."""
-        pdf_path = "sample_deal.pdf"
-        docs = parse_document(pdf_path, "sample_deal.pdf")
+        docs = parse_document(self.pdf_path, "sample_deal.pdf")
         self.assertGreater(len(docs), 0)
         first_doc = docs[0]
         self.assertEqual(first_doc.metadata["page_number"], 1)
@@ -104,7 +118,7 @@ class TestClosedLoopIngestion(unittest.TestCase):
 
     def test_05_structural_chunking_and_deduplication(self):
         """Verify structural chunker attaches page numbers, heading context, and hashes."""
-        docs = parse_document("sample_deal.pdf", "sample_deal.pdf")
+        docs = parse_document(self.pdf_path, "sample_deal.pdf")
         chunks = chunk_llama_documents(docs)
         self.assertGreater(len(chunks), 0)
         c = chunks[0]

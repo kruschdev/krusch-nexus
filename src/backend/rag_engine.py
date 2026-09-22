@@ -7,11 +7,15 @@ import requests
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from .db import SessionLocal, GraphNode, GraphEdge, Employee, Document as DbDocument, is_polygres_backend, polygres_graph_walk, polygres_vector_search
-try:
-    from .pocketlawyer.guardrail_router import check_guardrails, get_risk_level
-    from .pocketlawyer.business_profile_manager import get_relevant_context, load_profile
-except ImportError:
-    check_guardrails = get_risk_level = get_relevant_context = load_profile = None
+def check_guardrails(query_str: str):
+    return False, [], ""
+
+def get_relevant_context(user_id: int = 1, message: str = "") -> str:
+    return ""
+
+def load_profile(user_id: int = 1) -> dict:
+    return {}
+
 try:
     from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Document
     from llama_index.vector_stores.postgres import PGVectorStore
@@ -1434,158 +1438,13 @@ def execute_text_to_sql(query_str: str, workspace_id: int):
         db.close()
 
 def execute_business_tool(query_str: str, workspace_id: int, approved_tool: str = None, approved_params: dict = None) -> dict:
-    """Parses parameter arguments, merges profile defaults, runs the deterministic BusinessLegalTools, and formats output. If not approved, proposes the action first."""
-    from .pocketlawyer.business_legal_tools import BusinessLegalTools
-    from .pocketlawyer.business_profile_manager import load_profile
-
-    if approved_tool:
-        tool_name = approved_tool
-        params = approved_params or {}
-        should_propose = False
-    else:
-        # 1. Parameter extraction using fast LLM
-        extraction_prompt = f"""
-        Analyze the user's query and classify it into one of the following business tools:
-        1. `contract_review` (contract_text: string - optional, contract_type: string - optional, defaults to 'service_agreement')
-        2. `compliance_calendar` (entity_type: string - optional, defaults to 'llc', inception_date: string - YYYY-MM-DD format)
-        3. `new_hire_checklist` (employee_type: string - optional, defaults to 'non_exempt')
-        4. `risk_assessment` (employee_count: integer - optional, annual_revenue: float - optional, handles_data: boolean - optional, has_contracts: boolean - optional, industry: string - optional)
-        5. `collection_strategy` (amount: float - required, agreement_type: string - optional, delinquency_days: integer - required)
-        6. `demand_letter` (creditor: string - optional, debtor: string - required, amount: float - required, invoice_date: string - required, description: string - required)
-
-        Return a JSON object with:
-        - "tool": the name of the tool (one of the 6 options above)
-        - "params": a dictionary containing the extracted parameters for that tool.
-
-        Query: {query_str}
-
-        Return ONLY valid JSON.
-        """
-        try:
-            res = llm_fast.complete(extraction_prompt)
-            res_str = str(res).strip()
-            if res_str.startswith("```json"):
-                res_str = res_str[7:-3].strip()
-            elif res_str.startswith("```"):
-                res_str = res_str[3:-3].strip()
-            extracted = json.loads(res_str)
-            tool_name = extracted.get("tool")
-            params = extracted.get("params", {})
-        except Exception as e:
-            print(f"Business Tool parameter extraction failed: {e}")
-            tool_name = "unknown"
-            params = {}
-        should_propose = True
-        
-    # Get profile for defaults (user_id = 1)
-    profile = load_profile(1) or {}
-    company = profile.get("company", {})
-    company_name = profile.get("company_name") or company.get("name") or "Our Business LLC"
-    
-    tools = BusinessLegalTools()
-    tool_output = None
-    
-    # Check if we should propose the action first
-    if should_propose and tool_name in ["contract_review", "compliance_calendar", "new_hire_checklist", "risk_assessment", "collection_strategy", "demand_letter"]:
-        return {
-            "response": f"🤖 **Agentic Proxy**: Proposed Business Tool Execution: **{tool_name}**.",
-            "proposed_action": {
-                "tool": tool_name,
-                "params": params
-            },
-            "sources": [{"type": "proposed_tool", "tool": tool_name}]
-        }
-    
-    # 2. Execute deterministic business tool
-    if tool_name == "contract_review":
-        contract_text = params.get("contract_text")
-        contract_type = params.get("contract_type") or "service_agreement"
-        
-        # Fallback: search workspace documents if contract text is missing
-        if not contract_text or len(contract_text.split()) < 10:
-            print("Contract text missing or too short. Searching workspace for contract documents...")
-            vector_store = get_vector_store()
-            filters = MetadataFilters(
-                filters=[ExactMatchFilter(key="workspace_id", value=workspace_id)]
-            )
-            index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
-            retriever = index.as_retriever(similarity_top_k=5, filters=filters)
-            nodes = retriever.retrieve("contract NDA service agreement lease vendor")
-            if nodes:
-                contract_text = "\n\n".join([node.get_content() for node in nodes])
-                print(f"Found contract content in workspace: {len(contract_text)} chars.")
-            else:
-                contract_text = query_str  # fallback to the query text itself
-                
-        tool_output = tools.contract_reviewer.analyze(contract_text, contract_type)
-        
-    elif tool_name == "compliance_calendar":
-        entity_type = params.get("entity_type") or company.get("entity_type") or "llc"
-        inception_date = params.get("inception_date") or company.get("formation_date") or "2026-01-01"
-        tool_output = tools.entity_manager.compliance_calendar(entity_type, inception_date)
-        
-    elif tool_name == "new_hire_checklist":
-        employee_type = params.get("employee_type") or "non_exempt"
-        tool_output = tools.employment_advisor.new_hire_checklist(employee_type)
-        
-    elif tool_name == "risk_assessment":
-        emp_count = params.get("employee_count") or profile.get("employees", {}).get("count") or profile.get("employee_count") or 0
-        ann_rev = params.get("annual_revenue") or profile.get("annual_revenue") or 0.0
-        hand_data = params.get("handles_data") or profile.get("handles_data") or False
-        has_contr = params.get("has_contracts") or profile.get("has_contracts") or False
-        ind = params.get("industry") or profile.get("industry", {}).get("primary") or profile.get("industry") or "general"
-        
-        assessment_profile = {
-            'employee_count': emp_count,
-            'annual_revenue': ann_rev,
-            'handles_data': hand_data,
-            'has_contracts': has_contr,
-            'industry': ind
-        }
-        tool_output = tools.risk_assessor.assess_business(assessment_profile)
-        
-    elif tool_name == "collection_strategy":
-        amount = params.get("amount") or 0.0
-        agreement_type = params.get("agreement_type") or "written_contract"
-        delinquency_days = params.get("delinquency_days") or 30
-        tool_output = tools.dispute_strategist.collection_strategy(amount, agreement_type, delinquency_days)
-        
-    elif tool_name == "demand_letter":
-        creditor = params.get("creditor") or company_name
-        debtor = params.get("debtor") or "Debtor"
-        amount = params.get("amount") or 0.0
-        invoice_date = params.get("invoice_date") or "2026-01-01"
-        description = params.get("description") or "Unpaid services"
-        tool_output = tools.dispute_strategist.demand_letter_template(creditor, debtor, amount, invoice_date, description)
-        
-    else:
-        return query_with_audit_trail(query_str, workspace_id)
-        
-    # 3. Format tool output using reasoning LLM in ALA Persona
-    format_prompt = f"""
-    You are the ALA (AI Legal Assistant) Business Secretary.
-    The user asked: "{query_str}"
-    
-    We executed the deterministic business tool "{tool_name}" and obtained the following raw result:
-    {json.dumps(tool_output, indent=2) if not isinstance(tool_output, str) else tool_output}
-    
-    Please explain this result to the user in a professional, compliance-focused manner.
-    - If it is a contract review: present the risk level, flag specific risk items and explain their implications, and state recommendations.
-    - If it is a compliance calendar: detail the upcoming filings, windows, and days remaining.
-    - If it is a new hire checklist: present the requirements logically (Day One, First Week, etc.).
-    - If it is a risk assessment: present the overall risk score, level, and actions.
-    - If it is a collection strategy: present the venue and steps.
-    - If it is a demand letter: present the template/letter exactly as generated.
-    
-    Ensure you follow UPL regulations (do not present yourself as a human lawyer, and emphasize that this is operational guidance).
-    """
-    response = llm_reasoning.complete(format_prompt)
-    formatted = str(response)
-    
+    """Stub for external domain business tools (handled by downstream KruschLaw / KruschBiz)."""
     return {
-        "response": f"🤖 **Agentic Proxy**: Routed to Business Secretary Tool ({tool_name}).\n\n{formatted}",
-        "sources": [{"type": "business_tool", "tool": tool_name}]
+        "status": "unsupported",
+        "response": "Domain-specific tools have been decoupled from KruschNexus core. Please query the corpus directly or delegate to KruschLaw/KruschBiz.",
+        "sources": []
     }
+
 
 def smart_query(query_str: str, workspace_id: int, approved_tool: str = None, approved_params: dict = None):
     """Master entry point for the Agentic Proxy."""

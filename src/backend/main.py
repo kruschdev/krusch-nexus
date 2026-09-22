@@ -626,123 +626,7 @@ def slack_webhook_ingest(payload: SlackWebhookPayload, db: Session = Depends(get
     return {"status": "ignored"}
 
 
-# --- Pocket Lawyer Business Pro API Endpoints (Optional Extension) ---
-try:
-    from .pocketlawyer.business_profile_manager import save_profile, load_profile
-    from .pocketlawyer.business_legal_tools import BusinessLegalTools
-except ImportError:
-    save_profile = load_profile = BusinessLegalTools = None
 
-class BusinessProfileData(BaseModel):
-    user_id: Optional[int] = 1
-    company_name: str
-    entity_type: str
-    ein: str
-    state: str
-    employee_count: int = 0
-    industry: str
-    services: Optional[str] = ""
-    compliance_licenses: Optional[str] = ""
-    goals: Optional[str] = ""
-    notes: Optional[str] = ""
-
-class ContractReviewRequest(BaseModel):
-    contract_text: str
-    contract_type: str = "service_agreement"
-
-class RiskAssessmentRequest(BaseModel):
-    employee_count: int = 0
-    annual_revenue: float = 0.0
-    handles_data: bool = False
-    has_contracts: bool = False
-    industry: str = "general"
-
-class NewHireChecklistRequest(BaseModel):
-    employee_type: str = "non_exempt"
-
-class ComplianceCalendarRequest(BaseModel):
-    entity_type: str = "llc"
-    inception_date: str
-
-class RegulatoryRequest(BaseModel):
-    industry: str
-    state: str = "California"
-
-class CollectionRequest(BaseModel):
-    amount: float
-    agreement_type: str
-    delinquency_days: int
-
-class DemandLetterRequest(BaseModel):
-    creditor: str
-    debtor: str
-    amount: float
-    invoice_date: str
-    description: str
-
-@app.get("/api/business-pro/profile")
-def get_business_profile(user_id: int = 1, current_user: User = Depends(get_current_user)):
-    profile = load_profile(user_id)
-    if not profile:
-        return {"status": "empty", "profile": {}}
-    return {"status": "success", "profile": profile}
-
-@app.post("/api/business-pro/profile")
-def update_business_profile(request: BusinessProfileData, current_user: User = Depends(get_current_user)):
-    profile_dict = request.dict()
-    res = save_profile(request.user_id, profile_dict)
-    return res
-
-@app.post("/api/business-pro/tools/contract-review")
-def api_contract_review(request: ContractReviewRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.contract_reviewer.analyze(request.contract_text, request.contract_type)
-    return {"status": "success", "analysis": res}
-
-@app.post("/api/business-pro/tools/risk-assessment")
-def api_risk_assessment(request: RiskAssessmentRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    profile = {
-        'employee_count': request.employee_count,
-        'annual_revenue': request.annual_revenue,
-        'handles_data': request.handles_data,
-        'has_contracts': request.has_contracts,
-        'industry': request.industry
-    }
-    res = tools.risk_assessor.assess_business(profile)
-    return {"status": "success", "assessment": res}
-
-@app.post("/api/business-pro/tools/new-hire-checklist")
-def api_new_hire_checklist(request: NewHireChecklistRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.employment_advisor.new_hire_checklist(request.employee_type)
-    return {"status": "success", "checklist": res}
-
-@app.post("/api/business-pro/tools/compliance-calendar")
-def api_compliance_calendar(request: ComplianceCalendarRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.entity_manager.compliance_calendar(request.entity_type, request.inception_date)
-    return {"status": "success", "calendar": res}
-
-@app.post("/api/business-pro/tools/regulatory-requirements")
-def api_regulatory_requirements(request: RegulatoryRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.regulatory_checker.check_requirements(request.industry, request.state)
-    return {"status": "success", "requirements": res}
-
-@app.post("/api/business-pro/tools/collection-strategy")
-def api_collection_strategy(request: CollectionRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.dispute_strategist.collection_strategy(request.amount, request.agreement_type, request.delinquency_days)
-    return {"status": "success", "strategy": res}
-
-@app.post("/api/business-pro/tools/demand-letter")
-def api_demand_letter(request: DemandLetterRequest, current_user: User = Depends(get_current_user)):
-    tools = BusinessLegalTools()
-    res = tools.dispute_strategist.demand_letter_template(
-        request.creditor, request.debtor, request.amount, request.invoice_date, request.description
-    )
-    return {"status": "success", "letter_text": res}
 
 class BriefingRequest(BaseModel):
     workspace_id: int
@@ -888,256 +772,40 @@ def get_alignment_signals(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/ingest", response_class=HTMLResponse)
-@app.get("/ingest/", response_class=HTMLResponse)
-@app.get("/chat", response_class=HTMLResponse)
-@app.get("/chat/", response_class=HTMLResponse)
-def get_mobile_chat():
-    """Serves the mobile-friendly chat client interface."""
-    chat_file = os.path.join(os.path.dirname(__file__), "chat.html")
-    if not os.path.exists(chat_file):
-        raise HTTPException(status_code=404, detail="Chat template not found")
-    with open(chat_file, "r") as f:
-        return HTMLResponse(content=f.read())
-
-@app.get("/", response_class=HTMLResponse)
-@app.get("/nexus", response_class=HTMLResponse)
-@app.get("/nexus/", response_class=HTMLResponse)
-def get_nexus_landing():
-    """Serves the official Open Beta landing page (krusch.dev/nexus)."""
-    landing_file = os.path.join(os.path.dirname(__file__), "landing.html")
-    if not os.path.exists(landing_file):
-        raise HTTPException(status_code=404, detail="Landing page template not found")
-    with open(landing_file, "r") as f:
-        return HTMLResponse(content=f.read())
-
-@app.get("/docs", response_class=HTMLResponse)
-@app.get("/nexus/docs", response_class=HTMLResponse)
-@app.get("/nexus/docs/", response_class=HTMLResponse)
-def get_nexus_docs():
-    """Serves the interactive MCP setup guide (krusch.dev/nexus/docs)."""
-    docs_file = os.path.join(os.path.dirname(__file__), "docs.html")
-    if not os.path.exists(docs_file):
-        raise HTTPException(status_code=404, detail="Docs template not found")
-    with open(docs_file, "r") as f:
-        return HTMLResponse(content=f.read())
+# ─── Machine-Readable Agent Discovery & Quick Search ───
 
 @app.get("/agent-setup.json")
 @app.get("/nexus/agent-setup.json")
 def get_nexus_agent_setup_json():
-    """Machine-readable setup specification for AI web-browsing agents."""
+    """Machine-readable setup specification for AI agents."""
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     launcher_path = os.getenv("NEXUS_MCP_LAUNCHER", os.path.join(base_dir, "scripts", "run_mcp.sh"))
     base_url = os.getenv("NEXUS_BASE_URL", "http://localhost:8000")
     mcp_sse_url = os.getenv("NEXUS_MCP_SSE_URL", "http://localhost:8002/sse")
     return {
-        "service": "Krusch-Nexus Enterprise Business RAG",
-        "description": "Machine-readable agent configuration for Claude Desktop, Cursor, Antigravity, OpenClaw, and mobile clients.",
+        "service": "KruschNexus Local Document Spine",
+        "description": "Local-first document ingestion and hybrid RAG engine for Claude Desktop, Cursor, and Antigravity.",
         "version": "1.0.0",
         "mcp_stdio_launcher": launcher_path,
         "mcp_sse_endpoint": mcp_sse_url,
-        "ingestion_portal_url": f"{base_url}/chat",
-        "agent_directives": [
-            "1. Register or authenticate tenant via POST /api/signup or POST /api/token.",
-            "2. Store returning NEXUS_API_KEY in environment variables.",
-            "3. Add Stdio or SSE config to client configuration.",
-            "4. Verify connection using tool call nexus_list_workspaces()."
-        ],
         "mcp_tools": [
-            "nexus_query_business_knowledge",
-            "nexus_get_email_draft_context",
-            "nexus_ingest_business_document",
-            "nexus_get_sop_checklist",
-            "nexus_find_expert",
-            "nexus_sync_google_workspace",
             "nexus_list_workspaces",
-            "nexus_list_documents"
+            "nexus_list_documents",
+            "nexus_ingest_file",
+            "nexus_ingest_directory",
+            "nexus_get_ingest_report",
+            "nexus_search_corpus",
+            "nexus_classify_document",
+            "nexus_flag_document_for_review"
         ]
     }
 
-class FeedbackRequest(BaseModel):
-    user_email: Optional[str] = "anonymous"
-    category: Optional[str] = "general"
-    message: str
-
-@app.post("/api/feedback")
-def submit_beta_feedback(req: FeedbackRequest):
-    """Logs and stores Open Beta user feedback and bug reports."""
-    feedback_entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "user_email": req.user_email,
-        "category": req.category,
-        "message": req.message
-    }
-    print(f"💬 Beta Feedback received: {feedback_entry}")
-    
-    feedback_file = os.path.join(os.path.dirname(__file__), "beta_feedback.jsonl")
-    with open(feedback_file, "a") as f:
-        f.write(json.dumps(feedback_entry) + "\n")
-
-    return {
-        "status": "success",
-        "message": "Thank you for your feedback! Your report has been submitted to the Krusch-Nexus team."
-    }
-
-class TelemetryEventRequest(BaseModel):
-    event_type: str
-    details: Dict[str, Any]
-    level: Optional[str] = "INFO"
-
-@app.post("/api/telemetry/event")
-def record_telemetry_event_api(req: TelemetryEventRequest):
-    """Records diagnostic event or error telemetry from client applications or background tasks."""
-    from .telemetry import log_system_event, record_error
-    if req.level == "ERROR":
-        res = record_error(req.event_type, json.dumps(req.details), context=req.details)
-    else:
-        res = log_system_event(req.event_type, req.details, level=req.level or "INFO")
-    return {"status": "success", "event": res}
-
-@app.get("/api/telemetry/status")
-def get_telemetry_status_api():
-    """Returns live telemetry health status, error count, and self-healing statistics."""
-    from .telemetry import get_telemetry_status
-    return get_telemetry_status()
-
-class SignupRequest(BaseModel):
-    username: Optional[str] = None
-    email: Optional[str] = None
-    company_name: Optional[str] = None
-    password: str
-    subscription_tier: Optional[str] = "free"
-    auto_verify: Optional[bool] = False
-
-@app.post("/api/signup")
-@app.post("/api/register")
-def signup_user(req: SignupRequest, db: Session = Depends(get_db)):
-    """Registers a new user, generates their NEXUS_API_KEY, creates verification token, and provisions workspace."""
-    effective_email = (req.email or "").strip() or None
-    raw_username = (req.username or "").strip()
-    effective_username = raw_username or req.company_name or (effective_email.split('@')[0] if effective_email else "user")
-    
-    if not effective_username or not req.password:
-        raise HTTPException(status_code=400, detail="Username/Enterprise Name and password required")
-
-    try:
-        existing_user = db.query(User).filter(User.username == effective_username).first()
-        if existing_user:
-            raise HTTPException(status_code=400, detail=f"Username or account '{effective_username}' is already registered")
-
-        import uuid
-        api_key = f"nx_live_{uuid.uuid4().hex[:16]}"
-        license_key = f"NEXUS-LIC-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
-        verification_token = f"nx_v_{uuid.uuid4().hex}"
-        hashed_pwd = get_password_hash(req.password)
-
-        is_verified = bool(req.auto_verify)
-        new_user = User(
-            username=effective_username,
-            hashed_password=hashed_pwd,
-            role="user",
-            subscription_tier=req.subscription_tier or "free",
-            api_key=api_key,
-            license_key=license_key,
-            email_verified=is_verified,
-            verification_token=None if is_verified else verification_token
-        )
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-
-        # Create default business workspace directly in database for user
-        ws_name = f"{effective_username}_workspace"
-        existing_ws = db.query(Workspace).filter(Workspace.name == ws_name).first()
-        if not existing_ws:
-            ws = Workspace(name=ws_name, subscription_tier=new_user.subscription_tier)
-            db.add(ws)
-            db.commit()
-            db.refresh(ws)
-        else:
-            ws = existing_ws
-
-        access_token = create_access_token(data={"sub": new_user.username})
-        
-        # Dispatch styled HTML verification email from nexus@krusch.dev
-        email_dispatch = None
-        recipient_target = effective_email or (new_user.username if "@" in new_user.username else f"{new_user.username}@krusch.dev")
-        if not is_verified:
-            from .email_service import send_verification_email
-            email_dispatch = send_verification_email(recipient_target, verification_token)
-            verification_link = email_dispatch["verification_link"]
-        else:
-            verification_link = None
-
-        # Telemetry logging for verification dispatch
-        from .telemetry import log_system_event
-        log_system_event("USER_TRIAL_SIGNUP", {
-            "username": new_user.username,
-            "email": recipient_target,
-            "subscription_tier": new_user.subscription_tier,
-            "workspace": ws.name
-        })
-
-        return {
-            "status": "success",
-            "username": new_user.username,
-            "email": recipient_target,
-            "company_name": req.company_name or new_user.username,
-            "workspace": ws.name,
-            "sender": "nexus@krusch.dev",
-            "api_key": api_key,
-            "license_key": license_key,
-            "subscription_tier": new_user.subscription_tier,
-            "access_token": access_token,
-            "token_type": "bearer",
-            "email_verified": is_verified,
-            "verification_link": verification_link,
-            "message": f"Account and workspace '{ws.name}' created directly in database!"
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=f"Signup failed: {str(e)}")
-
-@app.get("/api/verify-email")
-def verify_email(token: str, db: Session = Depends(get_db)):
-    """Verifies a trial user's email address using their verification token."""
-    if not token:
-        raise HTTPException(status_code=400, detail="Missing verification token")
-
-    user = db.query(User).filter(User.verification_token == token).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Invalid or expired verification token")
-
-    user.email_verified = True
-    user.verification_token = None
-    db.commit()
-
-    from .telemetry import log_system_event
-    log_system_event("USER_EMAIL_VERIFIED", {"username": user.username}, level="INFO")
-
-    return {
-        "status": "success",
-        "username": user.username,
-        "email_verified": True,
-        "message": "Email verified successfully! Full trial quota is now unlocked."
-    }
-
-
-# ─── Quick Search API Gateway (Browser Extensions & Desktop Popups) ───
-
-from pydantic import BaseModel
-from typing import Optional, List
 
 class QuickSearchRequest(BaseModel):
     query: str
     workspace_id: Optional[int] = None
     top_k: Optional[int] = 5
 
-class ExpertFinderRequest(BaseModel):
-    query: str
-    workspace_ids: Optional[List[int]] = None
 
 @app.post("/api/search/quick")
 def quick_search_api(
@@ -1146,136 +814,27 @@ def quick_search_api(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Fast lightweight search gateway designed for browser extension popups,
-    desktop global hotkeys, and IDE widgets. Returns snippets, source links, and SME attribution.
+    Fast lightweight search gateway returning citation snippets, source links,
+    and exact 1-based page numbers.
     """
-    res = smart_query(req.query, req.workspace_id, db=db, user_role=current_user.role)
-    experts = query_expert_finder(req.query, [req.workspace_id] if req.workspace_id else None)
-    
-    top_expert = experts["experts"][0] if experts.get("experts") else None
-    
+    from .rag_engine import retrieve_hybrid_document_chunks
+    chunks = retrieve_hybrid_document_chunks(req.query, workspace_id=req.workspace_id, limit=req.top_k, db=db)
+    sources = [
+        {
+            "filename": c.filename,
+            "page": c.page_number,
+            "header": c.header,
+            "citation": f"[{c.filename}, p. {c.page_number}{', § ' + c.header if c.header else ''}]",
+            "content_snippet": c.content[:300]
+        }
+        for c in chunks
+    ]
     return {
         "query": req.query,
-        "response_summary": res.get("response", ""),
-        "sources_count": len(res.get("sources", [])),
-        "sources": res.get("sources", [])[:req.top_k],
-        "primary_expert": top_expert,
-        "all_experts": experts.get("experts", [])[:3]
+        "sources_count": len(sources),
+        "sources": sources
     }
 
-@app.post("/api/expert-finder")
-def expert_finder_api(
-    req: ExpertFinderRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Subject-Matter Expert (SME) Router endpoint ranking team experts for a given query topic."""
-class GoogleCredentialsRequest(BaseModel):
-    client_id: Optional[str] = None
-    client_secret: Optional[str] = None
-    service_account_json: Optional[str] = None
-
-@app.post("/api/settings/google-credentials")
-def save_google_credentials_api(
-    req: GoogleCredentialsRequest,
-    current_user: User = Depends(get_current_user)
-):
-    """Save Google Workspace OAuth Client ID or Service Account JSON key."""
-    if req.service_account_json:
-        creds_path = "/tmp/google_credentials.json"
-        with open(creds_path, "w") as f:
-            f.write(req.service_account_json)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
-
-    if req.client_id:
-        os.environ["GOOGLE_CLIENT_ID"] = req.client_id
-    if req.client_secret:
-        os.environ["GOOGLE_CLIENT_SECRET"] = req.client_secret
-
-    return {
-        "status": "success",
-        "message": "Google Workspace credentials updated successfully",
-        "has_credentials": True
-    }
-
-# ─── License Key & Installer Download Gateway ───
-from fastapi.responses import FileResponse, PlainTextResponse
-
-class LicenseVerifyRequest(BaseModel):
-    license_key: str
-
-@app.post("/api/license/verify")
-@app.get("/api/license/verify")
-def verify_license_api(license_key: Optional[str] = None, req: Optional[LicenseVerifyRequest] = None, db: Session = Depends(get_db)):
-    """Validates Krusch-Nexus License Keys and returns tier capability metadata."""
-    key = (req.license_key if req and req.license_key else license_key) or ""
-    key = key.strip()
-    if not key:
-        raise HTTPException(status_code=400, detail="Missing license_key parameter")
-
-    user = db.query(User).filter((User.license_key == key) | (User.api_key == key)).first()
-    if not user and (key.startswith("NEXUS-LIC-") or key.startswith("nx_live_")):
-        return {
-            "valid": True,
-            "license_key": key,
-            "status": "active_trial",
-            "tier": "free",
-            "query_limit_monthly": 50000,
-            "doc_limit": 5000,
-            "message": "Valid Free Beta License Key"
-        }
-
-    if not user:
-        raise HTTPException(status_code=404, detail="License key not found or invalid")
-
-    return {
-        "valid": True,
-        "license_key": user.license_key or key,
-        "username": user.username,
-        "tier": user.subscription_tier or "free",
-        "email_verified": getattr(user, "email_verified", True),
-        "status": "active",
-        "message": f"License active for {user.username} ({user.subscription_tier} tier)"
-    }
-
-@app.post("/api/license/generate")
-def generate_guest_license_api(db: Session = Depends(get_db)):
-    """Generates an instant trial license key for guests or automated MCP installer scripts."""
-    import uuid
-    new_lic = f"NEXUS-LIC-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
-    return {
-        "status": "success",
-        "license_key": new_lic,
-        "tier": "free_trial",
-        "message": "Instant trial license key generated successfully"
-    }
-
-@app.get("/nexus/install.sh")
-@app.get("/api/download/installer")
-def download_installer_script():
-    """Serves the official 1-line Krusch-Nexus MCP server installer script."""
-    backend_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(backend_dir, "..", ".."))
-    script_path = os.path.join(project_root, "scripts", "install_nexus.sh")
-    if os.path.exists(script_path):
-        with open(script_path, "r") as f:
-            content = f.read()
-        return PlainTextResponse(content, media_type="text/x-shellscript")
-    else:
-        raise HTTPException(status_code=404, detail="Installer script not found")
-
-@app.get("/api/download/package")
-def download_package_info():
-    """Returns downloadable installation bundle links and 1-line curl commands."""
-    return {
-        "status": "success",
-        "package_name": "Krusch-Nexus Enterprise RAG & MCP Gateway",
-        "version": "4.2.0",
-        "installer_url": "https://krusch.dev/nexus/install.sh",
-        "one_liner_cmd": "curl -sSL https://krusch.dev/nexus/install.sh | bash -s -- --license-key YOUR_NEXUS_LICENSE_KEY",
-        "supported_environments": ["Linux x86_64", "macOS ARM64/x86_64", "WSL2"],
-        "mcp_server_command": "python3 -m src.backend.mcp_server"
-    }
 
 
 

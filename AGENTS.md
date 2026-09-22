@@ -11,7 +11,7 @@
 - **Backend**: Python 3.11+, FastAPI, SQLAlchemy, Poppler, Tesseract OCR
 - **Embeddings**: Local Ollama (`bge-large` 1024d) with in-memory SHA-256 hash caching
 - **Database**: PostgreSQL 16 with `pgvector` (HNSW cosine index) & full-text search (`tsvector` GIN index)
-- **Serving**: FastMCP server (`KruschNexusMCP`), Python client (`NexusIngestClient`), REST API (`/chat`, `/api/search`)
+- **Serving**: FastMCP server (`KruschNexusMCP`), Python client (`NexusIngestClient`), REST API (`/health`, `/api/workspaces`, `/api/upload`, `/api/search/quick`)
 - **Archival**: Safe watch-folder daemon (`ingest_daemon.py`) archiving processed files to `.ingested/` with SHA-256 deduplication
 
 ---
@@ -22,7 +22,7 @@ The repository enforces strict separation between the document ingestion core an
 
 1. **Nexus Core Modules**:
    - `parsers.py`: PDF (with OCR fallback), DOCX, EML, and plaintext parsers.
-   - `chunking.py`: Structural boundary chunker (§, headings, token budgets, SHA-256 hashing).
+   - `chunking.py`: Structural boundary chunker (§, headings, token budgets, sliding-window overlap, SHA-256 hashing).
    - `embeddings.py`: Local Ollama embedding client with caching.
    - `db.py`: Database models (`Workspace`, `Document`, `DocumentChunk`, `IngestReport`).
    - `rag_engine.py`: Hybrid dense vector + full-text RRF search engine.
@@ -31,17 +31,16 @@ The repository enforces strict separation between the document ingestion core an
    - `mcp_server.py`: FastMCP tools for AI agent integrations.
 
 2. **Domain Separation**:
-   - External verticals (e.g., `krusch-law`, `pocketlawyer`) interact with Nexus through `NexusIngestClient` or MCP tools.
+   - External verticals (e.g., `krusch-law`, `krusch-biz`) interact with Nexus through `NexusIngestClient` or MCP tools.
    - Core ingestion logic must never depend on domain-specific legal or business modules.
 
 ---
 
 ## 3. Testing & Validation
 
-Run unit tests directly with the project virtual environment:
+Run unit tests directly with standard unittest or pytest:
 ```bash
-python3 -m unittest src.backend.test_closed_loop_ingest
-python3 -m unittest src.backend.test_nexus_client_and_mcp
+python3 -m unittest discover -s tests -p "test_*.py" -v
 ```
 All tests must execute without network calls to external cloud providers.
 

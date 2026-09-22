@@ -2,7 +2,8 @@ import logging
 import time
 import json
 from sqlalchemy.orm import Session
-from llama_index.core import Document as LlamaDocument
+from .parsers import Document as LlamaDocument
+
 
 from .db import Workspace, Document as DocModel, Employee
 from .sync_provider import (

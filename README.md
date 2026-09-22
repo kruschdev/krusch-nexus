@@ -121,9 +121,11 @@ for r in results:
 
 Run the test suites:
 ```bash
-# Verify closed-loop ingestion, OCR fallback, and parsers (8 tests)
-mcp_env/bin/python -m unittest src.backend.test_closed_loop_ingest
+# Run unit test suite (parsers, sliding-window chunking, deduplication, client, MCP tools)
+python3 -m unittest discover -s tests -p "test_*.py" -v
 
-# Verify programmatic client and FastMCP tools (3 tests)
-mcp_env/bin/python -m unittest src.backend.test_nexus_client_and_mcp
+# Run integration tests against PostgreSQL and local Ollama
+python3 -m unittest src.backend.test_closed_loop_ingest
+python3 -m unittest src.backend.test_nexus_client_and_mcp
 ```
+
