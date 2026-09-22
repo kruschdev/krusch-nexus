@@ -212,6 +212,8 @@ class IngestPipeline:
                 )
 
             ocr_pages = [p.index for p in parser_result.pages if p.ocr_applied and p.index is not None]
+            ocr_confs = [p.confidence for p in parser_result.pages if p.ocr_applied and p.confidence is not None]
+            mean_ocr_conf = (sum(ocr_confs) / len(ocr_confs)) if ocr_confs else None
 
             # 4. Stage: CHUNKED (Citation-first structure chunking)
             current_state = IngestState.CHUNKED
@@ -225,16 +227,23 @@ class IngestPipeline:
                 base_metadata={
                     "workspace_id": workspace.id,
                     "workspace_name": workspace.name,
-                }
+                },
+                chunker_version="1.0",
+                embed_model=self.config.embed_model
             )
 
             if not chunks:
                 raise ParseError(f"No usable content chunks could be generated for '{orig_filename}'")
 
-            # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client)
+            # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client in batches of 16)
             current_state = IngestState.EMBEDDED
             chunk_texts = [c.text for c in chunks]  # Embed raw text only!
-            embeddings = get_embeddings_batch(chunk_texts, config=self.config)
+            embeddings: List[List[float]] = []
+            embed_batch_size = 16
+            for b_idx in range(0, len(chunk_texts), embed_batch_size):
+                b_slice = chunk_texts[b_idx:b_idx + embed_batch_size]
+                b_vecs = get_embeddings_batch(b_slice, config=self.config)
+                embeddings.extend(b_vecs)
 
             # 6. Stage: COMMITTED (Atomic single-transaction commit)
             current_state = IngestState.COMMITTED
@@ -246,6 +255,7 @@ class IngestPipeline:
                 file_hash=file_hash,
                 mime=parser_result.mime,
                 parser_version=parser_result.parser_version,
+                chunker_version="1.0",
                 total_pages=total_pages,
                 total_chunks=len(chunks),
                 doc_type=resolved_doc_type,
@@ -274,6 +284,11 @@ class IngestPipeline:
                     source_hash=c.source_hash,
                     doc_hash=file_hash,
                     doc_type=resolved_doc_type,
+                    chunker_version=c.chunker_version,
+                    embed_model=c.embed_model,
+                    confidence=c.confidence,
+                    char_start=c.char_start,
+                    char_end=c.char_end,
                     embedding=emb if emb else None
                 )
                 db.add(chunk_rec)
@@ -291,6 +306,7 @@ class IngestPipeline:
                 pages=total_pages,
                 chunks=len(chunks),
                 ocr_pages=ocr_pages,
+                ocr_mean_confidence=mean_ocr_conf,
                 duration_ms=elapsed_ms,
                 warnings=parser_result.warnings,
                 citation_preview=first_cit
@@ -315,7 +331,20 @@ class IngestPipeline:
             # 7. Stage: ARCHIVED (Only move file AFTER DB commit has succeeded!)
             current_state = IngestState.ARCHIVED
             if archive_source:
-                self._archive_success(filepath_str, orig_filename, workspace_name, file_hash)
+                manifest_data = {
+                    "file_hash": file_hash,
+                    "original_filename": orig_filename,
+                    "pages": total_pages,
+                    "chunks": len(chunks),
+                    "ocr_pages": ocr_pages,
+                    "ocr_mean_confidence": mean_ocr_conf,
+                    "parser_name": parser_result.parser_name,
+                    "parser_version": parser_result.parser_version,
+                    "chunker_version": "1.0",
+                    "embed_model": self.config.embed_model,
+                    "ingested_at": datetime.now(timezone.utc).isoformat()
+                }
+                self._archive_success(filepath_str, orig_filename, workspace_name, file_hash, manifest=manifest_data)
 
             logger.info(
                 f"Ingested '{orig_filename}' into '{workspace_name}' "
@@ -356,8 +385,15 @@ class IngestPipeline:
         finally:
             db.close()
 
-    def _archive_success(self, filepath: str, filename: str, workspace_name: str, file_hash: str):
-        """Move successfully processed file to .ingested/<workspace>/<hash[:12]>_<name>."""
+    def _archive_success(
+        self,
+        filepath: str,
+        filename: str,
+        workspace_name: str,
+        file_hash: str,
+        manifest: Optional[Dict[str, Any]] = None
+    ):
+        """Move successfully processed file to .ingested/<workspace>/<hash[:12]>_<name> and write manifest JSON."""
         try:
             p = Path(filepath)
             parent = p.parent
@@ -372,6 +408,11 @@ class IngestPipeline:
 
             if p.exists() and p.resolve() != dest.resolve():
                 shutil.move(str(p), str(dest))
+
+            if manifest:
+                manifest_file = ingested_dir / f"{file_hash[:12]}_{filename}.manifest.json"
+                with open(manifest_file, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, indent=2)
         except Exception as e:
             logger.warning(f"Could not move '{filename}' to .ingested: {e}")
 

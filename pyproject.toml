@@ -34,6 +34,9 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.10.0",
 ]
+rerank = [
+    "sentence-transformers>=3.0.0",
+]
 cloud = [
     "httpx>=0.27.0",
 ]

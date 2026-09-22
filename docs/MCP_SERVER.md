@@ -72,7 +72,7 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
   "mcpServers": {
     "krusch-nexus": {
       "command": "python3",
-      "args": ["-m", "src.backend.mcp_server"],
+      "args": ["-m", "krusch_nexus.mcp"],
       "cwd": "/path/to/krusch-nexus",
       "env": {
         "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
@@ -90,7 +90,7 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
   "mcpServers": {
     "krusch-nexus": {
       "command": "python3",
-      "args": ["-m", "src.backend.mcp_server"],
+      "args": ["-m", "krusch_nexus.mcp"],
       "cwd": "/path/to/krusch-nexus",
       "env": {
         "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
@@ -105,7 +105,7 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
 
 Run the server with SSE transport:
 ```bash
-MCP_TRANSPORT=sse MCP_PORT=8002 python3 -m src.backend.mcp_server
+MCP_TRANSPORT=sse MCP_PORT=8002 python3 -m krusch_nexus.mcp
 ```
 
 Connect remote clients via URL:

@@ -25,9 +25,9 @@ import subprocess
 from email.header import decode_header, make_header
 from html.parser import HTMLParser
 import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
-from .models import PageData, ParserResult
+from .models import PageData, ParserResult, ContentBlock
 from .exceptions import EncryptedPdfError, EmptyOcrError, ParseError
 
 logger = logging.getLogger("krusch_nexus.parsers")
@@ -96,15 +96,16 @@ def _try_tesseract_ocr(
     dpi: int = 300,
     psm: str = "4",
     timeout: float = 30.0
-) -> Optional[str]:
+) -> Tuple[Optional[str], Optional[float], List[ContentBlock]]:
     """
     Execute high-resolution OCR on a specific PDF page using pdftoppm + tesseract.
-    Uses 300 DPI for fine type and respects TESSDATA_PREFIX.
+    Uses 300 DPI for fine type and extracts word-level confidence and bounding boxes via TSV.
+    Returns: (extracted_text, mean_confidence_0_to_1, content_blocks)
     """
     tess_path = shutil.which("tesseract")
     ppm_path = shutil.which("pdftoppm")
     if not tess_path or not ppm_path:
-        return None
+        return None, None, []
 
     env = dict(os.environ)
 
@@ -118,17 +119,70 @@ def _try_tesseract_ocr(
         try:
             res = subprocess.run(ppm_cmd, capture_output=True, text=True, timeout=timeout)
             if res.returncode != 0:
-                return None
+                return None, None, []
         except Exception as e:
             logger.warning(f"pdftoppm failed for page {page_num}: {e}")
-            return None
+            return None, None, []
 
         files = [f for f in os.listdir(tmpdir) if f.startswith(f"page_{page_num}") and f.endswith(".png")]
         if not files:
-            return None
+            return None, None, []
 
         img_file = os.path.join(tmpdir, files[0])
-        # PSM 4: Assume a single column of text of variable sizes; fallback to 3 if requested
+
+        # 1. Try TSV output to gather word-level confidence scores and blocks
+        tsv_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", psm, "-l", "eng", "tsv"]
+        try:
+            tsv_res = subprocess.run(tsv_cmd, capture_output=True, text=True, timeout=timeout, env=env)
+            if tsv_res.returncode == 0 and tsv_res.stdout.strip():
+                lines = tsv_res.stdout.splitlines()
+                words = []
+                confs = []
+                blocks: List[ContentBlock] = []
+                current_line_words: List[str] = []
+                current_line_num: Optional[int] = None
+                current_block_num: Optional[int] = None
+
+                for row in lines[1:]:
+                    parts = row.split('\t')
+                    if len(parts) >= 12:
+                        try:
+                            block_num = int(parts[2])
+                            line_num = int(parts[4])
+                            conf = float(parts[10])
+                            w_text = parts[11].strip()
+
+                            if conf >= 0 and w_text:
+                                confs.append(conf)
+                                words.append(w_text)
+                                if current_line_num is not None and (line_num != current_line_num or (current_block_num is not None and block_num != current_block_num)):
+                                    if current_line_words:
+                                        blocks.append(ContentBlock(
+                                            text=" ".join(current_line_words),
+                                            block_type="paragraph"
+                                        ))
+                                        current_line_words = []
+                                current_line_num = line_num
+                                current_block_num = block_num
+                                current_line_words.append(w_text)
+                        except (ValueError, IndexError):
+                            continue
+
+                if current_line_words:
+                    blocks.append(ContentBlock(
+                        text=" ".join(current_line_words),
+                        block_type="paragraph"
+                    ))
+
+                mean_conf = (sum(confs) / (100.0 * len(confs))) if confs else None
+                extracted = "\n\n".join(b.text for b in blocks) if blocks else " ".join(words)
+                printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
+                if len(printable) >= 5:
+                    return extracted, mean_conf, blocks
+        except Exception as e:
+            logger.debug(f"Tesseract TSV extraction failed for page {page_num}: {e}")
+
+        # 2. Fallback to standard text output
         ocr_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", psm, "-l", "eng"]
         try:
             ocr_res = subprocess.run(ocr_cmd, capture_output=True, text=True, timeout=timeout, env=env)
@@ -136,11 +190,70 @@ def _try_tesseract_ocr(
                 extracted = ocr_res.stdout.strip()
                 printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
                 if len(printable) >= 5:
-                    return extracted
+                    return extracted, 0.85, [ContentBlock(text=extracted, block_type="paragraph")]
         except Exception as e:
             logger.warning(f"Tesseract OCR failed for page {page_num}: {e}")
 
-    return None
+    return None, None, []
+
+
+def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
+    """
+    Detect and suppress repeating running headers and footers across multi-page documents.
+    Suppressed lines are removed from the main page text so they don't pollute embeddings,
+    while being preserved in page.blocks with block_type="header_footer".
+    """
+    if len(pages) < 2:
+        return pages
+
+    page_num_regex = re.compile(r'^(?:page\s+\d+(?:\s+of\s+\d+)?|\d+\s*/\s*\d+|-\s*\d+\s*-|\d+)$', re.IGNORECASE)
+    confidential_regex = re.compile(r'^(?:confidential|privileged|all rights reserved|attorney-client privilege)\b', re.IGNORECASE)
+
+    # Collect candidate lines from top and bottom lines of each page
+    top_candidates: List[str] = []
+    bottom_candidates: List[str] = []
+    page_lines_map: List[List[str]] = []
+
+    for p in pages:
+        lines = [line.strip() for line in p.text.splitlines() if line.strip()]
+        page_lines_map.append(lines)
+        if len(lines) >= 1:
+            top_candidates.append(lines[0].lower())
+            if len(lines) >= 2:
+                top_candidates.append(lines[1].lower())
+            bottom_candidates.append(lines[-1].lower())
+            if len(lines) >= 2:
+                bottom_candidates.append(lines[-2].lower())
+
+    from collections import Counter
+    top_counts = Counter(top_candidates)
+    bottom_counts = Counter(bottom_candidates)
+    threshold = max(2, len(pages) // 2)
+
+    suppress_top = {line for line, cnt in top_counts.items() if cnt >= threshold or confidential_regex.search(line)}
+    suppress_bottom = {line for line, cnt in bottom_counts.items() if cnt >= threshold or page_num_regex.search(line)}
+
+    for i, p in enumerate(pages):
+        lines = page_lines_map[i]
+        if not lines:
+            continue
+        cleaned_lines = []
+
+        for idx, line in enumerate(lines):
+            l_low = line.lower()
+            is_top = (idx < 2) and (l_low in suppress_top or confidential_regex.search(l_low))
+            is_bottom = (idx >= len(lines) - 2) and (l_low in suppress_bottom or page_num_regex.search(l_low))
+
+            if is_top or is_bottom:
+                p.blocks.append(ContentBlock(text=line, block_type="header_footer"))
+            else:
+                cleaned_lines.append(line)
+
+        new_text = "\n".join(cleaned_lines)
+        p.text = new_text
+        p.char_count = len(new_text)
+
+    return pages
 
 
 def parse_pdf(
@@ -152,7 +265,8 @@ def parse_pdf(
 ) -> ParserResult:
     """
     Parse PDF page-by-page using Poppler 'pdftotext -f N -l N'.
-    Enforces encrypted PDF detection and quality-bounded OCR fallback.
+    Enforces encrypted PDF detection, quality-bounded OCR fallback with confidence,
+    and running header/footer suppression.
     """
     file_hash = compute_file_hash(file_path)
     info = _get_pdf_info(file_path, timeout=timeout)
@@ -184,29 +298,45 @@ def parse_pdf(
             warnings.append(f"pdftotext failed on page {page_num}: {e}")
 
         ocr_applied = False
+        ocr_confidence: Optional[float] = None
+        page_blocks: List[ContentBlock] = []
+
         # Per-page OCR decision: selectable chars < threshold AND image streams present
         if len(clean_text) < ocr_threshold and has_image_streams:
-            ocr_text = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="4", timeout=timeout)
+            ocr_text, conf, blocks = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="4", timeout=timeout)
             if not ocr_text:
                 # Try PSM 3 (fully automatic)
-                ocr_text = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="3", timeout=timeout)
+                ocr_text, conf, blocks = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="3", timeout=timeout)
 
             # Meaningfully better check: OCR must yield noticeably more content
             if ocr_text and len(ocr_text) > max(len(clean_text), 15):
                 clean_text = ocr_text
                 ocr_applied = True
-                logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(ocr_text)} chars)")
+                ocr_confidence = conf
+                page_blocks = blocks
+                if conf is not None and conf < 0.50:
+                    warnings.append(f"Low OCR confidence ({conf*100:.1f}%) on page {page_num}")
+                logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(ocr_text)} chars, conf: {conf})")
             elif not clean_text:
                 clean_text = f"[Scanned page {page_num} - image text pending]"
+        else:
+            # Native text: populate paragraph blocks
+            for para in [p.strip() for p in clean_text.split('\n\n') if p.strip()]:
+                page_blocks.append(ContentBlock(text=para, block_type="paragraph"))
 
         pages_data.append(PageData(
             index=page_num,
             locator=f"Page {page_num}",
             text=clean_text,
+            blocks=page_blocks,
             has_images=has_image_streams,
             ocr_applied=ocr_applied,
+            confidence=ocr_confidence,
             char_count=len(clean_text)
         ))
+
+    # Suppress repeating running headers and footers across pages
+    pages_data = suppress_running_headers_footers(pages_data)
 
     return ParserResult(
         filename=filename,
@@ -217,6 +347,36 @@ def parse_pdf(
         pages=pages_data,
         warnings=warnings
     )
+
+
+# ─── Pluggable Parser Backend Protocol & Registry ────────────────────────────
+
+class BaseParserBackend:
+    """Protocol for pluggable document parser backends."""
+    name: str = "base"
+    version: str = "1.0"
+
+    def parse(self, file_path: str, filename: str, **kwargs) -> ParserResult:
+        raise NotImplementedError
+
+
+class PopplerParser(BaseParserBackend):
+    """Default offline Poppler + Tesseract OCR parser."""
+    name: str = "pdf-poppler"
+    version: str = "pdf-poppler@2.0"
+
+    def parse(self, file_path: str, filename: str, **kwargs) -> ParserResult:
+        return parse_pdf(file_path, filename, **kwargs)
+
+
+PARSER_REGISTRY: Dict[str, BaseParserBackend] = {
+    "pdf": PopplerParser(),
+}
+
+
+def register_parser_backend(ext_or_mime: str, backend: BaseParserBackend):
+    """Register an optional or custom parser backend (e.g., docling, unstructured)."""
+    PARSER_REGISTRY[ext_or_mime.lower()] = backend
 
 
 # ─── DOCX Parser: Single-Pass In-Order Elements with Heading Stack ───────────

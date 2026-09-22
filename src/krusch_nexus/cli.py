@@ -79,6 +79,26 @@ def cmd_mcp(args):
     return 0
 
 
+def cmd_reindex(args):
+    """Reindex documents in a workspace or specific document."""
+    nx = Nexus.from_env()
+    if args.document_id:
+        print(f"Re-indexing document ID {args.document_id}...")
+        report = nx.reindex_document(args.document_id, new_model=args.model)
+        print(json.dumps(report.model_dump(), indent=2))
+        return 0 if report.status == "completed" else 1
+    elif args.workspace:
+        print(f"Re-indexing workspace '{args.workspace}'...")
+        reports = nx.reindex_workspace(args.workspace, new_model=args.model)
+        print(f"Completed re-indexing {len(reports)} document(s).")
+        for r in reports:
+            print(f"- {r.filename}: {r.chunks} chunks, {r.pages} pages ({r.status})")
+        return 0
+    else:
+        print("Error: Either --workspace or --document-id must be specified.", file=sys.stderr)
+        return 1
+
+
 def cmd_verify(args):
     """Execute self-checks verifying offline guarantees and local nodes."""
     print("Executing KruschNexus Air-Gap & Homelab Self-Check...")
@@ -116,16 +136,23 @@ def main():
     p_ingest.add_argument("--archive", "-a", action="store_true", help="Move source file to .ingested/ upon success")
     p_ingest.set_defaults(func=cmd_ingest)
 
-    # 3. Daemon
+    # 3. Reindex
+    p_reindex = subparsers.add_parser("reindex", help="Re-index existing documents with updated chunking or embedding model")
+    p_reindex.add_argument("--workspace", "-w", type=str, help="Target workspace to re-index")
+    p_reindex.add_argument("--document-id", "-d", type=int, help="Specific document ID to re-index")
+    p_reindex.add_argument("--model", "-m", type=str, default=None, help="New embedding model name (e.g. bge-large)")
+    p_reindex.set_defaults(func=cmd_reindex)
+
+    # 4. Daemon
     p_daemon = subparsers.add_parser("daemon", help="Run the automated folder-watching daemon")
     p_daemon.add_argument("--watch-dir", type=str, default=None, help="Root folder to watch")
     p_daemon.set_defaults(func=cmd_daemon)
 
-    # 4. MCP
+    # 5. MCP
     p_mcp = subparsers.add_parser("mcp", help="Run the FastMCP server for AI agents")
     p_mcp.set_defaults(func=cmd_mcp)
 
-    # 5. Verify
+    # 6. Verify
     p_verify = subparsers.add_parser("verify", help="Run air-gap and infrastructure verification")
     p_verify.add_argument("--offline", action="store_true", help="Assert zero outbound internet egress")
     p_verify.set_defaults(func=cmd_verify)

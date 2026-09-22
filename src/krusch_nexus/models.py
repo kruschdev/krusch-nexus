@@ -21,6 +21,7 @@ class DocType(str, Enum):
 
 class Citation(BaseModel):
     """Structured, reproducible citation addressing an exact page or heading locator."""
+    schema_version: str = "1.0"
     filename: str
     page_number: Optional[int] = None
     locator: Optional[str] = None
@@ -54,13 +55,27 @@ class Citation(BaseModel):
         return self.formatted()
 
 
+class ContentBlock(BaseModel):
+    """Structural block element within a page (Page Object Model)."""
+    text: str
+    block_type: str = "paragraph"  # "paragraph", "heading", "table_row", "header_footer"
+    bbox: Optional[List[float]] = None
+    confidence: Optional[float] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+
+
 class PageData(BaseModel):
-    """Represents a single parsed page or structural section."""
+    """Represents a single parsed page or structural section in Page Object Model."""
+    schema_version: str = "1.0"
     index: Optional[int] = None      # 1-based page number (None for unpaged files)
     locator: Optional[str] = None    # Heading hierarchy or row-group (e.g. "Art. IV > Sec. 8.22")
     text: str
+    blocks: List[ContentBlock] = Field(default_factory=list)
+    tables: List[Dict[str, Any]] = Field(default_factory=list)
     has_images: bool = False
     ocr_applied: bool = False
+    confidence: Optional[float] = None  # Mean OCR confidence (0.0 - 1.0)
     char_count: int = 0
 
     @model_validator(mode="before")
@@ -78,6 +93,7 @@ class PageData(BaseModel):
 
 class ParserResult(BaseModel):
     """Standard contract returned by document parsers."""
+    schema_version: str = "1.0"
     filename: str
     mime: str
     file_hash: str
@@ -109,6 +125,7 @@ class IngestRequest(BaseModel):
 
 class IngestReport(BaseModel):
     """Frozen IngestReport contract."""
+    schema_version: str = "1.0"
     status: str = "completed"  # "completed", "skipped_duplicate", "failed"
     document_id: Optional[int] = None
     filename: str
@@ -120,6 +137,7 @@ class IngestReport(BaseModel):
     total_pages: int = 0
     total_chunks: int = 0
     ocr_pages: List[int] = Field(default_factory=list)
+    ocr_mean_confidence: Optional[float] = None
     duration_ms: float = 0.0
     warnings: List[str] = Field(default_factory=list)
     error: Optional[str] = None
@@ -141,8 +159,20 @@ class IngestReport(BaseModel):
         return self.file_hash
 
 
+class SearchFilter(BaseModel):
+    """Librarian-style structural and metadata predicates for exact search filtering."""
+    page: Optional[int] = None
+    header_regex: Optional[str] = None
+    doc_id: Optional[int] = None
+    doc_type: Optional[str] = None
+    filename: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
 class SearchHit(BaseModel):
-    """Frozen search hit contract returned by retrieval."""
+    """Frozen search hit contract returned by retrieval with explainability metadata."""
+    schema_version: str = "1.0"
     citation: str
     page_number: Optional[int] = None
     header: Optional[str] = None
@@ -156,6 +186,14 @@ class SearchHit(BaseModel):
     chunk_index: Optional[int] = None
     dense_score: Optional[float] = None
     sparse_score: Optional[float] = None
+    vector_rank: Optional[int] = None
+    fts_rank: Optional[int] = None
+    section_boost: bool = False
+    lexical_boost: bool = False
+    match_reasons: List[str] = Field(default_factory=list)
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    confidence: Optional[float] = None
     source_hash: Optional[str] = None
     file_hash: Optional[str] = None
 
@@ -184,6 +222,7 @@ ChunkHit = SearchHit
 
 class WorkspaceInfo(BaseModel):
     """Metadata summary of a document workspace."""
+    schema_version: str = "1.0"
     id: int
     name: str
     description: Optional[str] = None
@@ -193,6 +232,7 @@ class WorkspaceInfo(BaseModel):
 
 class DocumentInfo(BaseModel):
     """Metadata summary of an ingested document."""
+    schema_version: str = "1.0"
     id: int
     workspace_id: int
     workspace_name: str
@@ -204,4 +244,5 @@ class DocumentInfo(BaseModel):
     has_report: bool = False
     status: str = "completed"
     embedding_model: Optional[str] = "bge-large"
+    chunker_version: Optional[str] = "1.0"
     created_at: Optional[str] = None

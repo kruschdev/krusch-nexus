@@ -62,6 +62,7 @@ class Document(Base):
     doc_type = Column(String(50), default="general", index=True)
     mime = Column(String(100), default="application/octet-stream")
     parser_version = Column(String(50), default="1.0")
+    chunker_version = Column(String(50), default="1.0")
     total_pages = Column(Integer, default=1)
     total_chunks = Column(Integer, default=0)
     ingest_report = Column(Text, nullable=True)  # JSON-encoded IngestReport
@@ -102,6 +103,11 @@ class DocumentChunk(Base):
     source_hash = Column(String(64), nullable=False, index=True)
     doc_hash = Column(String(64), nullable=False, index=True)
     doc_type = Column(String(50), default="general", index=True)
+    chunker_version = Column(String(50), default="1.0")
+    embed_model = Column(String(100), default="bge-large")
+    confidence = Column(Float, nullable=True)
+    char_start = Column(Integer, nullable=True)
+    char_end = Column(Integer, nullable=True)
     embedding = Column(Vector(1024), nullable=True) if Vector else Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

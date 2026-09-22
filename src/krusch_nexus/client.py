@@ -9,12 +9,13 @@ Does NOT mutate ambient os.environ.
 import os
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 from .config import NexusConfig
 from .models import (
     IngestReport,
     SearchHit,
+    SearchFilter,
     Citation,
     WorkspaceInfo,
     DocumentInfo,
@@ -157,13 +158,16 @@ class NexusClient:
         query: str,
         workspace: str,
         doc_type: Optional[str] = None,
-        limit: int = 5
+        limit: int = 5,
+        filters: Optional[Union[Dict[str, Any], SearchFilter]] = None
     ) -> List[SearchHit]:
         """
-        Execute hybrid vector + full-text search across a specific workspace.
+        Execute hybrid vector + full-text search across a specific workspace with optional filters.
         """
         if not workspace:
             raise WorkspaceRequiredError("Search requires an explicit workspace name.")
+
+        filter_dict = filters.model_dump(exclude_none=True) if isinstance(filters, SearchFilter) else dict(filters or {})
 
         db = self._get_db()
         try:
@@ -178,10 +182,40 @@ class NexusClient:
                 db=db,
                 embed_fn=embed_fn,
                 doc_type=doc_type,
-                limit=limit
+                limit=limit,
+                filters=filter_dict
             )
         finally:
             db.close()
+
+    def reindex_document(self, document_id: int, new_model: Optional[str] = None) -> IngestReport:
+        """
+        Re-parse, re-chunk, and re-embed an existing document in the corpus.
+        Updates chunker_version and embed_model.
+        """
+        if new_model:
+            self.config.embed_model = new_model
+        return self.reparse(document_id)
+
+    def reindex_workspace(self, workspace: str, new_model: Optional[str] = None) -> List[IngestReport]:
+        """
+        Re-index all documents in a workspace.
+        """
+        db = self._get_db()
+        try:
+            ws = db.query(Workspace).filter(Workspace.name == workspace).first()
+            if not ws:
+                raise WorkspaceNotFound(f"Workspace '{workspace}' not found.")
+            docs = db.query(Document).filter(Document.workspace_id == ws.id).all()
+            doc_ids = [d.id for d in docs]
+        finally:
+            db.close()
+
+        reports = []
+        for d_id in doc_ids:
+            rep = self.reindex_document(d_id, new_model=new_model)
+            reports.append(rep)
+        return reports
 
     def list_workspaces(self) -> List[WorkspaceInfo]:
         """List all document workspaces and their indexed document counts."""

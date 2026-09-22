@@ -30,7 +30,7 @@ Determine which client environment you are configuring:
      "mcpServers": {
        "krusch-nexus": {
          "command": "python3",
-         "args": ["-m", "src.backend.mcp_server"],
+         "args": ["-m", "krusch_nexus.mcp"],
          "cwd": "/path/to/krusch-nexus",
          "env": {
            "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
@@ -52,7 +52,7 @@ Determine which client environment you are configuring:
      "mcpServers": {
        "krusch-nexus": {
          "command": "python3",
-         "args": ["-m", "src.backend.mcp_server"],
+         "args": ["-m", "krusch_nexus.mcp"],
          "cwd": "/path/to/krusch-nexus",
          "env": {
            "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",

@@ -63,12 +63,16 @@ async def reap_stale_locks(staging_dir: str, timeout_seconds: float = 600.0):
         await asyncio.sleep(60)  # Check every 60 seconds
 
 
+_RETRY_TRACKER: dict = {}
+
+
 async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConfig] = None):
     """
     Continuous watch daemon monitoring watch_dir with:
     - Staging with .part rename lock
     - Separate OCR vs Embed queue bounding
     - Background stale-lock reaper
+    - Idempotent retries with max 3 attempts before quarantine
     - Poison file isolation
     """
     conf = config or NexusConfig.from_env()
@@ -90,6 +94,25 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
     reaper_task = asyncio.create_task(reap_stale_locks(staging_dir, timeout_seconds=600.0))
 
     async def _safe_process(source_path: str, ws_name: str, fname: str):
+        file_key = f"{ws_name}/{fname}"
+        attempts = _RETRY_TRACKER.get(file_key, 0) + 1
+        _RETRY_TRACKER[file_key] = attempts
+
+        if attempts > 3:
+            logger.error(f"File '{fname}' in '{ws_name}' exceeded max attempts (3). Quarantining.")
+            failed_dir = Path(staging_dir).parent / ".failed" / ws_name
+            failed_dir.mkdir(parents=True, exist_ok=True)
+            dest = failed_dir / f"quarantined_{fname}"
+            try:
+                if os.path.exists(source_path):
+                    shutil.move(source_path, str(dest))
+                with open(failed_dir / f"quarantined_{fname}.error.json", "w", encoding="utf-8") as f:
+                    json.dump({"error": "MaxRetriesExceeded", "attempts": attempts, "status": "quarantined"}, f, indent=2)
+            except Exception as q_err:
+                logger.warning(f"Could not quarantine poison file: {q_err}")
+            _RETRY_TRACKER.pop(file_key, None)
+            return
+
         async with ocr_semaphore:
             ws_staging = os.path.join(staging_dir, ws_name)
             os.makedirs(ws_staging, exist_ok=True)
@@ -103,13 +126,15 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
                 logger.debug(f"Could not lock file {fname} into staging: {e}")
                 return
 
-            await asyncio.to_thread(
+            report = await asyncio.to_thread(
                 pipeline.process_file,
                 filepath=part_path,
                 workspace_name=ws_name,
                 archive_source=True,
                 filename=fname
             )
+            if report.status == "completed":
+                _RETRY_TRACKER.pop(file_key, None)
 
     try:
         while True:
