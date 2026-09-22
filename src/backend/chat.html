@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Krusch-Nexus — Document Ingestion Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #07090e;
+            --card-bg: rgba(13, 17, 23, 0.75);
+            --panel-bg: rgba(13, 17, 23, 0.85);
+            --panel-card-bg: rgba(13, 17, 23, 0.9);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(6, 182, 212, 0.3);
+            --border-hover: rgba(6, 182, 212, 0.5);
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-indigo: #6366f1;
+            --accent-primary: #06b6d4;
+            --accent-hover: #0284c7;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --msg-user-bg: rgba(6, 182, 212, 0.12);
+            --msg-agent-bg: rgba(13, 17, 23, 0.9);
+            --font-mono: 'Fira Code', monospace;
+            --font-heading: 'Outfit', sans-serif;
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: var(--font-body);
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 10% 40%, rgba(16, 185, 129, 0.05) 0%, transparent 30%),
+                radial-gradient(circle at 90% 70%, rgba(99, 102, 241, 0.06) 0%, transparent 35%);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Cyber grid overlay */
+        .cyber-grid {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-size: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Glassmorphic Header */
+        header {
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        h1 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            letter-spacing: -0.01em;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px #10b981;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .badge-pill {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 5px 12px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-action-header {
+            background: rgba(234, 67, 53, 0.15);
+            color: #ea4335;
+            border: 1px solid rgba(234, 67, 53, 0.4);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: var(--font-family);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-action-header:hover {
+            background: rgba(234, 67, 53, 0.25);
+            border-color: #ea4335;
+            transform: translateY(-1px);
+        }
+
+        /* Workspace selector styling */
+        .workspace-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 6px 12px;
+        }
+
+        label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        select {
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: var(--font-family);
+            font-size: 0.88rem;
+            font-weight: 600;
+            outline: none;
+            flex-grow: 1;
+            cursor: pointer;
+        }
+
+        select option {
+            background-color: #111827;
+            color: var(--text-primary);
+        }
+
+        /* Main Workspace Layout */
+        main {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel-card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel-title {
+            font-family: var(--font-heading);
+            font-size: 1.05rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        /* Dropzone Styling */
+        .dropzone {
+            border: 2px dashed var(--border-highlight);
+            border-radius: 12px;
+            padding: 28px 16px;
+            text-align: center;
+            background: rgba(6, 182, 212, 0.03);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .dropzone:hover, .dropzone.dragover {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.08);
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
+            transform: scale(1.005);
+        }
+
+        .dropzone-icon {
+            font-size: 2.4rem;
+            margin-bottom: 4px;
+        }
+
+        .dropzone strong {
+            font-family: var(--font-heading);
+            font-size: 0.98rem;
+            color: var(--text-primary);
+        }
+
+        .dropzone p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Textarea and Form Inputs */
+        input[type="text"], textarea {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 10px 14px;
+            color: var(--text-primary);
+            font-family: var(--font-body);
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        input[type="text"]:focus, textarea:focus {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.05);
+            box-shadow: 0 0 14px rgba(6, 182, 212, 0.2);
+        }
+
+        .btn-primary-block {
+            width: 100%;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent-cyan), #0284c7);
+            color: #000;
+            padding: 11px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 16px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-primary-block:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.45);
+        }
+
+        .btn-primary-block:active {
+            transform: translateY(0);
+        }
+
+        /* Document Catalog List */
+        .doc-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 440px;
+            padding-right: 4px;
+        }
+
+        .doc-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--panel-card-bg);
+            border: 1px solid var(--border-color);
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .doc-item:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            background: rgba(30, 41, 59, 0.7);
+        }
+
+        .doc-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .doc-name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .doc-filename {
+            font-weight: 600;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .badge-tag {
+            font-size: 0.68rem;
+            font-weight: 700;
+            font-family: monospace;
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .doc-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-sm-action {
+            background: rgba(6, 182, 212, 0.15);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            color: #06b6d4;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: var(--font-family);
+            padding: 5px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-sm-action:hover {
+            background: rgba(6, 182, 212, 0.25);
+        }
+
+        .btn-sm-flag {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fbbf24;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: var(--font-family);
+            padding: 5px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-sm-flag:hover {
+            background: rgba(245, 158, 11, 0.25);
+        }
+
+        .btn-sm-delete {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: var(--font-family);
+            padding: 5px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-sm-delete:hover {
+            background: rgba(239, 68, 68, 0.25);
+        }
+
+        /* RAG Query Engine Section */
+        .query-section {
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            max-height: 380px;
+            transition: all 0.3s ease;
+        }
+
+        .query-header {
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .query-header-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Chat History Thread */
+        #chat-history {
+            overflow-y: auto;
+            padding: 14px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 240px;
+            min-height: 60px;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.45;
+            word-wrap: break-word;
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            background-color: rgba(6, 182, 212, 0.14);
+            color: #ffffff;
+            align-self: flex-end;
+            border: 1px solid var(--border-highlight);
+            border-bottom-right-radius: 2px;
+            box-shadow: 0 4px 14px rgba(6, 182, 212, 0.2);
+        }
+
+        .message.agent {
+            background-color: var(--panel-card-bg);
+            color: var(--text-primary);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+        }
+
+        .message-sources {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+
+        .source-tag {
+            display: inline-block;
+            background: rgba(6, 182, 212, 0.15);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+            color: var(--accent-cyan);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-right: 4px;
+            margin-top: 4px;
+            font-size: 0.72rem;
+            font-family: var(--font-mono);
+        }
+
+        /* Typing Indicator */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 6px;
+        }
+
+        .typing-dot {
+            width: 6px;
+            height: 6px;
+            background-color: var(--accent-cyan);
+            border-radius: 50%;
+            animation: pulse 1.2s infinite ease-in-out;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(0.8); opacity: 0.4; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+
+        /* Form & Circular Send Button */
+        #chat-form {
+            padding: 10px 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: rgba(13, 17, 23, 0.95);
+            border-top: 1px solid var(--border-color);
+        }
+
+        #chat-input {
+            flex-grow: 1;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 10px 18px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-family: var(--font-body);
+        }
+
+        #chat-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+        }
+
+        #send-button {
+            background: linear-gradient(135deg, var(--accent-cyan), #0284c7);
+            color: #000;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+        }
+
+        #send-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 18px rgba(6, 182, 212, 0.5);
+        }
+
+        #send-button:active {
+            transform: scale(0.95);
+        }
+
+        #send-button svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+            transform: translateX(1px);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="cyber-grid"></div>
+
+    <!-- Header Navigation & Status -->
+    <header>
+        <div class="header-top">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <a href="/nexus" style="text-decoration: none; color: inherit;">
+                    <h1 style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #fff;">
+                        <span class="status-dot"></span>
+                        <span>KRUSCH<span style="color: var(--accent-cyan); font-weight: 700;">::</span>NEXUS</span>
+                    </h1>
+                </a>
+                <span class="badge-pill" style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.08);">
+                    <span style="color: var(--accent-emerald);">●</span> INGESTION PORTAL
+                </span>
+            </div>
+            <div class="header-actions">
+                <a href="/nexus" class="badge-pill" style="text-decoration: none; color: var(--text-primary);">🏠 Main Portal</a>
+                <a href="/nexus/docs" class="badge-pill" style="text-decoration: none; color: var(--accent-cyan); border-color: var(--border-highlight);">&gt;_ Docs & Spec</a>
+                <span class="badge-pill" style="color: var(--accent-emerald); border-color: rgba(16, 185, 129, 0.3);">⚡ Polygres Cloud</span>
+                <span class="badge-pill" style="color: var(--accent-cyan); border-color: rgba(6, 182, 212, 0.3);">🤖 OpenRouter AI</span>
+                <button class="btn-action-header" id="google-sync-btn" style="background: rgba(6, 182, 212, 0.12); color: var(--accent-cyan); border-color: rgba(6, 182, 212, 0.3);">🔑 Sync Google Workspace</button>
+            </div>
+        </div>
+        <div class="workspace-container">
+            <label for="workspace-select" style="font-family: var(--font-mono); color: var(--accent-cyan);">WORKSPACE::</label>
+            <select id="workspace-select" style="font-family: var(--font-mono);">
+                <option value="">Loading workspaces...</option>
+            </select>
+        </div>
+    </header>
+
+    <!-- Document Ingestion Grid -->
+    <main>
+        <!-- Left: Upload & Ingestion Forms -->
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div class="panel-card">
+                <div class="panel-title">📤 Drag & Drop Files</div>
+                <div class="dropzone" id="file-dropzone">
+                    <div class="dropzone-icon">📄</div>
+                    <strong>Drop PDFs, DOCX, TXT, MD, CSV files here</strong>
+                    <p>Automatic OpenRouter AI tagging & Polygres vector indexing</p>
+                    <input type="file" id="file-input" style="display: none;" multiple>
+                </div>
+                <div id="upload-status" style="font-size: 0.85rem; color: #60a5fa; min-height: 20px;"></div>
+            </div>
+
+            <div class="panel-card">
+                <div class="panel-title">📝 Paste Email / SOP Text</div>
+                <input type="text" id="paste-title" placeholder="Document Title / Email Subject...">
+                <textarea id="paste-content" placeholder="Paste email thread, SOP protocol, or financial report text here..." rows="4"></textarea>
+                <button type="button" class="btn-primary-block" id="paste-submit-btn">Ingest Text into Knowledge Base</button>
+                <div id="paste-status" style="font-size: 0.85rem; color: #60a5fa; min-height: 20px;"></div>
+            </div>
+        </div>
+
+        <!-- Right: Ingested Knowledge Catalog -->
+        <div class="panel-card">
+            <div class="panel-title">📚 Ingested Knowledge Catalog</div>
+            <div class="doc-list" id="doc-list-container">
+                <div style="color: var(--text-secondary); font-size: 0.85rem;">Loading documents...</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom RAG Query Engine Section -->
+    <div class="query-section">
+        <div class="query-header">
+            <div class="query-header-title">💬 RAG Query Engine & Verification Thread</div>
+            <div style="font-size: 0.75rem; color: var(--text-secondary);">Query vector database in real-time</div>
+        </div>
+        
+        <div id="chat-history">
+            <div class="message agent">
+                Welcome to Krusch-Nexus Ingestion Portal. Ingest documents or emails above, then verify vector RAG responses here.
+            </div>
+        </div>
+
+        <form id="chat-form">
+            <input type="text" id="chat-input" placeholder="Quick Test: Query your ingested business RAG..." autocomplete="off" required>
+            <button type="submit" id="send-button">
+                <svg viewBox="0 0 24 24">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+            </button>
+        </form>
+    </div>
+
+    <script>
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatHistory = document.getElementById('chat-history');
+        const workspaceSelect = document.getElementById('workspace-select');
+
+        // Fetch Workspaces on Load
+        async function loadWorkspaces() {
+            try {
+                const response = await fetch('/api/workspaces');
+                if (response.ok) {
+                    const workspaces = await response.json();
+                    workspaceSelect.innerHTML = '';
+                    if (workspaces.length === 0) {
+                        workspaceSelect.innerHTML = '<option value="">No workspaces found</option>';
+                        return;
+                    }
+                    workspaces.forEach(ws => {
+                        const opt = document.createElement('option');
+                        opt.value = ws.id;
+                        opt.textContent = ws.name;
+                        workspaceSelect.appendChild(opt);
+                    });
+                    loadDocuments();
+                }
+            } catch (err) {
+                console.error("Error loading workspaces", err);
+                workspaceSelect.innerHTML = '<option value="">Error loading workspaces</option>';
+            }
+        }
+
+        // Render Message Bubbles in RAG Thread
+        function appendMessage(text, sender, sources = []) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${sender}`;
+            
+            const textFormatted = text.replace(/\n/g, '<br>');
+            msgDiv.innerHTML = textFormatted;
+
+            if (sources && sources.length > 0) {
+                const srcDiv = document.createElement('div');
+                srcDiv.className = 'message-sources';
+                srcDiv.innerHTML = '<strong>Sources:</strong><br>';
+                sources.forEach(src => {
+                    const tag = document.createElement('span');
+                    tag.className = 'source-tag';
+                    tag.textContent = src.filename || src.filepath || "Unknown Document";
+                    srcDiv.appendChild(tag);
+                });
+                msgDiv.appendChild(srcDiv);
+            }
+
+            chatHistory.appendChild(msgDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        // Typing Indicator
+        let typingIndicator = null;
+        function showTyping() {
+            if (typingIndicator) return;
+            typingIndicator = document.createElement('div');
+            typingIndicator.className = 'message agent';
+            typingIndicator.innerHTML = `
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            `;
+            chatHistory.appendChild(typingIndicator);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function hideTyping() {
+            if (typingIndicator) {
+                typingIndicator.remove();
+                typingIndicator = null;
+            }
+        }
+
+        // Form Submit Handler for RAG Query
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = chatInput.value.trim();
+            if (!text) return;
+
+            const workspaceId = workspaceSelect.value;
+            if (!workspaceId) {
+                alert("Please select a workspace first.");
+                return;
+            }
+
+            appendMessage(text, 'user');
+            chatInput.value = '';
+            showTyping();
+
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query: text,
+                        workspace_id: parseInt(workspaceId)
+                    })
+                });
+
+                hideTyping();
+
+                if (response.ok) {
+                    const data = await response.json();
+                    appendMessage(data.response, 'agent', data.sources || []);
+                } else {
+                    appendMessage("Error: Could not retrieve response from local brain.", 'agent');
+                }
+            } catch (err) {
+                hideTyping();
+                appendMessage("Error: Connection to backend lost.", 'agent');
+            }
+        });
+
+        // Ingestion & Text Paste Handlers
+        const fileDropzone = document.getElementById('file-dropzone');
+        const fileInput = document.getElementById('file-input');
+        const uploadStatus = document.getElementById('upload-status');
+        const pasteTitle = document.getElementById('paste-title');
+        const pasteContent = document.getElementById('paste-content');
+        const pasteSubmitBtn = document.getElementById('paste-submit-btn');
+        const pasteStatus = document.getElementById('paste-status');
+        const docListContainer = document.getElementById('doc-list-container');
+
+        workspaceSelect.addEventListener('change', () => {
+            loadDocuments();
+        });
+
+        fileDropzone.addEventListener('click', () => fileInput.click());
+
+        fileDropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileDropzone.classList.add('dragover');
+        });
+
+        fileDropzone.addEventListener('dragleave', () => {
+            fileDropzone.classList.remove('dragover');
+        });
+
+        fileDropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileDropzone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                handleFileUpload(e.dataTransfer.files);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFileUpload(e.target.files);
+            }
+        });
+
+        pasteSubmitBtn.addEventListener('click', async () => {
+            const title = pasteTitle.value.trim();
+            const content = pasteContent.value.trim();
+            const workspaceId = workspaceSelect.value;
+
+            if (!workspaceId) {
+                alert("Please select a workspace first.");
+                return;
+            }
+            if (!title || !content) {
+                alert("Please provide both a title/subject and content to ingest.");
+                return;
+            }
+
+            pasteStatus.textContent = "Processing text & OpenRouter AI tagging...";
+
+            try {
+                const res = await fetch('/api/ingest-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: title,
+                        content: content,
+                        workspace_id: parseInt(workspaceId),
+                        category: "SOP"
+                    })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    pasteStatus.textContent = `✓ Ingested "${data.filename}" into Polygres Cloud!`;
+                    pasteTitle.value = '';
+                    pasteContent.value = '';
+                    loadDocuments();
+                } else {
+                    const err = await res.json();
+                    pasteStatus.textContent = `❌ Ingestion failed: ${err.detail || 'Error'}`;
+                }
+            } catch (e) {
+                pasteStatus.textContent = `❌ Network error ingesting text.`;
+            }
+        });
+
+        async function handleFileUpload(files) {
+            const workspaceId = workspaceSelect.value;
+            if (!workspaceId) {
+                alert("Please select a workspace first.");
+                return;
+            }
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                uploadStatus.textContent = `Uploading & OpenRouter AI Tagging ${file.name}...`;
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('workspace_id', workspaceId);
+
+                try {
+                    const res = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        uploadStatus.textContent = `✓ Ingested ${file.name} successfully!`;
+                    } else {
+                        const err = await res.json();
+                        uploadStatus.textContent = `❌ Failed ${file.name}: ${err.detail || 'Upload error'}`;
+                    }
+                } catch (e) {
+                    uploadStatus.textContent = `❌ Network error uploading ${file.name}`;
+                }
+            }
+            loadDocuments();
+        }
+
+        async function loadDocuments() {
+            const workspaceId = workspaceSelect.value;
+            if (!workspaceId) {
+                docListContainer.innerHTML = '<div style="color: var(--text-secondary); font-size: 0.85rem;">Select a workspace to view documents</div>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/documents?workspace_id=${workspaceId}`);
+                if (res.ok) {
+                    const docs = await res.json();
+                    if (docs.length === 0) {
+                        docListContainer.innerHTML = '<div style="color: var(--text-secondary); font-size: 0.85rem;">No documents ingested in this workspace yet.</div>';
+                        return;
+                    }
+                    docListContainer.innerHTML = '';
+                    docs.forEach(doc => {
+                        const item = document.createElement('div');
+                        item.className = 'doc-item';
+                        
+                        const level = (doc.classification_level || 'internal').toUpperCase();
+                        let badgeColor = '#3b82f6';
+                        let badgeBg = 'rgba(59, 130, 246, 0.15)';
+                        if (level === 'MANAGEMENT_ONLY' || level === 'CONFIDENTIAL') {
+                            badgeColor = '#ef4444';
+                            badgeBg = 'rgba(239, 68, 68, 0.15)';
+                        }
+                        if (level === 'PUBLIC') {
+                            badgeColor = '#10b981';
+                            badgeBg = 'rgba(16, 185, 129, 0.15)';
+                        }
+
+                        const flagBadge = doc.flagged_for_review ? `<span style="background: rgba(239,68,68,0.2); color: #f87171; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px;">🚩 FLAGGED</span>` : '';
+
+                        item.innerHTML = `
+                            <div class="doc-info">
+                                <div class="doc-name-row">
+                                    <span class="doc-filename">📄 ${doc.filename}</span>
+                                    <span class="badge-tag" style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeColor}40;">${level}</span>
+                                    ${flagBadge}
+                                </div>
+                                <div style="font-size: 0.76rem; color: var(--text-secondary);">Polygres Vector Index | Roles: ${doc.allowed_roles || 'all'}</div>
+                            </div>
+                            <div class="doc-actions">
+                                <button class="btn-sm-action" onclick="classifyDoc(${doc.id}, '${doc.classification_level || 'internal'}')">Classify</button>
+                                <button class="btn-sm-flag" onclick="flagDoc(${doc.id})">Flag</button>
+                                <button class="btn-sm-delete" onclick="deleteDoc(${doc.id})">Delete</button>
+                            </div>
+                        `;
+                        docListContainer.appendChild(item);
+                    });
+                }
+            } catch (err) {
+                console.error("Error loading documents", err);
+            }
+        }
+
+        async function classifyDoc(docId, currentLevel) {
+            const level = prompt("Enter new classification level ('public', 'internal', 'confidential', 'management_only'):", currentLevel);
+            if (!level) return;
+            const allowedRoles = prompt("Enter allowed roles (comma-separated e.g. 'admin,management' or 'all'):", "all");
+            try {
+                const res = await fetch(`/api/documents/${docId}/classify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ classification_level: level, allowed_roles: allowedRoles })
+                });
+                if (res.ok) {
+                    loadDocuments();
+                } else {
+                    alert("Failed to classify document.");
+                }
+            } catch (e) {
+                alert("Error updating classification.");
+            }
+        }
+
+        async function flagDoc(docId) {
+            const reason = prompt("Enter reason for flagging document for management review:");
+            if (!reason) return;
+            try {
+                const res = await fetch(`/api/documents/${docId}/flag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: reason })
+                });
+                if (res.ok) {
+                    loadDocuments();
+                } else {
+                    alert("Failed to flag document.");
+                }
+            } catch (e) {
+                alert("Error flagging document.");
+            }
+        }
+
+        async function deleteDoc(docId) {
+            if (!confirm("Are you sure you want to remove this document from the knowledge base?")) return;
+            try {
+                const res = await fetch(`/api/documents/${docId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadDocuments();
+                }
+            } catch (e) {
+                alert("Failed to delete document.");
+            }
+        }
+
+        // Google Workspace Sync Handler
+        const googleSyncBtn = document.getElementById('google-sync-btn');
+        googleSyncBtn.addEventListener('click', async () => {
+            const workspaceId = workspaceSelect.value || 1;
+            uploadStatus.textContent = "Syncing Google Workspace (Gmail & Google Drive)...";
+            try {
+                const res = await fetch('/api/sync/google-workspace', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: parseInt(workspaceId), sync_type: 'all' })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    uploadStatus.textContent = `✓ Google Workspace Synced! (${data.synced_documents_count} Docs, ${data.synced_emails_count} Emails)`;
+                    loadDocuments();
+                } else {
+                    uploadStatus.textContent = "❌ Failed to sync Google Workspace.";
+                }
+            } catch (err) {
+                uploadStatus.textContent = "❌ Error syncing Google Workspace.";
+            }
+        });
+
+        // Initialize Auth Session & Load Workspaces
+        let token = localStorage.getItem('access_token');
+        if (!token) {
+            token = 'nx_beta_session_' + Math.random().toString(36).substring(2, 10);
+            localStorage.setItem('access_token', token);
+        }
+        loadWorkspaces();
+    </script>
+</body>
+</html>

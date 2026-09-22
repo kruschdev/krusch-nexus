@@ -1,0 +1,23 @@
+[
+  {
+    "external_id": "msg_101",
+    "sender": "alice.smith@example.com",
+    "subject": "NDA and Partnership agreement with Acme Corp",
+    "body": "Hi team,\n\nI have attached the finalized NDA for Acme Corp. They have agreed to our standard IP clauses but requested a 3-year term instead of 5. I have reviewed this and it is acceptable given the scope of the deal.\n\nPlease proceed with archiving this in the contract workspace.\n\nBest,\nAlice",
+    "date": "2026-07-01T10:15:30Z"
+  },
+  {
+    "external_id": "msg_102",
+    "sender": "bob.jones@example.com",
+    "subject": "Review of Security Policies for SOC2 audit",
+    "body": "Hello everyone,\n\nI am compiling our compliance evidence for the upcoming SOC2 audit. We need to verify that all access logs are retained for at least 365 days. The engineering team confirmed this is active on all core databases.\n\nLet me know if there are any outstanding policy documents that need signing.\n\nRegards,\nBob",
+    "date": "2026-07-02T14:30:00Z"
+  },
+  {
+    "external_id": "msg_103",
+    "sender": "charlie.brown@example.com",
+    "subject": "HIPAA compliance flags in patient data portal",
+    "body": "Hi Bob,\n\nI ran a scanning check on the data portal. We have identified some unencrypted PHI fields in the test database logs. I am working with the platform team to mask these immediately. This is high risk and we need to fix it before the auditors arrive next Tuesday.\n\nThanks,\nCharlie",
+    "date": "2026-07-03T09:05:00Z"
+  }
+]

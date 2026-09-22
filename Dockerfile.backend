@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-backend.txt .
+RUN pip install --no-cache-dir -r requirements-backend.txt
+
+# Pre-download NLTK data to avoid runtime internet dependency (air-gap compliance)
+RUN python -c "import nltk; nltk.download('punkt_tab', download_dir='/usr/local/lib/python3.11/site-packages/llama_index/core/_static/nltk_cache')"
+
+# Bake source into image for standalone deployment (dev volume mount overrides this)
+COPY src/ src/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

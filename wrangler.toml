@@ -1,0 +1,35 @@
+name = "krusch-nexus"
+main = "src/worker.js"
+compatibility_date = "2026-07-28"
+compatibility_flags = ["nodejs_compat"]
+
+routes = [
+  { pattern = "krusch.dev/nexus", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/nexus/*", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/docs", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/docs/*", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/ingest", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/ingest/*", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/chat", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/chat/*", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/api", zone_name = "krusch.dev" },
+  { pattern = "krusch.dev/api/*", zone_name = "krusch.dev" }
+]
+
+rules = [
+  { type = "Text", globs = ["**/*.html"], fallthrough = true }
+]
+
+[vars]
+NEXUS_DB_TARGET = "polygres"
+EMBEDDING_PROVIDER = "openrouter"
+TAGGING_PROVIDER = "openrouter"
+OPENROUTER_TAG_MODEL = "qwen/qwen-2.5-coder-32b-instruct"
+OPENROUTER_EMBED_MODEL = "baai/bge-large-en-v1.5"
+NEXUS_EMAIL_SENDER = "nexus@krusch.dev"
+
+# Environment secret keys configured via 'wrangler secret put':
+# OPENROUTER_API_KEY
+# POLYGRES_URL
+# POLYGRES_API_KEY
+# SMTP_PASSWORD

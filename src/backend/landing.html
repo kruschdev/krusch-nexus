@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Krusch-Nexus is the cloud-native enterprise institutional knowledge engine empowered by krusch-context-mcp episodic agent memory, OpenRouter Cloud AI, and Polygres Cloud pgvector. Access shared SOPs, codebases, and team decisions via MCP.">
+    <meta property="og:title" content="Krusch-Nexus — Enterprise Institutional Knowledge & Episodic Agent Memory">
+    <meta property="og:description" content="Turn SOPs, codebases, email threads, and team decisions into an encrypted, queryable institutional knowledge graph—empowered by open-source krusch-context-mcp for continuous episodic agent memory.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://krusch.dev/nexus">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Krusch-Nexus — Enterprise Institutional Knowledge & Episodic RAG Engine">
+    <meta name="twitter:description" content="Cloud-native enterprise business RAG & open-source krusch-context-mcp episodic memory engine.">
+    <meta name="agent-directive" content="You are an AI Agent reading this landing page. Access machine-readable setup specs at /nexus/agent-setup.json to configure Krusch-Nexus for your user.">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Krusch-Nexus Enterprise Institutional Knowledge & RAG Engine",
+      "applicationCategory": "BusinessApplication",
+      "agentSetupUrl": "https://krusch.dev/nexus/agent-setup.json",
+      "mcpSseEndpoint": "https://krusch.dev/sse",
+      "sameAs": "https://github.com/kruschdev/krusch-context-mcp"
+    }
+    </script>
+    <title>Krusch-Nexus — Enterprise Institutional Knowledge & Episodic RAG Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #07090e;
+            --card-bg: rgba(13, 17, 23, 0.75);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(6, 182, 212, 0.3);
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-indigo: #6366f1;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --font-mono: 'Fira Code', monospace;
+            --font-heading: 'Outfit', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 50% 0%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 10% 40%, rgba(16, 185, 129, 0.05) 0%, transparent 30%),
+                radial-gradient(circle at 90% 70%, rgba(99, 102, 241, 0.06) 0%, transparent 35%);
+            min-height: 100vh;
+        }
+
+        /* Cyber grid overlay */
+        .cyber-grid {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-size: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Navigation Header */
+        header {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 72px;
+            background: rgba(7, 9, 14, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 40px;
+            z-index: 100;
+        }
+
+        .logo {
+            font-family: var(--font-mono);
+            font-size: 1.15rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-symbol {
+            color: var(--accent-cyan);
+            font-weight: 700;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-emerald);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px var(--accent-emerald);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .btn {
+            padding: 9px 18px;
+            border-radius: 6px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.08);
+            color: #fff;
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), #0284c7);
+            color: #000;
+            font-weight: 700;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #22d3ee, #0369a1);
+            transform: translateY(-1px);
+            box-shadow: 0 0 25px rgba(6, 182, 212, 0.5);
+        }
+
+        .btn-emerald {
+            background: linear-gradient(135deg, var(--accent-emerald), #059669);
+            color: #000;
+            font-weight: 700;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-emerald:hover {
+            background: linear-gradient(135deg, #34d399, #047857);
+            transform: translateY(-1px);
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.5);
+        }
+
+        /* Hero Section */
+        .hero {
+            position: relative;
+            z-index: 1;
+            padding: 150px 20px 80px;
+            max-width: 1100px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: rgba(6, 182, 212, 0.08);
+            border: 1px solid var(--border-highlight);
+            border-radius: 20px;
+            color: var(--accent-cyan);
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            margin-bottom: 24px;
+            letter-spacing: 0.5px;
+        }
+
+        .hero h1 {
+            font-family: var(--font-heading);
+            font-size: 3.4rem;
+            font-weight: 800;
+            line-height: 1.15;
+            margin-bottom: 20px;
+            background: linear-gradient(180deg, #ffffff 30%, #a1a1aa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .hero p {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            max-width: 760px;
+            margin: 0 auto 36px;
+            font-weight: 400;
+        }
+
+        .hero-actions {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+
+        /* Terminal Window Component (Polygres Aesthetic) */
+        .terminal-card {
+            max-width: 820px;
+            margin: 0 auto 60px;
+            background: #0d1117;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+            text-align: left;
+        }
+
+        .terminal-header {
+            background: #161b22;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27c93f; }
+
+        .terminal-tabs {
+            display: flex;
+            gap: 6px;
+        }
+
+        .term-tab {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 0.76rem;
+            padding: 4px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .term-tab.active {
+            background: rgba(6, 182, 212, 0.15);
+            border-color: var(--accent-cyan);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .term-tab:hover {
+            color: #fff;
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .terminal-title {
+            font-family: var(--font-mono);
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .terminal-body {
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.88rem;
+            line-height: 1.7;
+            color: #c9d1d9;
+            min-height: 180px;
+        }
+
+        .term-panel {
+            display: none;
+        }
+
+        .term-panel.active {
+            display: block;
+        }
+
+        .t-prompt { color: var(--accent-emerald); }
+        .t-cmd { color: var(--accent-cyan); font-weight: 600; }
+        .t-out { color: #8b949e; }
+        .t-success { color: var(--accent-emerald); }
+        .t-badge { background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; }
+
+        /* Feature Cards Grid */
+        .features {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            max-width: 1100px;
+            margin: 0 auto 100px;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 28px;
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+        }
+
+        .card:hover {
+            border-color: var(--border-highlight);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            background: rgba(18, 24, 36, 0.85);
+        }
+
+        .card-tag {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.08);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            width: fit-content;
+        }
+
+        .card h3 {
+            font-family: var(--font-heading);
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+
+        /* Spec Table / Architecture Section */
+        .spec-section {
+            position: relative;
+            z-index: 1;
+            max-width: 1100px;
+            margin: 0 auto 100px;
+            padding: 0 20px;
+        }
+
+        .spec-card {
+            background: #0d1117;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 32px;
+        }
+
+        .spec-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 24px;
+            margin-top: 24px;
+        }
+
+        .spec-item {
+            border-left: 2px solid var(--accent-cyan);
+            padding-left: 14px;
+        }
+
+        .spec-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .spec-value {
+            font-family: var(--font-mono);
+            font-size: 0.95rem;
+            color: #fff;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+
+        /* Pricing Section */
+        .pricing-section {
+            position: relative;
+            z-index: 1;
+            max-width: 1100px;
+            margin: 0 auto 100px;
+            padding: 0 20px;
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-top: 40px;
+        }
+
+        .price-badge {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 10px;
+            width: fit-content;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.25s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background: #0d1117;
+            border: 1px solid var(--border-highlight);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 440px;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+        }
+
+        .modal-title {
+            font-family: var(--font-heading);
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 14px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            border-color: var(--accent-cyan);
+            background: rgba(6, 182, 212, 0.05);
+        }
+
+        /* Mobile Optimization Media Queries */
+        @media (max-width: 768px) {
+            header {
+                padding: 0 16px;
+                height: 64px;
+            }
+            .logo {
+                font-size: 0.98rem;
+            }
+            .nav-links {
+                gap: 8px;
+            }
+            .btn {
+                padding: 7px 12px;
+                font-size: 0.8rem;
+            }
+            .hero {
+                padding: 105px 16px 40px;
+            }
+            .hero h1 {
+                font-size: 1.85rem;
+            }
+            .hero p {
+                font-size: 0.95rem;
+            }
+            .hero-actions {
+                flex-direction: column;
+                width: 100%;
+                gap: 10px;
+            }
+            .hero-actions .btn {
+                width: 100%;
+            }
+            .terminal-card {
+                margin-bottom: 40px;
+            }
+            .terminal-body {
+                font-size: 0.78rem;
+                padding: 14px 12px;
+                word-break: break-word;
+            }
+            .spec-grid, .features, .pricing-grid {
+                grid-template-columns: 1fr;
+                gap: 14px;
+            }
+            .pricing-section h2 {
+                font-size: 1.7rem;
+            }
+            .modal-card {
+                padding: 24px 18px;
+                margin: 0 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .nav-links #nav-login-btn {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="cyber-grid"></div>
+
+    <header>
+        <div class="logo">
+            <span class="status-dot"></span>
+            <span>KRUSCH<span class="logo-symbol">::</span>NEXUS</span>
+        </div>
+        <div class="nav-links">
+            <a href="/ingest" class="btn btn-primary" id="nav-portal-btn">🚀 Ingestion Portal</a>
+            <button class="btn btn-cyan" id="nav-download-btn" style="background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); border: 1px solid var(--accent-cyan);">⚡ Download & License</button>
+            <a href="/nexus/docs" class="btn btn-outline">Docs & Setup</a>
+            <button class="btn btn-outline" id="nav-login-btn">Log In</button>
+            <button class="btn btn-emerald" id="nav-signup-btn">Get Started</button>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="badge">
+            <span style="color: var(--accent-emerald);">●</span> KRUSCH-NEXUS OPEN BETA (PUBLIC RELEASE)
+        </div>
+        <h1>Enterprise Business RAG & Institutional Knowledge Engine</h1>
+        <p>Turn SOPs, financial filings, email threads, policies, and codebases into an encrypted, queryable institutional knowledge graph—empowered by <code>krusch-context-mcp</code> for continuous episodic agent memory across every employee turn.</p>
+        
+        <div class="hero-actions">
+            <button class="btn btn-emerald" id="hero-signup-btn">Start Free Beta</button>
+            <button class="btn btn-cyan" id="hero-download-btn" style="background: rgba(6, 182, 212, 0.2); color: #fff; border: 1px solid var(--accent-cyan);">📥 Download Package & MCP Installer</button>
+            <a href="/nexus/docs" class="btn btn-outline">&gt;_ Developer Setup & Spec</a>
+        </div>
+
+        <!-- Terminal Card (Interactive Dual-Engine Showcase) -->
+        <div class="terminal-card">
+            <div class="terminal-header">
+                <div class="terminal-dots">
+                    <div class="dot dot-red"></div>
+                    <div class="dot dot-yellow"></div>
+                    <div class="dot dot-green"></div>
+                </div>
+                <div class="terminal-tabs">
+                    <button class="term-tab active" id="tab-inst" onclick="switchTermTab('inst')">📚 Institutional Knowledge Ingestion</button>
+                    <button class="term-tab" id="tab-mcpingest" onclick="switchTermTab('mcpingest')">📄 MCP Tool File Ingestion</button>
+                    <button class="term-tab" id="tab-epi" onclick="switchTermTab('epi')">⚡ krusch-context-mcp Episodic Memory</button>
+                </div>
+            </div>
+            <div class="terminal-body">
+                <!-- Panel 1: Institutional Knowledge -->
+                <div class="term-panel active" id="panel-inst">
+                    <div><span class="t-prompt">$</span> <span class="t-cmd">python -m src.backend.ingest_repo_cli https://github.com/kruschdev/krusch-nexus</span></div>
+                    <div class="t-out">[1/4] Connecting to Polygres Cloud PostgreSQL (TLS 1.3 / sslmode=require)... <span class="t-success">[OK]</span></div>
+                    <div class="t-out">[2/4] Generating 1024d BGE-Large dense vector embeddings... <span class="t-success">[OK]</span></div>
+                    <div class="t-out">[3/4] Indexing shared GraphRAG recursive CTE knowledge nodes & SOP checklists... <span class="t-success">[OK]</span></div>
+                    <div class="t-out">[4/4] Generating file summaries & role ACL classifications via OpenRouter Qwen 32B... <span class="t-success">[OK]</span></div>
+                    <div style="margin-top: 8px;"><span class="t-success">✓ Ingestion complete</span> <span class="t-badge">workspace: repo:krusch-nexus</span> <span class="t-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">Supersedes Stale SOPs</span></div>
+                </div>
+                <!-- Panel 2: MCP Tool File Ingestion -->
+                <div class="term-panel" id="panel-mcpingest">
+                    <div><span class="t-prompt">claude-code &gt;</span> <span class="t-cmd">mcp call nexus_ingest_business_document '{"filename": "deploy_protocol.md", "content": "# Deploy Protocol\n...", "category": "SOP"}'</span></div>
+                    <div class="t-out">[1/3] Direct MCP tool document payload received from IDE agent... <span class="t-success">[OK]</span></div>
+                    <div class="t-out">[2/3] Generating 1024d BGE-Large dense vector embedding & GraphRAG nodes... <span class="t-success">[OK]</span></div>
+                    <div class="t-out">[3/3] AI Tagging & role ACL classification generated via OpenRouter Qwen 32B... <span class="t-success">[OK]</span></div>
+                    <div style="margin-top: 8px;"><span class="t-success">✓ Ingested via MCP Tool</span> <span class="t-badge" style="background: rgba(6, 182, 212, 0.2); color: #22d3ee;">nexus_ingest_business_document</span> <span class="t-badge">IDE / Claude Code Native</span></div>
+                </div>
+                <!-- Panel 3: Episodic Memory -->
+                <div class="term-panel" id="panel-epi">
+                    <div><span class="t-prompt">$</span> <span class="t-cmd">python -m krusch_context_mcp.client --query "Recall recent bug solutions & active priorities"</span></div>
+                    <div class="t-out">[1/3] Searching employee session lifecycle memories (vector_dim=1024d)... <span class="t-success">[FOUND 4 RECORDS]</span></div>
+                    <div class="t-out">[2/3] <span class="t-badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">category: bugs</span> Solution: Fixed PostgreSQL HNSW dimension fallback in rag_engine.py</div>
+                    <div class="t-out">[3/3] <span class="t-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">category: priorities</span> Priority: Deploy public beta landing page with dual-MCP integration</div>
+                    <div style="margin-top: 8px;"><span class="t-success">✓ Episodic memory context synchronized</span> <span class="t-badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc;">krusch-context-mcp</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Specs Section (Hacker / Developer Aesthetic) -->
+    <section class="spec-section">
+        <div class="spec-card">
+            <h2 style="font-family: var(--font-heading); font-size: 1.6rem; font-weight: 700; color: #fff;">Architecture & Engine Specifications</h2>
+            <p style="color: var(--text-muted); font-size: 0.92rem; margin-top: 4px;">Engineered for high-throughput zero-trust AI coding agents & remote workspace querying.</p>
+            
+            <div class="spec-grid">
+                <div class="spec-item">
+                    <div class="spec-label">Database Target</div>
+                    <div class="spec-value">Polygres Cloud pgvector</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Dense Vector Index</div>
+                    <div class="spec-value">HNSW 1024d Cosine</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">GraphRAG Engine</div>
+                    <div class="spec-value">PostgreSQL Recursive CTE</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">AI Tagging Engine</div>
+                    <div class="spec-value">OpenRouter Qwen 32B</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Feature Grid -->
+    <section class="features">
+        <div class="card">
+            <div class="card-tag">INGESTION MATRIX</div>
+            <h3>Dual-Path Ingestion: Visual & MCP Native</h3>
+            <p>Drag & drop PDFs, DOCX, CSVs, TXT files or sync Google Workspace threads—or ingest files directly from Claude Code, Cursor, Antigravity, and terminal agents using the <code>nexus_ingest_business_document</code> MCP tool.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">AI TAGGING</div>
+            <h3>OpenRouter Qwen 32B Tagging</h3>
+            <p>Automatic 1-sentence summaries, categorical tags, and role security classifications generated by OpenRouter Qwen 2.5 Coder 32B.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">PGVECTOR</div>
+            <h3>Polygres Cloud pgvector 1024d</h3>
+            <p>High-throughput 1024-dimensional BGE-Large dense vector embeddings stored securely with HNSW cosine acceleration.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">SECURITY</div>
+            <h3>Zero-Knowledge AES-256-GCM</h3>
+            <p>End-to-End client payload encryption ensures even cloud hosts and database admins cannot read customer SOPs or knowledge base assets.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">MCP PROTOCOL</div>
+            <h3>Model Context Protocol Suite</h3>
+            <p>Seamlessly connect Claude Desktop, Cursor, Antigravity, OpenClaw, or mobile web clients via Stdio or Network SSE.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">POSTGRESQL SYNC</div>
+            <h3>Real-Time Institutional Synchronization</h3>
+            <p>Overarching Polygres Cloud PostgreSQL keeps all team members on the exact same page. When an employee or AI agent fixes a bug or updates an SOP, the new knowledge instantly supersedes outdated instructions across every employee's AI assistant.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">GRAPHRAG</div>
+            <h3>SME Router & SOP Checklists</h3>
+            <p>Automatically route questions to internal subject-matter experts and extract phase-by-phase operational checklists.</p>
+        </div>
+        <div class="card">
+            <div class="card-tag">OPEN SOURCE ENGINE</div>
+            <h3>krusch-context-mcp Integration</h3>
+            <p>Powered by the open-source episodic memory engine to track per-employee session lifecycle, active priorities, and bug solutions across agent turns.</p>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing-section">
+        <h2 style="text-align: center; font-family: var(--font-heading); font-size: 2.2rem; font-weight: 800;">Flexible Subscription Plans</h2>
+        <p style="text-align: center; color: var(--text-muted); margin-top: 8px;">Get started today with our Free Open Beta. Upgrade as your workspace expands.</p>
+
+        <div class="pricing-grid">
+            <!-- Free Beta -->
+            <div class="card" style="border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.04);">
+                <div class="price-badge" style="background: var(--accent-emerald); color: #000;">FREE PRO BETA</div>
+                <h3 style="font-size: 1.4rem;">Open Beta Pro</h3>
+                <div style="font-family: var(--font-heading); font-size: 2.4rem; font-weight: 800; margin: 12px 0;">$0 <span style="font-size: 1rem; color: var(--accent-emerald); font-weight: 600;">(FREE DURING BETA)</span></div>
+                <ul style="list-style: none; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px;">
+                    <li>✓ 5,000 Ingested Documents</li>
+                    <li>✓ 50,000 Monthly RAG Queries</li>
+                    <li>✓ 1-Click Google Workspace Sync</li>
+                    <li>✓ OpenRouter Qwen 32B AI Tagging</li>
+                    <li>✓ Zero-Knowledge AES-256 Encryption</li>
+                    <li>✓ Stdio + Remote SSE MCP Server</li>
+                </ul>
+                <button class="btn btn-emerald" style="width: 100%;" onclick="openModal(true)">Claim Free Pro Beta Access</button>
+            </div>
+
+            <!-- Pro Plan -->
+            <div class="card" style="border-color: rgba(6, 182, 212, 0.4); background: rgba(6, 182, 212, 0.04);">
+                <div class="price-badge" style="background: var(--accent-cyan); color: #000;">PRO SUITE (1–10 EMPLOYEES)</div>
+                <h3 style="font-size: 1.4rem;">Pro Suite</h3>
+                <div style="font-family: var(--font-heading); font-size: 2.4rem; font-weight: 800; margin: 12px 0;">$29 <span style="font-size: 1rem; color: var(--text-muted); font-weight: 400;">/ month</span></div>
+                <ul style="list-style: none; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px;">
+                    <li>✓ Small Team & Startup Focus (1–10 Employees)</li>
+                    <li>✓ 5,000 Ingested Documents (Doubled!)</li>
+                    <li>✓ 50,000 Monthly RAG Queries (Doubled!)</li>
+                    <li>✓ Dual-MCP krusch-context-mcp Integration</li>
+                    <li>✓ 1-Click Google Workspace Sync</li>
+                    <li>✓ Priority OpenRouter AI Engine</li>
+                </ul>
+                <button class="btn btn-primary" style="width: 100%;" onclick="openModal(true)">Upgrade to Pro</button>
+            </div>
+
+            <!-- Enterprise Plan -->
+            <div class="card">
+                <div class="price-badge" style="background: rgba(255,255,255,0.1); color: #fff;">ENTERPRISE SCALE</div>
+                <h3 style="font-size: 1.4rem;">Enterprise Dedicated</h3>
+                <div style="font-family: var(--font-heading); font-size: 2.2rem; font-weight: 800; margin: 12px 0;">Custom Pricing <span style="font-size: 0.95rem; color: var(--accent-cyan); font-weight: 600;">(Speak to Sales)</span></div>
+                <ul style="list-style: none; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 24px; display: flex; flex-direction: column; gap: 8px;">
+                    <li>✓ Tailored Enterprise Scale (Up to 100+ Employees)</li>
+                    <li>✓ Unlimited Ingested Documents & Queries</li>
+                    <li>✓ Dedicated Polygres Cloud Cluster</li>
+                    <li>✓ Multi-Role Sensitivity Classification & Audit</li>
+                    <li>✓ Domain-Wide Delegation & SSO</li>
+                </ul>
+                <button class="btn btn-outline" style="width: 100%;" onclick="openFeedbackModal()">Speak to Enterprise Sales</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Floating Feedback Button -->
+    <button id="floating-feedback-btn" style="position: fixed; bottom: 24px; right: 24px; background: linear-gradient(135deg, var(--accent-cyan), #0284c7); color: black; font-weight: 700; border: none; border-radius: 30px; padding: 12px 20px; font-family: var(--font-mono); font-size: 0.85rem; cursor: pointer; box-shadow: 0 8px 24px rgba(6, 182, 212, 0.4); z-index: 90;">💬 Give Beta Feedback</button>
+
+    <!-- Feedback Modal -->
+    <div class="modal-overlay" id="feedback-modal">
+        <div class="modal-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="modal-title">💬 Krusch-Nexus Beta Feedback</div>
+                <button id="close-feedback-btn" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+            <div class="form-group">
+                <label for="fb-email">Your Email (Optional)</label>
+                <input type="email" id="fb-email" placeholder="name@company.com">
+            </div>
+            <div class="form-group">
+                <label for="fb-category">Category</label>
+                <select id="fb-category">
+                    <option value="feature">Feature Request</option>
+                    <option value="bug">Bug Report</option>
+                    <option value="general">General Feedback</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="fb-message">Feedback / Bug Details</label>
+                <textarea id="fb-message" rows="4" placeholder="Tell us how we can improve Krusch-Nexus..."></textarea>
+            </div>
+            <button class="btn btn-emerald" id="fb-submit-btn" style="width: 100%; padding: 12px; margin-top: 8px;">Send Feedback</button>
+            <div id="fb-status" style="font-size: 0.85rem; color: var(--accent-cyan); text-align: center; min-height: 20px;"></div>
+        </div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div class="modal-overlay" id="auth-modal">
+        <div class="modal-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="modal-title" id="auth-modal-title">Sign Up for Krusch-Nexus</div>
+                <button id="close-modal-btn" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+
+            <div class="form-group" id="group-email">
+                <label for="auth-email">Email Address</label>
+                <input type="email" id="auth-email" placeholder="user@company.com" required>
+            </div>
+            <div class="form-group">
+                <label for="auth-username" id="auth-username-label">Enterprise Name / Username</label>
+                <input type="text" id="auth-username" placeholder="acme-corp" required>
+            </div>
+            <div class="form-group">
+                <label for="auth-password">Password</label>
+                <input type="password" id="auth-password" placeholder="••••••••" required>
+            </div>
+
+            <button class="btn btn-emerald" id="auth-submit-btn" style="width: 100%; padding: 12px; margin-top: 8px;">Create Account</button>
+
+            <div id="auth-status" style="font-size: 0.85rem; color: var(--accent-cyan); text-align: center; min-height: 20px;"></div>
+
+            <div style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 8px;">
+                <span id="auth-toggle-text">Already have an account?</span>
+                <a href="#" id="auth-toggle-btn" style="color: var(--accent-cyan); font-weight: 600; text-decoration: none;">Log In</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download & License Hub Modal -->
+    <div class="modal-overlay" id="download-modal">
+        <div class="modal-card" style="max-width: 640px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+                <div class="modal-title" style="font-size: 1.15rem; font-weight: 700; color: #fff;">⚡ Krusch-Nexus Download & License Key Hub</div>
+                <button id="close-download-btn" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+
+            <!-- License Key Card -->
+            <div style="background: rgba(6, 182, 212, 0.08); border: 1px solid var(--border-highlight); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; font-weight: 600; color: var(--accent-cyan); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">🔑 Active License Key</div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" id="dl-license-key" readonly value="NEXUS-LIC-TRIAL-BETA-2026" style="flex: 1; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--border-color); color: #fff; font-family: var(--font-mono); font-size: 0.85rem; padding: 8px 12px; border-radius: 6px;">
+                    <button class="btn btn-outline" id="copy-lic-btn" style="padding: 8px 12px; font-size: 0.8rem;">📋 Copy Key</button>
+                    <button class="btn btn-outline" id="gen-lic-btn" style="padding: 8px 12px; font-size: 0.8rem; color: var(--accent-emerald); border-color: var(--accent-emerald);">🔄 New Key</button>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;">License keys unlock enterprise RAG capabilities, GraphRAG queries, and 50,000 monthly turns.</div>
+            </div>
+
+            <!-- 1-Line Installer Section -->
+            <div style="margin-bottom: 16px;">
+                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main); margin-bottom: 6px;">🚀 1-Line Terminal Installer (Linux / macOS / WSL)</div>
+                <div style="background: #0d1117; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 14px; font-family: var(--font-mono); font-size: 0.78rem; color: #a5d6ff; display: flex; justify-content: space-between; align-items: center; overflow-x: auto;">
+                    <code id="one-line-cmd-text">curl -sSL https://krusch.dev/nexus/install.sh | bash -s -- --license-key NEXUS-LIC-TRIAL-BETA-2026</code>
+                    <button class="btn btn-outline" id="copy-cmd-btn" style="padding: 4px 10px; font-size: 0.75rem; margin-left: 8px; flex-shrink: 0;">📋 Copy</button>
+                </div>
+            </div>
+
+            <!-- Direct Download Links -->
+            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                <a href="/nexus/install.sh" download="install_nexus.sh" class="btn btn-emerald" style="flex: 1; text-align: center; text-decoration: none; padding: 10px 16px; font-weight: 600;">📥 Download install_nexus.sh</a>
+                <a href="/api/download/package" target="_blank" class="btn btn-outline" style="flex: 1; text-align: center; text-decoration: none; padding: 10px 16px;">📄 View Package Spec</a>
+            </div>
+
+            <!-- Pre-Configured MCP Snippet -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">⚙️ Auto-Generated MCP Config Snippet</div>
+                    <button class="btn btn-outline" id="copy-mcp-btn" style="padding: 4px 10px; font-size: 0.75rem;">📋 Copy Config JSON</button>
+                </div>
+                <pre style="background: #0d1117; border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; font-family: var(--font-mono); font-size: 0.75rem; color: #7ee787; max-height: 140px; overflow-y: auto;"><code id="mcp-snippet-text">{
+  "mcpServers": {
+    "krusch-nexus": {
+      "command": "python3",
+      "args": ["-m", "src.backend.mcp_server"],
+      "env": {
+        "NEXUS_LICENSE_KEY": "NEXUS-LIC-TRIAL-BETA-2026",
+        "EMBEDDING_PROVIDER": "openrouter",
+        "TAGGING_PROVIDER": "openrouter"
+      }
+    }
+  }
+}</code></pre>
+            </div>
+            <div id="dl-status" style="font-size: 0.8rem; color: var(--accent-cyan); text-align: center; margin-top: 10px; min-height: 18px;"></div>
+        </div>
+    </div>
+
+    <script>
+        function switchTermTab(tab) {
+            document.querySelectorAll('.term-tab').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.term-panel').forEach(el => el.classList.remove('active'));
+            const tabBtn = document.getElementById(`tab-${tab}`);
+            const panelEl = document.getElementById(`panel-${tab}`);
+            if (tabBtn && panelEl) {
+                tabBtn.classList.add('active');
+                panelEl.classList.add('active');
+            }
+        }
+
+        const authModal = document.getElementById('auth-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const navLoginBtn = document.getElementById('nav-login-btn');
+        const navSignupBtn = document.getElementById('nav-signup-btn');
+        const heroSignupBtn = document.getElementById('hero-signup-btn');
+        const authModalTitle = document.getElementById('auth-modal-title');
+        const authSubmitBtn = document.getElementById('auth-submit-btn');
+        const authToggleBtn = document.getElementById('auth-toggle-btn');
+        const authToggleText = document.getElementById('auth-toggle-text');
+        const authEmailInput = document.getElementById('auth-email');
+        const authUsername = document.getElementById('auth-username');
+        const authUsernameLabel = document.getElementById('auth-username-label');
+        const authPassword = document.getElementById('auth-password');
+        const authStatus = document.getElementById('auth-status');
+
+        let isSignup = true;
+
+        function openModal(signupMode = true) {
+            isSignup = signupMode;
+            authModalTitle.textContent = isSignup ? "Sign Up for Krusch-Nexus" : "Log In to Krusch-Nexus";
+            authSubmitBtn.textContent = isSignup ? "Create Account" : "Log In";
+            authToggleText.textContent = isSignup ? "Already have an account?" : "Need an account?";
+            authToggleBtn.textContent = isSignup ? "Log In" : "Sign Up";
+            document.getElementById('group-email').style.display = isSignup ? 'flex' : 'none';
+            authUsernameLabel.textContent = isSignup ? 'Enterprise Name / Username' : 'Username / Email';
+            authUsername.placeholder = isSignup ? 'acme-corp' : 'user@company.com';
+            authStatus.textContent = "";
+            authModal.classList.add('active');
+        }
+
+        navLoginBtn.addEventListener('click', () => openModal(false));
+        navSignupBtn.addEventListener('click', () => openModal(true));
+        heroSignupBtn.addEventListener('click', () => openModal(true));
+        closeModalBtn.addEventListener('click', () => authModal.classList.remove('active'));
+
+        authToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            openModal(!isSignup);
+        });
+
+        authSubmitBtn.addEventListener('click', async () => {
+            const email = authEmailInput ? authEmailInput.value.trim() : "";
+            let username = authUsername.value.trim();
+            const password = authPassword.value.trim();
+
+            if (isSignup && !email) {
+                authStatus.textContent = "Please enter a valid email address.";
+                return;
+            }
+
+            if (isSignup && !username && email) {
+                username = email.split('@')[0];
+            }
+
+            if (!password || (!username && !isSignup)) {
+                authStatus.textContent = "Please fill in all required fields.";
+                return;
+            }
+
+            authStatus.textContent = isSignup ? "Writing account & workspace directly to database..." : "Authenticating...";
+
+            if (isSignup) {
+                try {
+                    const res = await fetch('/api/signup', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, username, company_name: username, password })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.access_token) {
+                            localStorage.setItem('access_token', data.access_token);
+                        }
+                        if (data.api_key) {
+                            localStorage.setItem('nexus_api_key', data.api_key);
+                        }
+                        const vMsg = data.email_verified ? "" : " (Check email to verify & unlock full trial quota)";
+                        authStatus.textContent = `✓ Account & workspace created for ${data.username || username}! API Key: ${data.api_key}${vMsg}`;
+                        setTimeout(() => window.location.href = '/ingest', 2500);
+                    } else {
+                        const err = await res.json().catch(() => ({ detail: 'Signup failed' }));
+                        authStatus.textContent = `❌ ${err.detail || 'Signup failed'}`;
+                    }
+                } catch (e) {
+                    authStatus.textContent = "❌ Network error during signup. Please check connection.";
+                }
+            } else {
+                try {
+                    const formData = new FormData();
+                    formData.append('username', username);
+                    formData.append('password', password);
+
+                    const res = await fetch('/api/token', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        authStatus.textContent = "✓ Logged in! Redirecting...";
+                        localStorage.setItem('access_token', data.access_token);
+                        setTimeout(() => window.location.href = '/ingest', 1000);
+                    } else {
+                        const err = await res.json().catch(() => ({ detail: 'Invalid credentials' }));
+                        authStatus.textContent = `❌ ${err.detail || 'Invalid username or password'}`;
+                    }
+                } catch (e) {
+                    authStatus.textContent = "❌ Network error during login.";
+                }
+            }
+        });
+
+        // Feedback Modal Handlers
+        const feedbackModal = document.getElementById('feedback-modal');
+        const floatingFeedbackBtn = document.getElementById('floating-feedback-btn');
+        const closeFeedbackBtn = document.getElementById('close-feedback-btn');
+        const fbSubmitBtn = document.getElementById('fb-submit-btn');
+        const fbEmail = document.getElementById('fb-email');
+        const fbCategory = document.getElementById('fb-category');
+        const fbMessage = document.getElementById('fb-message');
+        const fbStatus = document.getElementById('fb-status');
+
+        function openFeedbackModal() {
+            fbStatus.textContent = "";
+            fbMessage.value = "";
+            feedbackModal.classList.add('active');
+        }
+
+        floatingFeedbackBtn.addEventListener('click', openFeedbackModal);
+        closeFeedbackBtn.addEventListener('click', () => feedbackModal.classList.remove('active'));
+
+        fbSubmitBtn.addEventListener('click', async () => {
+            const message = fbMessage.value.trim();
+            if (!message) {
+                fbStatus.textContent = "Please enter your feedback message.";
+                return;
+            }
+            fbStatus.textContent = "Submitting feedback...";
+            try {
+                const res = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        user_email: fbEmail.value.trim() || 'anonymous',
+                        category: fbCategory.value,
+                        message: message
+                    })
+                });
+                if (res.ok) {
+                    fbStatus.textContent = "✓ Thank you! Feedback submitted.";
+                    setTimeout(() => feedbackModal.classList.remove('active'), 1500);
+                } else {
+                    fbStatus.textContent = "❌ Failed to submit feedback.";
+                }
+            } catch (e) {
+                fbStatus.textContent = "❌ Network error submitting feedback.";
+            }
+        });
+
+        // Download Modal & License Key Handlers
+        const downloadModal = document.getElementById('download-modal');
+        const closeDownloadBtn = document.getElementById('close-download-btn');
+        const navDownloadBtn = document.getElementById('nav-download-btn');
+        const heroDownloadBtn = document.getElementById('hero-download-btn');
+        const dlLicenseKeyInput = document.getElementById('dl-license-key');
+        const oneLineCmdText = document.getElementById('one-line-cmd-text');
+        const mcpSnippetText = document.getElementById('mcp-snippet-text');
+        const copyLicBtn = document.getElementById('copy-lic-btn');
+        const genLicBtn = document.getElementById('gen-lic-btn');
+        const copyCmdBtn = document.getElementById('copy-cmd-btn');
+        const copyMcpBtn = document.getElementById('copy-mcp-btn');
+        const dlStatus = document.getElementById('dl-status');
+
+        function updateLicenseSnippet(licKey) {
+            if (!licKey) return;
+            dlLicenseKeyInput.value = licKey;
+            oneLineCmdText.textContent = `curl -sSL https://krusch.dev/nexus/install.sh | bash -s -- --license-key ${licKey}`;
+            mcpSnippetText.textContent = JSON.stringify({
+                "mcpServers": {
+                    "krusch-nexus": {
+                        "command": "python3",
+                        "args": ["-m", "src.backend.mcp_server"],
+                        "env": {
+                            "NEXUS_LICENSE_KEY": licKey,
+                            "EMBEDDING_PROVIDER": "openrouter",
+                            "TAGGING_PROVIDER": "openrouter"
+                        }
+                    }
+                }
+            }, null, 2);
+        }
+
+        function openDownloadModal() {
+            const savedKey = localStorage.getItem('nexus_license_key') || localStorage.getItem('nexus_api_key');
+            if (savedKey) {
+                updateLicenseSnippet(savedKey);
+            }
+            dlStatus.textContent = "";
+            downloadModal.classList.add('active');
+        }
+
+        if (navDownloadBtn) navDownloadBtn.addEventListener('click', openDownloadModal);
+        if (heroDownloadBtn) heroDownloadBtn.addEventListener('click', openDownloadModal);
+        if (closeDownloadBtn) closeDownloadBtn.addEventListener('click', () => downloadModal.classList.remove('active'));
+
+        if (genLicBtn) {
+            genLicBtn.addEventListener('click', async () => {
+                dlStatus.textContent = "Generating new trial license key...";
+                try {
+                    const res = await fetch('/api/license/generate', { method: 'POST' });
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.license_key) {
+                            localStorage.setItem('nexus_license_key', data.license_key);
+                            updateLicenseSnippet(data.license_key);
+                            dlStatus.textContent = "✓ Generated & assigned new License Key!";
+                        }
+                    } else {
+                        dlStatus.textContent = "❌ Failed to generate license key.";
+                    }
+                } catch (e) {
+                    dlStatus.textContent = "❌ Error generating license key.";
+                }
+            });
+        }
+
+        function copyTextToClipboard(text, successMsg) {
+            navigator.clipboard.writeText(text).then(() => {
+                dlStatus.textContent = successMsg;
+                setTimeout(() => { dlStatus.textContent = ""; }, 2500);
+            }).catch(() => {
+                dlStatus.textContent = "❌ Failed to copy to clipboard.";
+            });
+        }
+
+        if (copyLicBtn) copyLicBtn.addEventListener('click', () => copyTextToClipboard(dlLicenseKeyInput.value, "✓ License Key copied to clipboard!"));
+        if (copyCmdBtn) copyCmdBtn.addEventListener('click', () => copyTextToClipboard(oneLineCmdText.textContent, "✓ Terminal installer command copied to clipboard!"));
+        if (copyMcpBtn) copyMcpBtn.addEventListener('click', () => copyTextToClipboard(mcpSnippetText.textContent, "✓ MCP Config JSON snippet copied to clipboard!"));
+
+        // Auto-open login or signup modal if URL query parameters are present
+        function checkQueryAndOpenModal() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('login') === 'true') {
+                openModal(false);
+            } else if (urlParams.get('signup') === 'true') {
+                openModal(true);
+            } else if (urlParams.get('download') === 'true') {
+                openDownloadModal();
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            window.addEventListener('DOMContentLoaded', checkQueryAndOpenModal);
+        } else {
+            checkQueryAndOpenModal();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+  "owner": {
+    "name": "Miles Dyson",
+    "title": "Lead Researcher",
+    "email": "miles.dyson@cyberdyne.com",
+    "phone": "555-1234"
+  },
+  "company": {
+    "name": "Cyberdyne Systems",
+    "entity_type": "C-Corp",
+    "ein": "12-3456789",
+    "state_of_formation": "California",
+    "formation_date": "2026-01-01",
+    "dba": "Cyberdyne",
+    "description": "Neural net processors and autonomous robotics"
+  },
+  "address": {
+    "street": "123 Research Way",
+    "city": "Sunnyvale",
+    "state": "California",
+    "zip": "94089"
+  },
+  "industry": {
+    "primary": "Defense Research",
+    "naics_code": "541715"
+  },
+  "employees": {
+    "count": 50,
+    "has_contractors": false,
+    "contractor_count": 0
+  },
+  "compliance": {
+    "business_license": true,
+    "license_expiration": "2027-01-01",
+    "insurance_types": [
+      "General Liability",
+      "Cyber Liability"
+    ]
+  },
+  "preferences": {
+    "ai_formality": "professional"
+  },
+  "user_id": 1,
+  "updated_at": "2026-09-22T19:10:12.558234+00:00",
+  "created_at": "2026-09-22T19:10:12.558234+00:00"
+}

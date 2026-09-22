@@ -1,0 +1,24 @@
+{
+  "name": "krusch-nexus-coding-agent",
+  "version": "1.0.0",
+  "description": "Coding agent DBOS worker for Krusch-Nexus",
+  "main": "dist/worker.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npx dbos start",
+    "dev": "tsc && npx dbos start"
+  },
+  "dependencies": {
+    "@dbos-inc/dbos-sdk": "^4.17.6",
+    "@krusch/toolkit": "file:../../../../lib",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "pg": "^8.11.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.0.0"
+  }
+}

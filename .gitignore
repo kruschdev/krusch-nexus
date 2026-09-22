@@ -1,0 +1,48 @@
+# Secrets & Environment
+.env
+.env.*
+!.env.example
+
+# Virtual Environments
+mcp_env/
+.venv/
+env/
+venv/
+
+# Python Cache & Builds
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Node / JS
+node_modules/
+.npm/
+
+# Cloudflare / Serverless
+.wrangler/
+
+# Databases & Local Storage
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+.agent/
+
+# Watch folders & drop archives
+ingest_watch/
+.ingested/
+
+# Scratch & temporary artifacts
+scratch/
+tmp/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
