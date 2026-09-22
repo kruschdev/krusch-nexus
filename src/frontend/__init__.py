@@ -1,1 +1,0 @@
-# krusch-oss frontend package

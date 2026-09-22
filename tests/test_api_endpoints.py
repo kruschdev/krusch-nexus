@@ -1,0 +1,111 @@
+"""
+Unit Tests for KruschNexus REST API (HTTP Twin)
+==============================================
+Tests /health, /v1/workspaces, /v1/ingest, /v1/search, and /v1/documents
+using FastAPI TestClient.
+"""
+
+import os
+import shutil
+import tempfile
+import unittest
+from fastapi.testclient import TestClient
+
+from src.backend.config import NexusConfig
+from src.backend.db import init_db, get_engine
+import src.backend.main as main_module
+from src.backend.client import NexusIngestClient
+
+
+class TestApiEndpoints(unittest.TestCase):
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix="nexus_api_test_")
+        self.db_path = os.path.join(self.temp_dir, "test_api.db")
+        self.config = NexusConfig(database_url=f"sqlite:///{self.db_path}")
+        self.engine = get_engine(self.config.database_url)
+        init_db(self.engine)
+
+        # Reconfigure main module client
+        main_module.config = self.config
+        main_module.client = NexusIngestClient(self.config)
+        self.client = TestClient(main_module.app)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_healthcheck_endpoint(self):
+        """Verify /health returns structured service health status."""
+        resp = self.client.get("/health")
+        # May be 200 or 503 depending on whether Ollama is reachable, but must return valid JSON
+        self.assertIn(resp.status_code, [200, 503])
+        data = resp.json()
+        self.assertIn("database", data)
+        self.assertIn("ollama", data)
+        self.assertIn("embed_model", data)
+
+    def test_workspaces_crud(self):
+        """Verify creating and listing workspaces via HTTP."""
+        resp = self.client.post("/v1/workspaces", json={"name": "Litigation", "description": "Active lawsuits"})
+        self.assertEqual(resp.status_code, 200)
+        ws_data = resp.json()
+        self.assertEqual(ws_data["name"], "Litigation")
+        self.assertEqual(ws_data["document_count"], 0)
+
+        # Duplicate should return 409 Conflict
+        dup_resp = self.client.post("/v1/workspaces", json={"name": "Litigation"})
+        self.assertEqual(dup_resp.status_code, 409)
+
+        # List workspaces
+        list_resp = self.client.get("/v1/workspaces")
+        self.assertEqual(list_resp.status_code, 200)
+        workspaces = list_resp.json()
+        self.assertEqual(len(workspaces), 1)
+        self.assertEqual(workspaces[0]["name"], "Litigation")
+
+    def test_ingest_and_search_endpoints(self):
+        """Verify multipart document ingestion and hybrid search over HTTP."""
+        # 1. Ingest document via multipart upload
+        file_content = b"Section 4.1 Indemnification\nEach party agrees to indemnify and hold harmless."
+        files = {"file": ("indemnity.txt", file_content, "text/plain")}
+        data = {"workspace": "Contracts", "doc_type": "authority"}
+
+        ingest_resp = self.client.post("/v1/ingest", files=files, data=data)
+        self.assertEqual(ingest_resp.status_code, 200)
+        report = ingest_resp.json()
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["workspace"], "Contracts")
+        self.assertEqual(report["filename"], "indemnity.txt")
+        self.assertGreater(report["total_chunks"], 0)
+
+        # 2. Search corpus
+        search_payload = {
+            "query": "indemnify and hold harmless under Section 4.1",
+            "workspace": "Contracts",
+            "limit": 5
+        }
+        search_resp = self.client.post("/v1/search", json=search_payload)
+        self.assertEqual(search_resp.status_code, 200)
+        hits = search_resp.json()
+        self.assertGreater(len(hits), 0)
+        top_hit = hits[0]
+        self.assertEqual(top_hit["workspace"], "Contracts")
+        self.assertEqual(top_hit["filename"], "indemnity.txt")
+        self.assertIn("Section 4.1", top_hit["citation"])
+
+        # 3. List documents
+        docs_resp = self.client.get("/v1/documents?workspace=Contracts")
+        self.assertEqual(docs_resp.status_code, 200)
+        docs = docs_resp.json()
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0]["filename"], "indemnity.txt")
+
+        # 4. Fetch IngestReport by file hash
+        file_hash = report["file_hash"]
+        rep_resp = self.client.get(f"/v1/documents/{file_hash}/report")
+        self.assertEqual(rep_resp.status_code, 200)
+        self.assertEqual(rep_resp.json()["file_hash"], file_hash)
+
+
+if __name__ == "__main__":
+    unittest.main()

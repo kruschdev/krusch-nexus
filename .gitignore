@@ -17,13 +17,6 @@ __pycache__/
 dist/
 build/
 
-# Node / JS
-node_modules/
-.npm/
-
-# Cloudflare / Serverless
-.wrangler/
-
 # Databases & Local Storage
 *.db
 *.sqlite
@@ -31,9 +24,14 @@ node_modules/
 pgdata/
 .agent/
 
-# Watch folders & drop archives
+# Watch Folders & State Machine Archives
 ingest_watch/
+staging/
 .ingested/
+.failed/
+*.error.json
+*.part
+*.jsonl
 
 # Scratch & temporary artifacts
 scratch/
@@ -46,7 +44,4 @@ tmp/
 # IDE & Agents
 .vscode/
 .idea/
-.agent/
 *.swp
-*.swo
-.DS_Store

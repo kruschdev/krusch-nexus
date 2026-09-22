@@ -96,7 +96,7 @@ def compute_file_hash(file_path: str) -> str:
     return hasher.hexdigest()
 
 
-def _try_tesseract_ocr(pdf_path: str, page_num: int) -> Optional[str]:
+def _try_tesseract_ocr(pdf_path: str, page_num: int, dpi: int = 150) -> Optional[str]:
     """Attempt local OCR fallback on a specific PDF page using pdftoppm + tesseract."""
     # Check if tesseract binary is available
     tess_path = subprocess.run(["which", "tesseract"], capture_output=True, text=True).stdout.strip()
@@ -105,8 +105,8 @@ def _try_tesseract_ocr(pdf_path: str, page_num: int) -> Optional[str]:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         img_prefix = os.path.join(tmpdir, f"page_{page_num}")
-        # Render PDF page to PNG at 150 DPI
-        ppm_cmd = ["pdftoppm", "-png", "-r", "150", "-f", str(page_num), "-l", str(page_num), pdf_path, img_prefix]
+        # Render PDF page to PNG at configured DPI
+        ppm_cmd = ["pdftoppm", "-png", "-r", str(dpi), "-f", str(page_num), "-l", str(page_num), pdf_path, img_prefix]
         res = subprocess.run(ppm_cmd, capture_output=True, text=True)
         if res.returncode != 0:
             return None
@@ -124,7 +124,12 @@ def _try_tesseract_ocr(pdf_path: str, page_num: int) -> Optional[str]:
     return None
 
 
-def parse_pdf(file_path: str, filename: str) -> ParsedDocument:
+def parse_pdf(
+    file_path: str,
+    filename: str,
+    ocr_threshold: int = 30,
+    ocr_dpi: int = 150
+) -> ParsedDocument:
     """
     Parse PDF page-by-page using pdftotext (Poppler) with local OCR fallback for scans.
     Preserves exact 1-based page numbers.
@@ -152,13 +157,14 @@ def parse_pdf(file_path: str, filename: str) -> ParsedDocument:
                 ocr_applied = False
                 has_images = False
 
-                # If text is suspiciously short (< 30 chars), check for OCR fallback
-                if len(clean_text) < 30:
+                # If text is suspiciously short (< ocr_threshold chars), check for OCR fallback
+                if len(clean_text) < ocr_threshold:
                     has_images = True
-                    ocr_text = _try_tesseract_ocr(file_path, idx)
+                    ocr_text = _try_tesseract_ocr(file_path, idx, dpi=ocr_dpi)
                     if ocr_text and len(ocr_text) > len(clean_text):
                         clean_text = ocr_text
                         ocr_applied = True
+                        logger.info(f"OCR fallback applied to page {idx} of '{filename}' ({len(ocr_text)} chars extracted)")
                     elif not clean_text:
                         clean_text = f"[Scanned page {idx} - image only / OCR pending]"
 
@@ -368,7 +374,12 @@ def parse_plain_or_code(file_path: str, filename: str) -> ParsedDocument:
     return ParsedDocument(filename=filename, file_hash=file_hash, pages=pages)
 
 
-def parse_document(file_path: str, filename: str) -> List[Document]:
+def parse_document(
+    file_path: str,
+    filename: str,
+    ocr_threshold: int = 30,
+    ocr_dpi: int = 150
+) -> List[Document]:
     """
     Unified entry point for document parsing.
     Dispatches to format-specific parsers based on extension.
@@ -377,7 +388,7 @@ def parse_document(file_path: str, filename: str) -> List[Document]:
     ext = filename.lower().split('.')[-1] if '.' in filename else ""
 
     if ext == "pdf":
-        parsed = parse_pdf(file_path, filename)
+        parsed = parse_pdf(file_path, filename, ocr_threshold=ocr_threshold, ocr_dpi=ocr_dpi)
     elif ext in ["docx", "doc"]:
         parsed = parse_docx(file_path, filename)
     elif ext in ["eml", "msg"]:

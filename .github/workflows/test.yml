@@ -30,13 +30,22 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install -r requirements.txt
         pip install -e .
         pip install pytest
 
-    - name: Run Core Ingestion Tests
+    - name: Homelab Path & Secret Hygiene Guard
+      run: |
+        echo "Verifying no absolute homelab machine paths exist in source or tests..."
+        ! grep -rn "/home/krusch" src/ tests/
+
+    - name: Generate Fixtures
+      run: |
+        python tests/fixtures/create_fixtures.py
+
+    - name: Run Layered Test Suite
       env:
         DATABASE_URL: "sqlite:///:memory:"
-        EMBEDDING_PROVIDER: "ollama"
-        OLLAMA_EMBED_HOST: "http://127.0.0.1:11434"
+        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
       run: |
-        python -m unittest src.backend.test_closed_loop_ingest
+        python -m unittest discover tests
