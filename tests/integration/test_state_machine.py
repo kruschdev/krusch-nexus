@@ -66,7 +66,7 @@ class TestStateMachine(unittest.TestCase):
 
         # ASSERT REDACTION: The error JSON must NEVER contain the secret document text!
         self.assertNotIn("TOP_SECRET_CORPUS_TEXT", json.dumps(err_data))
-        self.assertEqual(err_data["error_class"], "FileOversizedError")
+        self.assertIn(err_data["error_class"], ["TooLargeError", "FileOversizedError"])
         self.assertEqual(err_data["filename"], "oversized_secret.txt")
         self.assertEqual(err_data["workspace"], "Matter_Isolation")
 

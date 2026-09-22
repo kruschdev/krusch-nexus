@@ -4,16 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "krusch-nexus"
-version = "1.0.0"
-description = "Universal Offline Document Ingestion Engine & Page-True Citation Spine"
+version = "0.2.0"
+description = "Air-Gapped Universal Document Ingestion Engine & Citation Spine"
 readme = "README.md"
-authors = [{ name = "Kevin Ruschman", email = "ksruschman@gmail.com" }]
+authors = [{ name = "kruschdev", email = "kruschdev@users.noreply.github.com" }]
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "sqlalchemy>=2.0.25",
+    "alembic>=1.13.0",
     "psycopg2-binary>=2.9.9",
     "pgvector>=0.2.4",
     "python-multipart>=0.0.9",
@@ -39,12 +40,12 @@ cloud = [
 
 [project.scripts]
 nexus = "krusch_nexus.cli:main"
-nexus-daemon = "krusch_nexus.ingest:main"
+nexus-daemon = "krusch_nexus.daemon:main"
 nexus-mcp = "krusch_nexus.mcp:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["krusch_nexus*", "backend*"]
+include = ["krusch_nexus*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

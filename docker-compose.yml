@@ -77,7 +77,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["python", "-m", "krusch_nexus.ingest"]
+    command: ["python", "-m", "krusch_nexus.daemon"]
     restart: unless-stopped
 
   mcp-server:

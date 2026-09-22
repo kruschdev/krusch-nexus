@@ -12,10 +12,8 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Bake source into image for standalone deployment (dev volume mount overrides this)
+COPY pyproject.toml alembic.ini ./
+COPY alembic/ alembic/
 COPY src/ src/
 RUN pip install --no-cache-dir -e .
 

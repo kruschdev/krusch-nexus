@@ -1,8 +1,8 @@
 """
-KruschNexus Configuration & Air-Gap Enforcement
-================================================
+KruschNexus Configuration & Air-Gap Enforcement (config.py)
+============================================================
 Encapsulates runtime parameters, security bounds, path allowlists,
-and compile/startup air-gap guarantees.
+API tokens, and compile/startup air-gap guarantees.
 """
 
 import os
@@ -26,6 +26,12 @@ class NexusConfig(BaseModel):
     allow_cloud: bool = Field(
         default_factory=lambda: os.getenv("ALLOW_CLOUD", "0") in ("1", "true", "True")
     )
+    airgap: bool = Field(
+        default_factory=lambda: os.getenv("AIRGAP", "1") in ("1", "true", "True")
+    )
+    api_token: Optional[str] = Field(
+        default_factory=lambda: os.getenv("NEXUS_API_TOKEN")
+    )
     ollama_url: str = Field(
         default_factory=lambda: os.getenv(
             "OLLAMA_EMBED_HOST",
@@ -39,8 +45,8 @@ class NexusConfig(BaseModel):
     embed_timeout: float = 45.0
     subprocess_timeout: float = 30.0
     ocr_threshold_chars: int = 30
-    ocr_dpi: int = 150
-    max_chars_per_chunk: int = 2000
+    ocr_dpi: int = 300
+    max_chars_per_chunk: int = 1800
     overlap_chars: int = 150
     max_file_size_bytes: int = 52_428_800  # 50 MB
     max_page_count: int = 500              # Cap on multi-page processing
@@ -49,6 +55,7 @@ class NexusConfig(BaseModel):
     allowed_ingest_roots: List[str] = Field(default_factory=list)
     max_ocr_workers: int = 2
     max_embed_workers: int = 4
+    stale_lock_timeout_seconds: float = 600.0
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":
@@ -60,22 +67,28 @@ class NexusConfig(BaseModel):
                 "Set ALLOW_CLOUD=1 and install cloud extras if external egress is explicitly intended."
             )
 
-        # 2. Reject default insecure credentials (kruschpassword)
+        # 2. Refuse startup if cloud keys present under AIRGAP=1
+        if self.airgap and not self.allow_cloud and os.getenv("OPENROUTER_API_KEY"):
+            raise AirGapViolationError(
+                "Refusing startup: OPENROUTER_API_KEY detected in environment while AIRGAP=1. "
+                "Remove cloud API keys or explicitly declare ALLOW_CLOUD=1."
+            )
+
+        # 3. Reject default insecure credentials (kruschpassword)
         if "kruschpassword" in self.database_url:
             raise ConfigurationError(
                 "Refusing startup: Insecure default database password 'kruschpassword' detected. "
                 "Provide a secure, explicit POSTGRES_PASSWORD in your environment / DATABASE_URL."
             )
 
-        # 3. Fallback database URL for unconfigured dev/test
+        # 4. Fallback database URL for unconfigured dev/test
         if not self.database_url:
-            # Check if running in test mode or local default
             if os.getenv("TESTING", "0") in ("1", "true") or os.getenv("PYTEST_CURRENT_TEST"):
                 self.database_url = "sqlite:///./nexus_test.db"
             else:
                 self.database_url = "sqlite:///./nexus.db"
 
-        # 4. Standardize watch_dir into allowed roots if provided
+        # 5. Standardize watch_dir into allowed roots if provided
         if self.watch_dir and self.watch_dir not in self.allowed_ingest_roots:
             self.allowed_ingest_roots.append(os.path.abspath(self.watch_dir))
 

@@ -62,13 +62,13 @@ def cmd_ingest(args):
 
 def cmd_daemon(args):
     """Start the file watch ingestion daemon."""
-    from .ingest import auto_ingest_loop
+    from .daemon import run_daemon
     import asyncio
     conf = NexusConfig.from_env()
     if args.watch_dir:
         conf.watch_dir = args.watch_dir
     print(f"Starting Nexus Ingestion Daemon...")
-    asyncio.run(auto_ingest_loop(config=conf))
+    asyncio.run(run_daemon(watch_dir=args.watch_dir, config=conf))
     return 0
 
 

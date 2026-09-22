@@ -42,13 +42,17 @@ class TestChunking(unittest.TestCase):
         self.assertGreaterEqual(len(chunks), 2)
         # Page 1 check
         self.assertEqual(chunks[0].page_number, 1)
-        self.assertIn("[policy.docx - p.1] Section 1.2: Backup Retention Standards", chunks[0].text)
+        self.assertIn("Section 1.2: Backup Retention Standards", chunks[0].text)
+        self.assertIn("Section 1.2: Backup Retention Standards", chunks[0].citation)
+        self.assertNotIn("[policy.docx", chunks[0].text)
 
         # Page 2 check
         p2_chunks = [c for c in chunks if c.page_number == 2]
         self.assertTrue(len(p2_chunks) > 0)
         self.assertEqual(p2_chunks[0].page_number, 2)
-        self.assertIn("[policy.docx - p.2] Section 2.0: Hardware Audits", p2_chunks[0].text)
+        self.assertIn("Section 2.0: Hardware Audits", p2_chunks[0].text)
+        self.assertIn("Section 2.0: Hardware Audits", p2_chunks[0].citation)
+        self.assertNotIn("[policy.docx", p2_chunks[0].text)
 
 
 if __name__ == "__main__":

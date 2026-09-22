@@ -54,3 +54,34 @@ class EmbeddingUnavailable(NexusError):
 class FileOversizedError(NexusError):
     """Raised when an incoming file exceeds configured byte size or page count limits."""
     pass
+
+
+# Directive 3 & 4: Explicit Error Classes
+class TooLargeError(FileOversizedError):
+    """Raised when file exceeds byte size or page limit."""
+    pass
+
+
+class EncryptedPdfError(ParseError):
+    """Raised when PDF file is password protected or encrypted and cannot be parsed."""
+    pass
+
+
+class EmptyOcrError(ParseError):
+    """Raised when OCR produces empty or non-viable text."""
+    pass
+
+
+class UnsupportedMimeError(ParseError):
+    """Raised when file MIME type or extension is unsupported."""
+    pass
+
+
+class CorruptedFileError(ParseError):
+    """Raised when file structure is malformed or unreadable."""
+    pass
+
+
+class AuthenticationError(NexusError):
+    """Raised when API token or authorization fails."""
+    pass

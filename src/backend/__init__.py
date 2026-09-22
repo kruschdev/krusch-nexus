@@ -1,1 +1,0 @@
-# krusch-oss backend package

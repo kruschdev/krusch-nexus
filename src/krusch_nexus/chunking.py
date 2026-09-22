@@ -1,23 +1,24 @@
 """
-KruschNexus Structure-Aware Chunking Engine
-==========================================
+KruschNexus Citation-First Chunking Engine (chunking.py)
+========================================================
 Splits multi-page documents into structure-aware chunks while:
-- Preserving 1-based page boundaries
-- Tracking section headings and prepending contextual breadcrumbs
-- Splitting at new section headings for high structural fidelity
-- Maintaining sliding-window overlap between chunks
-- Computing SHA-256 source chunk hashes for exact deduplication
+- Isolating raw text for embedding (no breadcrumbs prepended into embedding strings)
+- Computing source_hash over raw text ONLY (breadcrumbs changes don't alter hashes)
+- Carrying hierarchical heading stacks (e.g. Article IV > Section 8.22)
+- Flowing sliding-window overlap across page boundaries
+- Supporting DocType enums and locator citations for unpaged formats (DOCX/CSV)
 """
 
 import re
 import hashlib
 import logging
-from typing import List, Dict, Any, Optional, Set
-from .parsers import ParsedPage, Document
+from typing import List, Dict, Any, Optional, Set, Tuple
+
+from .models import PageData, DocType, Citation
 
 logger = logging.getLogger("krusch_nexus.chunking")
 
-# Section heading patterns for legal and business documents
+# Section heading patterns for legal and corporate statutory documents
 SECTION_PATTERN = re.compile(
     r'(?:§+|Section|Sec\.|Article|Clause)\s*([0-9]+[A-Za-z0-9\.\-:]*(?:\s+[A-Za-z0-9\s,\-\'\":]{0,60})?)',
     re.IGNORECASE
@@ -29,19 +30,23 @@ class Chunk:
     """Represents a structurally aware document chunk with strict provenance."""
     def __init__(
         self,
-        text: str,
-        raw_text: str,
-        header: str,
-        page_number: int,
+        text: str,              # Raw text to embed (no breadcrumb prefix)
+        raw_text: str,          # Unmodified chunk body
+        citation: str,          # Canonical citation (e.g. 'doc.pdf p.3 § 1950.5' or 'memo.docx § Art. IV')
+        header: Optional[str],
+        locator: Optional[str],
+        page_number: Optional[int],
         chunk_index: int,
-        source_hash: str,
+        source_hash: str,       # SHA-256 over raw_text ONLY
         doc_hash: str,
         filename: str,
         metadata: Optional[Dict[str, Any]] = None
     ):
         self.text = text
         self.raw_text = raw_text
+        self.citation = citation
         self.header = header
+        self.locator = locator
         self.page_number = page_number
         self.chunk_index = chunk_index
         self.source_hash = source_hash
@@ -53,7 +58,9 @@ class Chunk:
         return {
             "text": self.text,
             "raw_text": self.raw_text,
+            "citation": self.citation,
             "header": self.header,
+            "locator": self.locator,
             "page_number": self.page_number,
             "chunk_index": self.chunk_index,
             "source_hash": self.source_hash,
@@ -62,34 +69,23 @@ class Chunk:
             "metadata": self.metadata
         }
 
-    def to_llama_document(self) -> Document:
-        """Convert chunk into a Document for indexing."""
-        meta = {
-            **self.metadata,
-            "filename": self.filename,
-            "doc_hash": self.doc_hash,
-            "source_hash": self.source_hash,
-            "page_number": self.page_number,
-            "page_label": str(self.page_number),
-            "chunk_index": self.chunk_index,
-            "header": self.header
-        }
-        return Document(text=self.text, metadata=meta)
-
 
 def compute_chunk_hash(text: str) -> str:
-    """Compute SHA-256 hash of normalized chunk text."""
+    """Compute SHA-256 hash of normalized raw text only."""
     clean = re.sub(r'\s+', ' ', text).strip()
     return hashlib.sha256(clean.encode('utf-8')).hexdigest()
 
 
 def detect_header_candidate(line: str) -> Optional[str]:
-    """Inspect whether a single line qualifies as a structural heading or section title."""
+    """
+    Inspect whether a single line qualifies as a structural heading or section title.
+    Returns clean title string or None.
+    """
     clean = line.strip()
     if not clean or len(clean) > 120:
         return None
 
-    # Check Markdown heading
+    # Check Markdown heading (# to ######)
     if clean.startswith('#'):
         return re.sub(r'^#+\s*', '', clean).strip()
 
@@ -100,222 +96,163 @@ def detect_header_candidate(line: str) -> Optional[str]:
             return clean
         return sec_match.group(0).strip()
 
-    # Check All-Caps short title (e.g., "TERMINATION OF TENANCY")
+    # Check All-Caps short title
     if clean.isupper() and 4 < len(clean) < 80 and not any(p in clean for p in [".", ";", "!", "?"]):
         return clean.title()
 
     return None
 
 
-def _extract_overlap_tail(items: List[str], target_overlap: int, space_limit: int, separator_len: int = 2) -> List[str]:
-    """
-    Extract a suffix of items up to target_overlap characters,
-    ensuring total length with separators does not exceed space_limit.
-    """
-    if target_overlap <= 0 or space_limit <= 0 or not items:
-        return []
-
-    overlap: List[str] = []
-    accum = 0
-    for item in reversed(items):
-        item_len = len(item)
-        needed = item_len if not overlap else item_len + separator_len
-        if accum + needed <= target_overlap and accum + needed <= space_limit:
-            overlap.insert(0, item)
-            accum += needed
-        else:
-            break
-    return overlap
+def format_chunk_citation(
+    filename: str,
+    page_number: Optional[int],
+    locator: Optional[str] = None,
+    header: Optional[str] = None
+) -> str:
+    """Format canonical citation string."""
+    cit = Citation(filename=filename, page_number=page_number, locator=locator, header=header)
+    return cit.formatted()
 
 
 def chunk_document_pages(
-    pages: List[ParsedPage],
+    pages: List[PageData],
     filename: str,
     file_hash: str,
-    max_chars: int = 2000,
+    max_chars: int = 1800,
     overlap_chars: int = 150,
+    doc_type: DocType = DocType.GENERAL,
     base_metadata: Optional[Dict[str, Any]] = None
 ) -> List[Chunk]:
     """
-    Split multi-page document into structure-aware chunks.
-    Preserves page boundaries, tracks section headings, prepends context breadcrumbs,
-    and splits on new major section headings for structural fidelity.
+    Split document pages into structure-aware chunks.
+    - Embed text is purely raw section text.
+    - source_hash is calculated strictly on raw_text.
+    - Heading stacks are tracked across the document.
+    - Overlap seamlessly crosses page boundaries.
     """
     chunks: List[Chunk] = []
     global_chunk_idx = 0
-    active_header = "General"
+    heading_stack: List[str] = []
 
     base_meta = dict(base_metadata or {})
-    doc_type = base_meta.get("doc_type", "general")
+    resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
+    base_meta["doc_type"] = resolved_doc_type
 
-    for page in pages:
-        page_text = page.text.strip()
-        if not page_text:
+    # 1. Flatten all elements with provenance: (page_num, locator, text)
+    elements: List[Tuple[Optional[int], Optional[str], str]] = []
+    for p in pages:
+        p_text = p.text.strip()
+        if not p_text:
             continue
-
-        paragraphs = [p.strip() for p in re.split(r'\n\s*\n', page_text) if p.strip()]
+        paragraphs = [para.strip() for para in re.split(r'\n\s*\n', p_text) if para.strip()]
         if not paragraphs:
-            paragraphs = [page_text]
+            paragraphs = [p_text]
 
-        current_block: List[str] = []
-        current_len = 0
+        for para in paragraphs:
+            page_idx = p.index if p.index is not None else getattr(p, "page_number", None)
+            elements.append((page_idx, p.locator, para))
 
-        for p in paragraphs:
-            first_line = p.split('\n')[0]
-            detected = detect_header_candidate(first_line)
-
-            # If a new structural section heading is detected and we already have content,
-            # flush current_block as its own chunk to maintain section integrity
-            if detected and current_block:
-                raw_chunk = "\n\n".join(current_block)
-                prefix = f"[{filename} - p.{page.page_number}] {active_header}"
-                full_chunk = f"{prefix}\n\n{raw_chunk}".strip()
-                c_hash = compute_chunk_hash(full_chunk)
-
-                chunk_meta = {**base_meta, "doc_type": doc_type}
-                chunks.append(Chunk(
-                    text=full_chunk,
-                    raw_text=raw_chunk,
-                    header=active_header,
-                    page_number=page.page_number,
-                    chunk_index=global_chunk_idx,
-                    source_hash=c_hash,
-                    doc_hash=file_hash,
-                    filename=filename,
-                    metadata=chunk_meta
-                ))
-                global_chunk_idx += 1
-                current_block = []
-                current_len = 0
-
-            if detected:
-                active_header = detected
-
-            p_len = len(p)
-
-            if p_len > max_chars:
-                raw_sentences = re.split(r'(?<=[.!?])\s+', p)
-                sentences: List[str] = []
-                for s in raw_sentences:
-                    if len(s) > max_chars:
-                        step = max(1, max_chars - overlap_chars)
-                        for i in range(0, len(s), step):
-                            sentences.append(s[i:i + max_chars])
-                    else:
-                        sentences.append(s)
-
-                for s in sentences:
-                    s_len = len(s)
-                    if current_len + s_len + 1 > max_chars and current_block:
-                        raw_chunk = "\n\n".join(current_block)
-                        prefix = f"[{filename} - p.{page.page_number}] {active_header}"
-                        full_chunk = f"{prefix}\n\n{raw_chunk}".strip()
-                        c_hash = compute_chunk_hash(full_chunk)
-
-                        chunk_meta = {**base_meta, "doc_type": doc_type}
-                        chunks.append(Chunk(
-                            text=full_chunk,
-                            raw_text=raw_chunk,
-                            header=active_header,
-                            page_number=page.page_number,
-                            chunk_index=global_chunk_idx,
-                            source_hash=c_hash,
-                            doc_hash=file_hash,
-                            filename=filename,
-                            metadata=chunk_meta
-                        ))
-                        global_chunk_idx += 1
-
-                        space_avail = max(0, max_chars - (s_len + 1))
-                        overlap_tail = _extract_overlap_tail(current_block, overlap_chars, space_avail, separator_len=1)
-                        current_block = overlap_tail + [s]
-                        current_len = sum(len(x) for x in current_block) + max(0, len(current_block) - 1)
-                    else:
-                        current_block.append(s)
-                        current_len += s_len + 1
-            elif current_len + p_len + 2 > max_chars and current_block:
-                raw_chunk = "\n\n".join(current_block)
-                prefix = f"[{filename} - p.{page.page_number}] {active_header}"
-                full_chunk = f"{prefix}\n\n{raw_chunk}".strip()
-                c_hash = compute_chunk_hash(full_chunk)
-
-                chunk_meta = {**base_meta, "doc_type": doc_type}
-                chunks.append(Chunk(
-                    text=full_chunk,
-                    raw_text=raw_chunk,
-                    header=active_header,
-                    page_number=page.page_number,
-                    chunk_index=global_chunk_idx,
-                    source_hash=c_hash,
-                    doc_hash=file_hash,
-                    filename=filename,
-                    metadata=chunk_meta
-                ))
-                global_chunk_idx += 1
-
-                space_avail = max(0, max_chars - (p_len + 2))
-                overlap_tail = _extract_overlap_tail(current_block, overlap_chars, space_avail, separator_len=2)
-                current_block = overlap_tail + [p]
-                current_len = sum(len(x) for x in current_block) + 2 * max(0, len(current_block) - 1)
-            else:
-                current_block.append(p)
-                current_len += p_len + 2
-
-        if current_block:
-            raw_chunk = "\n\n".join(current_block)
-            prefix = f"[{filename} - p.{page.page_number}] {active_header}"
-            full_chunk = f"{prefix}\n\n{raw_chunk}".strip()
-            c_hash = compute_chunk_hash(full_chunk)
-
-            chunk_meta = {**base_meta, "doc_type": doc_type}
-            chunks.append(Chunk(
-                text=full_chunk,
-                raw_text=raw_chunk,
-                header=active_header,
-                page_number=page.page_number,
-                chunk_index=global_chunk_idx,
-                source_hash=c_hash,
-                doc_hash=file_hash,
-                filename=filename,
-                metadata=chunk_meta
-            ))
-            global_chunk_idx += 1
-
-    return chunks
-
-
-def chunk_llama_documents(
-    docs: List[Document],
-    max_chars: int = 2000,
-    overlap_chars: int = 150
-) -> List[Chunk]:
-    """Convenience function taking Document objects and converting them into structure-aware chunks."""
-    if not docs:
+    if not elements:
         return []
 
-    first_meta = docs[0].metadata or {}
-    filename = first_meta.get("filename", "unknown_document")
-    file_hash = first_meta.get("file_hash", "")
+    # 2. Sliding window chunking with cross-page overlap
+    current_items: List[Tuple[Optional[int], Optional[str], str]] = []
+    current_len = 0
+    current_header = "General"
 
-    pages = []
-    for d in docs:
-        page_num = int(d.metadata.get("page_number") or d.metadata.get("page_label") or 1)
-        pages.append(ParsedPage(
-            page_number=page_num,
-            text=d.text,
-            has_images=d.metadata.get("has_images", False),
-            ocr_applied=d.metadata.get("ocr_applied", False),
-            ocr_confidence=d.metadata.get("ocr_confidence")
+    overlap_item_count = 0
+
+    def flush_current_chunk(clear_overlap: bool = False):
+        nonlocal global_chunk_idx, current_items, current_len, overlap_item_count
+        if not current_items:
+            return
+
+        raw_chunk = "\n\n".join(item[2] for item in current_items).strip()
+
+        # Identify primary page (first non-overlap item if available)
+        primary_item = current_items[overlap_item_count] if len(current_items) > overlap_item_count else current_items[0]
+        first_page = primary_item[0] if primary_item[0] is not None else current_items[0][0]
+        first_loc = primary_item[1] if primary_item[1] is not None else current_items[0][1]
+
+        # Use current locator stack if unpaged
+        loc = " > ".join(heading_stack) if (first_page is None and heading_stack) else first_loc
+        c_hash = compute_chunk_hash(raw_chunk)
+        cit_str = format_chunk_citation(filename, page_number=first_page, locator=loc, header=current_header)
+
+        chunk_meta = {**base_meta, "doc_type": resolved_doc_type}
+        chunks.append(Chunk(
+            text=raw_chunk,          # Embed raw text only!
+            raw_text=raw_chunk,
+            citation=cit_str,
+            header=current_header,
+            locator=loc,
+            page_number=first_page,
+            chunk_index=global_chunk_idx,
+            source_hash=c_hash,      # Hashed on raw text only!
+            doc_hash=file_hash,
+            filename=filename,
+            metadata=chunk_meta
         ))
+        global_chunk_idx += 1
 
-    return chunk_document_pages(
-        pages=pages,
-        filename=filename,
-        file_hash=file_hash,
-        max_chars=max_chars,
-        overlap_chars=overlap_chars,
-        base_metadata=first_meta
-    )
+        if clear_overlap:
+            current_items = []
+            current_len = 0
+            overlap_item_count = 0
+            return
+
+        # Extract overlap items for next window
+        overlap_items: List[Tuple[Optional[int], Optional[str], str]] = []
+        accum = 0
+        for item in reversed(current_items):
+            item_len = len(item[2])
+            if accum + item_len <= overlap_chars:
+                overlap_items.insert(0, item)
+                accum += item_len + 2
+            else:
+                break
+
+        current_items = overlap_items
+        overlap_item_count = len(overlap_items)
+        current_len = sum(len(x[2]) for x in current_items) + 2 * max(0, len(current_items) - 1)
+
+    for page_num, loc, para in elements:
+        first_line = para.split('\n')[0]
+        detected = detect_header_candidate(first_line)
+
+        # Update heading stack
+        if detected:
+            if current_items:
+                flush_current_chunk(clear_overlap=True)
+            title = detected
+            if title not in heading_stack:
+                heading_stack.append(title)
+            current_header = title
+
+
+        para_len = len(para)
+
+        # Handle massive single paragraphs
+        if para_len > max_chars:
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
+            for s in sentences:
+                s_len = len(s)
+                if current_len + s_len + 2 > max_chars and current_items:
+                    flush_current_chunk()
+                current_items.append((page_num, loc, s))
+                current_len += s_len + 2
+        elif current_len + para_len + 2 > max_chars and current_items:
+            flush_current_chunk()
+            current_items.append((page_num, loc, para))
+            current_len += para_len + 2
+        else:
+            current_items.append((page_num, loc, para))
+            current_len += para_len + 2
+
+    if current_items:
+        flush_current_chunk()
+
+    return chunks
 
 
 def deduplicate_chunks(chunks: List[Chunk], seen_hashes: Optional[Set[str]] = None) -> List[Chunk]:

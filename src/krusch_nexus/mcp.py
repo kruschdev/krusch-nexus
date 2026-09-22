@@ -1,8 +1,8 @@
 """
-KruschNexus FastMCP Server
-==========================
+KruschNexus FastMCP Server (mcp.py)
+===================================
 Exposes local-first document ingestion and hybrid retrieval tools to AI agents.
-Enforces strict workspace requirements, path sandboxing, and localhost-only binding.
+Enforces strict workspace requirements, path sandboxing, and frozen contract JSON outputs.
 """
 
 import os
@@ -11,25 +11,25 @@ import logging
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
-from .client import Nexus
+from .client import NexusClient
+from .models import DocType
 from .config import NexusConfig
-from .exceptions import PathSandboxError, WorkspaceRequiredError
 
 logger = logging.getLogger("krusch_nexus.mcp")
 
 mcp = FastMCP("KruschNexusMCP")
-_client: Optional[Nexus] = None
+_client: Optional[NexusClient] = None
 
 
-def set_client(client: Nexus):
+def set_client(client: NexusClient):
     global _client
     _client = client
 
 
-def get_client() -> Nexus:
+def get_client() -> NexusClient:
     global _client
     if _client is None:
-        _client = Nexus.from_env()
+        _client = NexusClient.from_env()
     return _client
 
 
@@ -74,14 +74,15 @@ def nexus_ingest_file(
     if not workspace_name or not workspace_name.strip():
         return json.dumps({
             "status": "error",
-            "error": "workspace_name is required. Defaulting to general workspaces is disallowed."
+            "error": "workspace_name is required. Cross-contamination defaults are disallowed."
         })
 
     try:
+        resolved_doc_type = DocType(doc_type.lower()) if doc_type.lower() in [e.value for e in DocType] else DocType.GENERAL
         report = get_client().ingest(
             filepath=file_path,
             workspace=workspace_name.strip(),
-            doc_type=doc_type,
+            doc_type=resolved_doc_type,
             archive=archive
         )
         return json.dumps(report.model_dump(), indent=2)
@@ -91,41 +92,33 @@ def nexus_ingest_file(
 
 
 @mcp.tool()
-def nexus_ingest_directory(
-    directory_path: str,
-    workspace_name: str,
-    archive: bool = False,
-    recursive: bool = False
-) -> str:
+def nexus_reparse(document_id: int) -> str:
     """
-    Batch-ingest all supported documents from a local directory into a workspace.
+    Re-parse and re-chunk an existing document in the corpus.
     
     Args:
-        directory_path: Path to local directory. Must reside within approved ingest roots.
-        workspace_name: Target workspace name (REQUIRED).
-        archive: Whether to archive processed files.
-        recursive: Whether to scan subdirectories.
+        document_id: Database ID of the document to re-parse.
     """
-    if not workspace_name or not workspace_name.strip():
-        return json.dumps({
-            "status": "error",
-            "error": "workspace_name is required."
-        })
-
     try:
-        reports = get_client().ingest_directory(
-            dirpath=directory_path,
-            workspace=workspace_name.strip(),
-            archive=archive,
-            recursive=recursive
-        )
-        return json.dumps({
-            "status": "completed",
-            "directory": directory_path,
-            "workspace": workspace_name,
-            "total_files_processed": len(reports),
-            "reports": [r.model_dump() for r in reports]
-        }, indent=2)
+        report = get_client().reparse(document_id)
+        return json.dumps(report.model_dump(), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_delete_document(document_id: int) -> str:
+    """
+    Delete a document and all associated chunks from the corpus.
+    
+    Args:
+        document_id: Database ID of the document to delete.
+    """
+    try:
+        success = get_client().delete_document(document_id)
+        if success:
+            return json.dumps({"status": "deleted", "document_id": document_id})
+        return json.dumps({"status": "not_found", "message": f"Document ID {document_id} not found"})
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
 
@@ -184,10 +177,6 @@ def main():
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
     host = os.getenv("MCP_HOST", "127.0.0.1")
     port = int(os.getenv("MCP_PORT", "8002"))
-
-    # Security check: warn if host is bound outside 127.0.0.1 without authorization
-    if host not in ("127.0.0.1", "localhost", "0.0.0.0"):
-        logger.warning(f"Binding MCP server to non-local address {host}")
 
     if transport == "sse":
         print(f"Starting KruschNexus MCP Server in SSE mode on {host}:{port}...", flush=True)
