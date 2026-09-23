@@ -172,3 +172,57 @@ class TestRetrievalContract(unittest.TestCase):
         self.assertGreater(len(hits_filtered), 0)
         for h in hits_filtered:
             self.assertIn("Permitted Use", f"{h.header} {h.locator}")
+
+    def test_score_vector_presence_on_search_hits(self):
+        """Verify every SearchHit returns an explicit score_vector breakdown."""
+        hits = self.nexus.search(
+            "lease agreement",
+            workspace="RetrievalTest"
+        )
+        self.assertGreater(len(hits), 0)
+        for h in hits:
+            self.assertIsInstance(h.score_vector, dict)
+            self.assertIn("final_score", h.score_vector)
+            self.assertIn("vector_rank", h.score_vector)
+            self.assertIn("fts_rank", h.score_vector)
+            self.assertIn("section_boost", h.score_vector)
+            self.assertIn("phrase_boost", h.score_vector)
+
+    def test_dummy_embed_backend_standalone_pipeline(self):
+        """Verify embed_backend='dummy' generates valid 1024d vectors and searches offline."""
+        from krusch_nexus.embeddings import generate_deterministic_vector
+        # 1. Deterministic vector unit tests
+        v1 = generate_deterministic_vector("test content", dim=1024)
+        v2 = generate_deterministic_vector("test content", dim=1024)
+        v3 = generate_deterministic_vector("different content", dim=1024)
+        self.assertEqual(len(v1), 1024)
+        self.assertEqual(v1, v2)
+        self.assertNotEqual(v1, v3)
+
+        # 2. Pipeline test with dummy backend
+        dummy_dir = tempfile.mkdtemp(prefix="nexus_dummy_test_")
+        try:
+            cfg = NexusConfig(
+                database_url=f"sqlite:///{dummy_dir}/dummy.db",
+                allowed_ingest_roots=[dummy_dir],
+                embed_backend="dummy",
+                embedding_dim=1024
+            )
+            eng = get_engine(cfg.database_url)
+            init_db(eng)
+            client = NexusClient(cfg)
+
+            doc_path = os.path.join(dummy_dir, "dummy_doc.txt")
+            with open(doc_path, "w") as f:
+                f.write("Deterministic dummy vector test without Ollama daemon.\n")
+
+            rep = client.ingest(doc_path, workspace="DummyWS")
+            self.assertEqual(rep.status, "completed")
+            self.assertEqual(rep.chunks, 1)
+
+            results = client.search("Deterministic dummy", workspace="DummyWS")
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0].filename, "dummy_doc.txt")
+            self.assertIsNotNone(results[0].score_vector)
+        finally:
+            shutil.rmtree(dummy_dir, ignore_errors=True)

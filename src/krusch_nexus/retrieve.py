@@ -428,6 +428,17 @@ def retrieve(
         else:
             h_path = list(struct_loc.path)
 
+        score_vec = {
+            "dense_score": d_scores.get(c_id),
+            "sparse_score": s_scores.get(c_id),
+            "vector_rank": v_ranks.get(c_id),
+            "fts_rank": f_ranks.get(c_id),
+            "section_boost": sec_boosted.get(c_id, False),
+            "phrase_boost": phrase_boosted.get(c_id, False),
+            "final_score": round(rrf[c_id], 5)
+        }
+        logger.debug(f"Search hit chunk {c_id} ({c.filename}) score vector: {score_vec}")
+
         hits.append(SearchHit(
             citation=cit,
             page_number=c.page_number,
@@ -455,7 +466,8 @@ def retrieve(
             confidence=getattr(c, "confidence", None),
             source_hash=c.source_hash,
             file_hash=c.doc_hash,
-            doc_type=c.doc_type
+            doc_type=c.doc_type,
+            score_vector=score_vec
         ))
 
     # 10. Record Explainability Fuse into optional SearchTrace table

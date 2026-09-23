@@ -58,11 +58,20 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
 
     # 1. Poppler binaries
     poppler_ok = check_binary("pdftotext") and check_binary("pdftoppm") and check_binary("pdfinfo")
+    poppler_version = None
+    if check_binary("pdftotext"):
+        try:
+            p_res = subprocess.run(["pdftotext", "-v"], capture_output=True, text=True, timeout=2.0)
+            poppler_version = (p_res.stderr or p_res.stdout).strip().split("\n")[0]
+        except Exception:
+            pass
+
     results["poppler"] = {
         "status": "PASS" if poppler_ok else "FAIL",
         "pdftotext": check_binary("pdftotext"),
         "pdftoppm": check_binary("pdftoppm"),
         "pdfinfo": check_binary("pdfinfo"),
+        "version": poppler_version
     }
     if not poppler_ok:
         passed = False
@@ -70,8 +79,11 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
     # 2. Tesseract binary & traineddata
     tess_ok = check_binary("tesseract")
     tess_lang_ok = False
+    tess_version = None
     if tess_ok:
         try:
+            t_ver_res = subprocess.run(["tesseract", "--version"], capture_output=True, text=True, timeout=2.0)
+            tess_version = (t_ver_res.stdout or t_ver_res.stderr).strip().split("\n")[0]
             res = subprocess.run(["tesseract", "--list-langs"], capture_output=True, text=True, timeout=5.0)
             tess_lang_ok = "eng" in res.stdout
         except Exception:
@@ -80,7 +92,8 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
     results["tesseract"] = {
         "status": "PASS" if (tess_ok and tess_lang_ok) else ("WARN" if tess_ok else "FAIL"),
         "binary": tess_ok,
-        "eng_model": tess_lang_ok
+        "eng_model": tess_lang_ok,
+        "version": tess_version
     }
     if not tess_ok:
         passed = False
@@ -194,8 +207,35 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
         "cloud_model_detected": cloud_model,
         "allow_cloud": conf.allow_cloud
     }
-    if not airgap_policy_ok:
-        passed = False
+    # 9. Local disk space
+    disk = shutil.disk_usage(".")
+    disk_free_gb = round(disk.free / (1024**3), 2)
+    disk_total_gb = round(disk.total / (1024**3), 2)
+    disk_used_gb = round(disk.used / (1024**3), 2)
+    results["disk"] = {
+        "status": "PASS" if disk.free > 1024 * 1024 * 1024 else "WARN",
+        "total_gb": disk_total_gb,
+        "used_gb": disk_used_gb,
+        "free_gb": disk_free_gb
+    }
+
+    # 10. Compute hardware
+    gpu_present = False
+    gpu_name = None
+    if shutil.which("nvidia-smi"):
+        try:
+            gpu_res = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True, timeout=2.0)
+            if gpu_res.returncode == 0:
+                gpu_present = True
+                gpu_name = gpu_res.stdout.strip().split("\n")[0]
+        except Exception:
+            pass
+    results["hardware"] = {
+        "status": "PASS",
+        "cpu_count": os.cpu_count() or 1,
+        "gpu_present": gpu_present,
+        "gpu_name": gpu_name or "None (CPU inference)"
+    }
 
     results["healthy"] = passed
     return results
@@ -217,10 +257,12 @@ def cmd_doctor(args):
             return "[WARN]"
         return "[FAIL]"
 
-    print(f"{_status_fmt(results['poppler']['status'])} Poppler utilities (pdftotext, pdftoppm, pdfinfo)")
-    print(f"{_status_fmt(results['tesseract']['status'])} Tesseract OCR engine (lang: eng)")
+    print(f"{_status_fmt(results['poppler']['status'])} Poppler utilities ({results['poppler'].get('version') or 'available'})")
+    print(f"{_status_fmt(results['tesseract']['status'])} Tesseract OCR engine ({results['tesseract'].get('version') or 'available'})")
     print(f"{_status_fmt(results['database']['status'])} Database connection & pgvector extension")
     print(f"{_status_fmt(results['ollama']['status'])} Ollama host & model ('{results['ollama']['target_model']}')")
+    print(f"{_status_fmt(results['disk']['status'])} Local disk space ({results['disk']['free_gb']} GB free of {results['disk']['total_gb']} GB)")
+    print(f"{_status_fmt(results['hardware']['status'])} Compute hardware ({results['hardware']['cpu_count']} CPUs, GPU: {results['hardware']['gpu_name']})")
     print(f"{_status_fmt(results['localhost_bind']['status'])} Localhost interface binding ('{results['localhost_bind']['host']}')")
     print(f"{_status_fmt(results['api_token']['status'])} API token configured (env: {results['api_token']['environment']})")
     print(f"{_status_fmt(results['air_gap_policy']['status'])} Air-gap policy (zero cloud embed endpoints)")

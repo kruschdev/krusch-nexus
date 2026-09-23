@@ -1,7 +1,7 @@
 # KruschNexus
 
 > **Air-gapped document ingestion engine and page-true citation spine.**  
-> *Deterministic parsers, structure-first chunking, local vector embeddings, and zero-hallucination citations.*
+> *Deterministic parsers, structure-first chunking, local vector embeddings, and page-true locators for formats that have pages.*
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -16,7 +16,7 @@
 
 When standard vector pipelines ingest PDFs, DOCX files, and contracts, they strip pagination, ignore section hierarchies, and slice text by arbitrary character or token counts. By the time an LLM retrieves a chunk, the original page number, section header, and spatial bounding are lost. The model is forced to guess where the text came from—leading to phantom page citations, hallucinated statutes, and unverified assertions.
 
-**KruschNexus guarantees citation truth:**
+**KruschNexus is a citation-preserving ingest and search engine:**
 - **Page-True**: Extracts PDF text page-by-page. A hit on page 4 points to physical page 4.
 - **Structure-First**: Preserves statutory subsection integrity (`§ 1950.5`, `Section 8.22.030`, `Art. IV`) and carries hierarchical heading stacks (`Article IV > Section 8.22.030`).
 - **Explainable Hybrid Retrieval**: Combines pgvector dense cosine search with PostgreSQL full-text search (`tsvector`), statutory section boosting, quoted phrase matching (`"liquidated damages"`), hard tenant isolation (`workspace_id`), and explicit scoring breakdown (`vector_rank`, `fts_rank`, `section_boost`, `phrase_boost`, `score`).

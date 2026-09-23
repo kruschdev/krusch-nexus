@@ -82,16 +82,43 @@ class TestMCPIntegration(unittest.TestCase):
         self.assertIn("header", citation)
 
     def test_mcp_operator_guard_on_delete_and_reparse(self):
-        """Verify operator-only tools reject execution without explicit operator_confirmed=True."""
-        # delete_document without confirmation fails
-        del_unconfirmed = json.loads(nexus_delete_document(document_id=1, operator_confirmed=False))
-        self.assertEqual(del_unconfirmed["status"], "error")
-        self.assertIn("operator action", del_unconfirmed["error"])
+        """Verify operator-only tools reject execution without typed confirmation tokens."""
+        # Ingest a test file first to have a valid document
+        test_file = os.path.join(self.temp_dir, "guard_doc.txt")
+        with open(test_file, "w") as f:
+            f.write("Some document to be deleted\n")
+        ingest_res = json.loads(nexus_ingest_file(file_path=test_file, workspace_name="Guard_Test"))
+        doc_id = ingest_res["document_id"]
 
-        # reparse without confirmation fails
-        reparse_unconfirmed = json.loads(nexus_reparse(document_id=1, operator_confirmed=False))
+        # 1. delete_document without token fails
+        del_unconfirmed = json.loads(nexus_delete_document(document_id=doc_id))
+        self.assertEqual(del_unconfirmed["status"], "error")
+        self.assertIn("confirmation_token", del_unconfirmed["error"])
+
+        # 2. delete_document with operator_confirmed=True but no token fails
+        del_bool_only = json.loads(nexus_delete_document(document_id=doc_id, operator_confirmed=True))
+        self.assertEqual(del_bool_only["status"], "error")
+        self.assertIn("confirmation_token", del_bool_only["error"])
+
+        # 3. delete_document with mismatched token fails
+        del_wrong = json.loads(nexus_delete_document(document_id=doc_id, confirmation_token=f"CONFIRM_DELETE_{doc_id + 100}"))
+        self.assertEqual(del_wrong["status"], "error")
+        self.assertIn("confirmation_token", del_wrong["error"])
+
+        # 4. reparse without token fails
+        reparse_unconfirmed = json.loads(nexus_reparse(document_id=doc_id))
         self.assertEqual(reparse_unconfirmed["status"], "error")
-        self.assertIn("operator", reparse_unconfirmed["error"])
+        self.assertIn("confirmation_token", reparse_unconfirmed["error"])
+
+        # 5. reparse with wrong token fails
+        reparse_wrong = json.loads(nexus_reparse(document_id=doc_id, confirmation_token="CONFIRM_REPARSE_BAD"))
+        self.assertEqual(reparse_wrong["status"], "error")
+        self.assertIn("confirmation_token", reparse_wrong["error"])
+
+        # 6. delete_document with exact typed confirmation token succeeds
+        del_success = json.loads(nexus_delete_document(document_id=doc_id, confirmation_token=f"CONFIRM_DELETE_{doc_id}"))
+        self.assertEqual(del_success["status"], "deleted")
+        self.assertEqual(del_success["document_id"], doc_id)
 
     def test_mcp_search_with_sql_filters(self):
         """Verify MCP search passes SQL filters (filename, page, doc_id)."""

@@ -317,20 +317,27 @@ def nexus_search_corpus(
 # ─── Operator-Restricted Tools ───────────────────────────────────────────────
 
 @mcp.tool()
-def nexus_reparse(document_id: int, operator_confirmed: bool = False, operator_token: Optional[str] = None) -> str:
+def nexus_reparse(
+    document_id: int,
+    confirmation_token: Optional[str] = None,
+    operator_confirmed: bool = False,
+    operator_token: Optional[str] = None
+) -> str:
     """
     Re-parse and re-chunk an existing document in the corpus.
-    OPERATOR ACTION: Requires operator_confirmed=True.
+    OPERATOR ACTION: Requires typed confirmation_token='CONFIRM_REPARSE_<id>'.
     
     Args:
         document_id: Database ID of the document to re-parse.
-        operator_confirmed: Confirmation flag. Must be set to True.
+        confirmation_token: Typed confirmation token matching 'CONFIRM_REPARSE_<document_id>'.
+        operator_confirmed: Confirmation flag. Must be accompanied by confirmation_token.
         operator_token: Optional operator token if configured.
     """
-    if not operator_confirmed:
+    expected = f"CONFIRM_REPARSE_{document_id}"
+    if confirmation_token != expected:
         return json.dumps({
             "status": "error",
-            "error": "nexus_reparse is an operator-only action. You must pass operator_confirmed=True to proceed."
+            "error": f"nexus_reparse is an operator-only action. You must supply confirmation_token='{expected}' to proceed."
         })
 
     try:
@@ -341,20 +348,27 @@ def nexus_reparse(document_id: int, operator_confirmed: bool = False, operator_t
 
 
 @mcp.tool()
-def nexus_delete_document(document_id: int, operator_confirmed: bool = False, operator_token: Optional[str] = None) -> str:
+def nexus_delete_document(
+    document_id: int,
+    confirmation_token: Optional[str] = None,
+    operator_confirmed: bool = False,
+    operator_token: Optional[str] = None
+) -> str:
     """
     Delete a document and all associated chunks from the corpus.
-    OPERATOR ACTION: Requires operator_confirmed=True.
+    OPERATOR ACTION: Requires typed confirmation_token='CONFIRM_DELETE_<id>'.
     
     Args:
         document_id: Database ID of the document to delete.
-        operator_confirmed: Confirmation flag. Must be set to True.
+        confirmation_token: Typed confirmation token matching 'CONFIRM_DELETE_<document_id>'.
+        operator_confirmed: Optional legacy confirmation flag. Must be accompanied by confirmation_token.
         operator_token: Optional operator token if configured.
     """
-    if not operator_confirmed:
+    expected = f"CONFIRM_DELETE_{document_id}"
+    if confirmation_token != expected:
         return json.dumps({
             "status": "error",
-            "error": "nexus_delete_document is a destructive operator action. You must pass operator_confirmed=True to proceed."
+            "error": f"nexus_delete_document is a destructive operator action. You must supply confirmation_token='{expected}' to proceed."
         })
 
     try:

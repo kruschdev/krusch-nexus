@@ -344,6 +344,7 @@ class SearchHit(BaseModel):
     source_hash: Optional[str] = None
     file_hash: Optional[str] = None
     doc_type: Optional[str] = None
+    score_vector: Dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         if self.phrase_boost and not self.lexical_boost:
@@ -437,6 +438,9 @@ class NexusConfig(BaseModel):
     embedding_provider: str = Field(
         default_factory=lambda: os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
     )
+    embed_backend: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_EMBED_BACKEND", "ollama").lower()
+    )
     allow_cloud: bool = Field(
         default_factory=lambda: os.getenv("ALLOW_CLOUD", "0") in ("1", "true", "True")
     )
@@ -499,11 +503,12 @@ class NexusConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":
-        # 1. Enforce air-gap: EMBEDDING_PROVIDER must be ollama unless ALLOW_CLOUD=1
-        if self.embedding_provider != "ollama" and not self.allow_cloud:
+        # 1. Enforce air-gap: EMBEDDING_PROVIDER / embed_backend must be local (ollama or dummy) unless ALLOW_CLOUD=1
+        if (self.embedding_provider not in ("ollama", "dummy") or self.embed_backend not in ("ollama", "dummy")) and not self.allow_cloud:
+            bad_provider = self.embedding_provider if self.embedding_provider not in ("ollama", "dummy") else self.embed_backend
             raise AirGapViolationError(
-                f"Insecure embedding provider '{self.embedding_provider}' rejected. "
-                "KruschNexus requires local 'ollama' to guarantee an air-gapped corpus. "
+                f"Insecure embedding provider '{bad_provider}' rejected. "
+                "KruschNexus requires local 'ollama' or 'dummy' to guarantee an air-gapped corpus. "
                 "Set ALLOW_CLOUD=1 and install cloud extras if external egress is explicitly intended."
             )
 

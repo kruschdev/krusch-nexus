@@ -30,6 +30,24 @@ def hash_text(text: str) -> str:
     return hashlib.sha256(clean.encode('utf-8')).hexdigest()
 
 
+def generate_deterministic_vector(text: str, dim: int = 1024) -> List[float]:
+    """
+    Generate deterministic, unit-normalized float vector for testing and CI.
+    Enables full test execution without requiring a live Ollama host.
+    """
+    import math
+    clean = re.sub(r'\s+', ' ', text).strip()
+    seed = hashlib.sha256(clean.encode('utf-8')).digest()
+    vec = []
+    for i in range(dim):
+        h = hashlib.sha256(seed + i.to_bytes(4, "big")).digest()
+        val = (int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0
+        vec.append(val)
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [round(x / norm, 6) for x in vec]
+
+
+
 def _get_disk_cache_conn() -> Optional[sqlite3.Connection]:
     """Get connection to persistent local SQLite embedding cache."""
     try:
@@ -203,6 +221,20 @@ def get_embeddings_batch(
         missing_texts = still_missing_texts
 
     if not missing_texts:
+        return [r for r in results if r is not None]
+
+    # 2.5 If dumb/test backend configured, synthesize deterministic vectors for missing texts
+    backend = getattr(conf, "embed_backend", None) or os.getenv("NEXUS_EMBED_BACKEND", "").lower()
+    if backend == "dummy" or getattr(conf, "embedding_provider", "") == "dummy":
+        dim = conf.embedding_dim or 1024
+        new_cached_records: List[tuple] = []
+        for orig_i, h, txt in zip(missing_indices, missing_hashes, missing_texts):
+            vec = generate_deterministic_vector(txt, dim=dim)
+            results[orig_i] = vec
+            if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
+                _MEM_CACHE[h] = vec
+            new_cached_records.append((h, vec))
+        _save_to_persistent_cache(new_cached_records, model=model, db=db)
         return [r for r in results if r is not None]
 
     # 3. Request embeddings for truly missing chunks from Ollama
