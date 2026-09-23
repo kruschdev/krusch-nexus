@@ -1,11 +1,13 @@
 """
 Generate test fixtures for KruschNexus test suite and citation evaluation.
 Includes:
-- Multi-page contract PDF
-- Scanned settlement release PDF with OCR text
-- Policy DOCX with an embedded table in the middle of a section
-- Privileged deal memo EML with RFC2047 MIME encoded headers
-- Municipal code text with § 1950.5 and Section 8.22.030 statutory tokens
+- Multi-page contract PDF (sample_contract.pdf)
+- Scanned settlement release PDF with OCR text (scanned_page.pdf)
+- Policy DOCX with an embedded table in the middle of a section (policy_manual.docx)
+- Privileged deal memo EML with RFC2047 MIME encoded headers (deal_memo.eml)
+- Municipal code text with § 1950.5 and Section 8.22.030 statutory tokens (municipal_code.txt)
+- Tabular vendor spend matrix (vendor_matrix.csv)
+- Negative fixtures: 0-byte file, invalid extension, html with script tags
 """
 
 import os
@@ -16,13 +18,13 @@ from PIL import Image, ImageDraw
 
 def create_scanned_pdf(output_path: str):
     """Generate an image-only PDF that requires OCR to extract text."""
-    img = Image.new("RGB", (800, 600), color="white")
+    img = Image.new("RGB", (1000, 750), color="white")
     draw = ImageDraw.Draw(img)
-    draw.text((50, 50), "EXHIBIT B: SCANNED SETTLEMENT RELEASE", fill="black")
-    draw.text((50, 120), "Section 14.1 Liquidated Damages", fill="black")
-    draw.text((50, 180), "The parties agree that liquidated damages shall be exactly fifty thousand dollars.", fill="black")
-    draw.text((50, 240), "Executed this twenty-second day of September 2026.", fill="black")
-    img.save(output_path, "PDF", resolution=150.0)
+    draw.text((60, 60), "EXHIBIT B: SCANNED SETTLEMENT RELEASE", fill="black")
+    draw.text((60, 140), "Section 14.1 Liquidated Damages", fill="black")
+    draw.text((60, 200), "The parties agree that liquidated damages shall be exactly fifty thousand dollars.", fill="black")
+    draw.text((60, 260), "Executed this twenty-second day of September 2026.", fill="black")
+    img.save(output_path, "PDF", resolution=300.0)
 
 
 def create_docx(output_path: str):
@@ -66,7 +68,6 @@ def create_docx(output_path: str):
 
 def create_eml(output_path: str):
     """Generate an RFC822 email file with MIME encoded headers and acquisition review text."""
-    # RFC 2047 encoded words for "Privileged - Acquisition Review Protocol"
     raw_subject = "Privileged - Acquisition Review Protocol"
     encoded_subject = "=?utf-8?B?" + base64.b64encode(raw_subject.encode("utf-8")).decode("ascii") + "?="
 
@@ -106,6 +107,19 @@ def create_municipal_code(output_path: str):
         f.write(content)
 
 
+def create_vendor_matrix(output_path: str):
+    """Generate CSV vendor spend matrix."""
+    csv_content = (
+        "Vendor Name,Category,SLA Response Hours,Annual Spend,Contact\n"
+        "Acme Logistics,Shipping,24,120000,ops@acme.com\n"
+        "Apex Cloud,Infrastructure,1,450000,support@apexcloud.io\n"
+        "Lexicon Legal,Counsel,4,220000,billing@lexicon.law\n"
+        "ByteSafe Systems,Security,2,95000,soc@bytesafe.org\n"
+    )
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(csv_content)
+
+
 def create_pdf(output_path: str):
     """Generate multi-page synthetic text PDF."""
     pdf_content = (
@@ -128,13 +142,51 @@ def create_pdf(output_path: str):
         f.write(pdf_content)
 
 
+def create_encrypted_pdf(output_path: str):
+    """Generate synthetic encrypted PDF to test fail-closed validation."""
+    encrypted_pdf_content = (
+        b"%PDF-1.4\n"
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj\n"
+        b"4 0 obj << /Length 10 >> stream\nENCRYPTED!\nendstream\nendobj\n"
+        b"5 0 obj << /Filter /Standard /V 2 /R 3 /U (user_pass) /P -60 >> endobj\n"
+        b"trailer << /Size 6 /Root 1 0 R /Encrypt 5 0 R >>\nstartxref\n250\n%%EOF\n"
+    )
+    with open(output_path, "wb") as f:
+        f.write(encrypted_pdf_content)
+
+
+def create_negative_fixtures(target_dir: str):
+    """Generate negative test files."""
+    # 0-byte file
+    with open(os.path.join(target_dir, "empty_file.txt"), "w") as f:
+        pass
+
+    # Invalid extension
+    with open(os.path.join(target_dir, "malicious_payload.exe"), "wb") as f:
+        f.write(b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff")
+
+    # HTML with script tags
+    html_with_script = (
+        "<!DOCTYPE html><html><head><script>alert('pwned'); document.cookie='secret';</script></head>"
+        "<body><h1>Corporate Governance</h1><p>Legitimate content here.</p>"
+        "<script>console.log('leaked');</script></body></html>"
+    )
+    with open(os.path.join(target_dir, "script_injection.html"), "w", encoding="utf-8") as f:
+        f.write(html_with_script)
+
+
 def main():
     target_dir = os.path.dirname(__file__)
     create_scanned_pdf(os.path.join(target_dir, "scanned_page.pdf"))
     create_docx(os.path.join(target_dir, "policy_manual.docx"))
     create_eml(os.path.join(target_dir, "deal_memo.eml"))
     create_municipal_code(os.path.join(target_dir, "municipal_code.txt"))
+    create_vendor_matrix(os.path.join(target_dir, "vendor_matrix.csv"))
     create_pdf(os.path.join(target_dir, "sample_contract.pdf"))
+    create_encrypted_pdf(os.path.join(target_dir, "encrypted_sample.pdf"))
+    create_negative_fixtures(target_dir)
     print("All fixtures generated successfully in tests/fixtures/")
 
 

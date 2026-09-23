@@ -1,7 +1,7 @@
 """
 KruschNexus Minimal Hybrid Retrieval Engine (retrieve.py)
 =========================================================
-150-line hybrid search: vector ANN + FTS + RRF (k=60) + section boost.
+150-line hybrid search: vector ANN + FTS + RRF (k=60) + statutory & phrase boost.
 Strictly workspace-isolated. Zero LLM calls in search path.
 """
 
@@ -12,17 +12,22 @@ from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from .models import SearchHit, Citation
+from .models import SearchHit, Citation, StructuredLocator, NexusConfig
 from .store import DocumentChunk, Workspace
 from .exceptions import WorkspaceRequiredError
 
 logger = logging.getLogger("krusch_nexus.retrieve")
 
-SECTION_PATTERN = re.compile(r'(?:§+|Section|Sec\.|Article|Clause)\s*([0-9]+[A-Za-z0-9\.\-]*)', re.IGNORECASE)
+SECTION_PATTERN = re.compile(
+    r'(?:§+|Section|Sec\.|Article|Art\.|Clause)\s*([0-9IVXLCDM]+[A-Za-z0-9\.\-]*)',
+    re.IGNORECASE
+)
+QUOTE_PATTERN = re.compile(r'"([^"]{3,})"')
 _QUERY_EMBED_CACHE: Dict[str, List[float]] = {}
 
 
 def hash_query(q: str) -> str:
+    """Deterministic hash of search query string."""
     return hashlib.sha256(re.sub(r'\s+', ' ', q).strip().encode('utf-8')).hexdigest()
 
 
@@ -35,12 +40,16 @@ def retrieve(
     limit: int = 5,
     dense_limit: int = 25,
     sparse_limit: int = 25,
-    rrf_k: int = 60,
-    filters: Optional[Dict[str, Any]] = None
+    rrf_k: Optional[int] = None,
+    section_boost_header: Optional[float] = None,
+    section_boost_content: Optional[float] = None,
+    phrase_boost: Optional[float] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    config: Optional[NexusConfig] = None
 ) -> List[SearchHit]:
     """
     Execute hybrid vector + full-text search with strict workspace tenant key,
-    hard doc_type predicates, statutory lexical-first boost, match explainability,
+    exact quote phrase boosting, statutory section query parsing, explainability metadata,
     and librarian filter support.
     """
     if not workspace_id or workspace_id <= 0:
@@ -48,13 +57,24 @@ def retrieve(
     if not query or not query.strip():
         return []
 
+    conf = config or NexusConfig.from_env()
+    k_val = rrf_k if rrf_k is not None else conf.rrf_k
+    boost_hdr = section_boost_header if section_boost_header is not None else conf.section_boost_header
+    boost_cnt = section_boost_content if section_boost_content is not None else conf.section_boost_content
+    boost_phrase = phrase_boost if phrase_boost is not None else conf.phrase_boost
+
     q_str = query.strip()
     is_postgres = db.bind.dialect.name == "postgresql" if db.bind else False
+
+    # Extract legal citations (e.g. § 1950.5, Section 8.22.030, Art. IV)
     sec_match = SECTION_PATTERN.search(q_str)
     target_section = sec_match.group(0).strip() if sec_match else None
     section_number = sec_match.group(1).strip() if sec_match else None
 
-    # Merge doc_type from parameter and filters
+    # Extract exact phrase quotes (e.g. "liquidated damages")
+    quoted_phrases = [p.strip().lower() for p in QUOTE_PATTERN.findall(q_str) if len(p.strip()) >= 3]
+
+    # Filters
     resolved_filters = dict(filters or {})
     active_doc_type = doc_type or resolved_filters.get("doc_type")
     filter_page = resolved_filters.get("page")
@@ -79,11 +99,17 @@ def retrieve(
             except Exception as e:
                 logger.warning(f"Query embed failed: {e}")
 
-    # 2. Vector ANN in workspace (strictly respecting hard doc_type predicate)
+    # 2. Vector ANN in workspace (strictly respecting hard workspace_id tenant key)
     dense_results: List[Tuple[DocumentChunk, float]] = []
     if query_vector and is_postgres:
         vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
         doc_filter = "AND doc_type = :doc_type" if active_doc_type else ""
+        try:
+            # Set HNSW ef_search runtime tuning parameter
+            db.execute(text(f"SET LOCAL hnsw.ef_search = {conf.hnsw_ef_search};"))
+        except Exception:
+            pass
+
         sql = f"""
             SELECT id, 1 - (embedding <=> '{vec_literal}'::vector) as sim
             FROM document_chunks
@@ -103,17 +129,18 @@ def retrieve(
         except Exception as e:
             logger.debug(f"Dense search error: {e}")
 
-    # 3. FTS in workspace (strictly respecting hard doc_type predicate)
+    # 3. FTS in workspace (strictly respecting hard workspace_id tenant key)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
     if is_postgres:
         doc_filter = "AND doc_type = :doc_type" if active_doc_type else ""
+        clean_fts_q = re.sub(r'["\'§]', ' ', q_str).strip()
         sql = f"""
-            SELECT id, ts_rank_cd(tsv, plainto_tsquery('english', :q)) as r_score
+            SELECT id, ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) as r_score
             FROM document_chunks
-            WHERE workspace_id = :ws_id AND tsv @@ plainto_tsquery('english', :q) {doc_filter}
+            WHERE workspace_id = :ws_id AND to_tsvector('english', content) @@ plainto_tsquery('english', :q) {doc_filter}
             ORDER BY r_score DESC LIMIT :s_lim;
         """
-        params = {"ws_id": workspace_id, "q": q_str, "s_lim": sparse_limit}
+        params = {"ws_id": workspace_id, "q": clean_fts_q, "s_lim": sparse_limit}
         if active_doc_type:
             params["doc_type"] = active_doc_type
         try:
@@ -126,7 +153,7 @@ def retrieve(
         except Exception as e:
             logger.debug(f"Sparse FTS error: {e}")
     else:
-        # SQLite token match fallback (strictly respecting hard doc_type predicate)
+        # SQLite lexical match fallback (strictly respecting hard workspace_id tenant key)
         toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if active_doc_type:
@@ -149,20 +176,21 @@ def retrieve(
     f_ranks: Dict[int, int] = {}
     sec_boosted: Dict[int, bool] = {}
     lex_boosted: Dict[int, bool] = {}
+    phrase_boosted: Dict[int, bool] = {}
 
     for rank, (c, sim) in enumerate(dense_results, 1):
         obj_map[c.id] = c
         d_scores[c.id] = sim
         v_ranks[c.id] = rank
-        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (rrf_k + rank))
+        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
     for rank, (c, scr) in enumerate(sparse_results, 1):
         obj_map[c.id] = c
         s_scores[c.id] = scr
         f_ranks[c.id] = rank
-        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (rrf_k + rank))
+        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
-    # Fallback if no vector/FTS match (strictly respecting hard doc_type predicate)
+    # Fallback if no vector/FTS match (strictly respecting hard workspace_id tenant key)
     if not rrf:
         fallback_query = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if active_doc_type:
@@ -170,25 +198,33 @@ def retrieve(
         fallback = fallback_query.order_by(DocumentChunk.id.desc()).limit(limit).all()
         for idx, c in enumerate(fallback):
             obj_map[c.id] = c
-            rrf[c.id] = 1.0 / (rrf_k + idx + 1)
+            rrf[c.id] = 1.0 / (k_val + idx + 1)
 
-    # 5. Statutory & Section Lexical-First Boost
+    # 5. Exact Quoted Phrase Boosting ("liquidated damages")
+    if quoted_phrases:
+        for c_id, chunk in obj_map.items():
+            content_low = chunk.content.lower()
+            header_low = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
+            for qp in quoted_phrases:
+                if qp in content_low or qp in header_low:
+                    rrf[c_id] += boost_phrase
+                    phrase_boosted[c_id] = True
+
+    # 6. Statutory Section Lexical-First Boost (§ 1950.5, Section 8.22.030, Art. IV)
     if target_section or section_number:
         target_token = (section_number or target_section or "").lower()
         for c_id, chunk in obj_map.items():
             h_text = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
             c_text = chunk.content.lower()
 
-            # Exact section in header / locator
             if target_token in h_text:
-                rrf[c_id] += 0.08
+                rrf[c_id] += boost_hdr
                 sec_boosted[c_id] = True
-            # Explicit section mention in content
             elif target_token in c_text:
-                rrf[c_id] += 0.04
+                rrf[c_id] += boost_cnt
                 lex_boosted[c_id] = True
 
-    # 6. Apply Librarian Hard Predicate Filters
+    # 7. Apply Librarian Hard Predicate Filters
     candidate_ids = list(rrf.keys())
     for c_id in candidate_ids:
         chunk = obj_map[c_id]
@@ -207,7 +243,7 @@ def retrieve(
                 rrf.pop(c_id, None)
                 continue
 
-    # 7. Deduplicate Near-Identical Chunks (same source_hash or >80% overlap)
+    # 8. Deduplicate Near-Identical Chunks (same source_hash or >85% overlap)
     sorted_ids = sorted(rrf.keys(), key=lambda x: rrf[x], reverse=True)
     deduped_ids: List[int] = []
     seen_hashes: set = set()
@@ -235,7 +271,7 @@ def retrieve(
         if len(deduped_ids) >= limit:
             break
 
-    # 8. Format SearchHit with Explainability ("The Fuse")
+    # 9. Format SearchHit with Explainability ("The Fuse")
     hits: List[SearchHit] = []
     for c_id in deduped_ids:
         c = obj_map[c_id]
@@ -250,12 +286,17 @@ def retrieve(
             reasons.append("section_locator_match")
         if lex_boosted.get(c_id):
             reasons.append("statutory_token_boost")
+        if phrase_boosted.get(c_id):
+            reasons.append("quoted_phrase_match")
+
+        struct_loc = StructuredLocator.from_raw(page=c.page_number, locator_str=c.locator, header=c.header)
 
         hits.append(SearchHit(
             citation=cit,
             page_number=c.page_number,
             header=c.header,
             locator=c.locator,
+            structured_locator=struct_loc,
             score=round(rrf[c_id], 5),
             text=c.content,
             document_id=c.document_id,
@@ -269,12 +310,14 @@ def retrieve(
             fts_rank=f_ranks.get(c_id),
             section_boost=sec_boosted.get(c_id, False),
             lexical_boost=lex_boosted.get(c_id, False),
+            phrase_boost=phrase_boosted.get(c_id, False),
             match_reasons=reasons,
             char_start=getattr(c, "char_start", None),
             char_end=getattr(c, "char_end", None),
             confidence=getattr(c, "confidence", None),
             source_hash=c.source_hash,
-            file_hash=c.doc_hash
+            file_hash=c.doc_hash,
+            doc_type=c.doc_type
         ))
     return hits
 

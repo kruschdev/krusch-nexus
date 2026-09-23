@@ -1,6 +1,6 @@
 """
 Integration tests for KruschNexus FastMCP Server tools.
-Verifies tool invocation, strict workspace enforcement, and path sandboxing.
+Verifies tool invocation, strict workspace enforcement, structured citations, and operator action guards.
 """
 
 import os
@@ -9,13 +9,15 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import Nexus, NexusConfig
-from krusch_nexus.db import init_db, get_engine
+from krusch_nexus import NexusClient, NexusConfig
+from krusch_nexus.store import init_db, get_engine
 from krusch_nexus.mcp import (
     set_client,
     nexus_list_workspaces,
     nexus_ingest_file,
-    nexus_search_corpus
+    nexus_search_corpus,
+    nexus_delete_document,
+    nexus_reparse
 )
 
 
@@ -30,7 +32,7 @@ class TestMCPIntegration(unittest.TestCase):
         )
         self.engine = get_engine(self.config.database_url)
         init_db(self.engine)
-        self.nexus = Nexus(self.config)
+        self.nexus = NexusClient(self.config)
         set_client(self.nexus)
 
     def tearDown(self):
@@ -47,8 +49,8 @@ class TestMCPIntegration(unittest.TestCase):
         self.assertEqual(resp["status"], "error")
         self.assertIn("workspace_name is required", resp["error"])
 
-    def test_mcp_ingest_and_search_success(self):
-        """Verify successful MCP file ingest and subsequent corpus search."""
+    def test_mcp_ingest_and_search_success_with_structured_citations(self):
+        """Verify successful MCP file ingest and structured citations in search results."""
         test_file = os.path.join(self.temp_dir, "statute.txt")
         with open(test_file, "w") as f:
             f.write("§ 1950.5 Security Deposit Limits\nA landlord may not exceed one month rent.\n")
@@ -70,8 +72,26 @@ class TestMCPIntegration(unittest.TestCase):
         self.assertEqual(search_res["status"], "success")
         self.assertGreater(search_res["results_count"], 0)
         top_hit = search_res["results"][0]
-        self.assertIn("statute.txt", top_hit["filename"])
-        self.assertIn("1950.5", top_hit["citation"])
+
+        # Verify structured citation dictionary
+        citation = top_hit["citation"]
+        self.assertEqual(citation["filename"], "statute.txt")
+        self.assertIn("1950.5", citation["formatted"])
+        self.assertIn("page_number", citation)
+        self.assertIn("locator", citation)
+        self.assertIn("header", citation)
+
+    def test_mcp_operator_guard_on_delete_and_reparse(self):
+        """Verify operator-only tools reject execution without explicit operator_confirmed=True."""
+        # delete_document without confirmation fails
+        del_unconfirmed = json.loads(nexus_delete_document(document_id=1, operator_confirmed=False))
+        self.assertEqual(del_unconfirmed["status"], "error")
+        self.assertIn("operator action", del_unconfirmed["error"])
+
+        # reparse without confirmation fails
+        reparse_unconfirmed = json.loads(nexus_reparse(document_id=1, operator_confirmed=False))
+        self.assertEqual(reparse_unconfirmed["status"], "error")
+        self.assertIn("operator", reparse_unconfirmed["error"])
 
 
 if __name__ == "__main__":

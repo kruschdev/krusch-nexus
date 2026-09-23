@@ -41,6 +41,11 @@ jobs:
         echo "Verifying no absolute homelab machine paths exist in source or tests..."
         ! grep -rn --exclude-dir=__pycache__ "/home/krusch" src/
 
+    - name: Air-Gap Vendor Independence Guard
+      run: |
+        echo "Verifying zero external cloud vendor references in core package..."
+        ! grep -rn -i -E "google|gemini|openai|anthropic" src/krusch_nexus/
+
     - name: Generate Fixtures
       run: |
         python tests/fixtures/create_fixtures.py

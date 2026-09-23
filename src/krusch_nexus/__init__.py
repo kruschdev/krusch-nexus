@@ -9,16 +9,18 @@ A dedicated homelab corpus factory providing:
 
 __version__ = "0.2.0"
 
-from .client import NexusClient, Nexus, NexusIngestClient
-from .config import NexusConfig
+from .client import NexusClient
 from .models import (
+    NexusConfig,
     IngestRequest,
     IngestReport,
     SearchHit,
-    ChunkHit,
     SearchFilter,
     Citation,
+    StructuredLocator,
     DocType,
+    WarningCode,
+    IngestState,
     PageData,
     ContentBlock,
     ParserResult,
@@ -46,16 +48,16 @@ from .exceptions import (
 
 __all__ = [
     "NexusClient",
-    "Nexus",
-    "NexusIngestClient",
     "NexusConfig",
     "IngestRequest",
     "IngestReport",
     "SearchHit",
-    "ChunkHit",
     "SearchFilter",
     "Citation",
+    "StructuredLocator",
     "DocType",
+    "WarningCode",
+    "IngestState",
     "PageData",
     "ContentBlock",
     "ParserResult",

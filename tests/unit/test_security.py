@@ -3,12 +3,13 @@ Unit tests for KruschNexus Security & Air-Gap Enforcement.
 Verifies rejection of:
 - Insecure default database password ('kruschpassword')
 - Non-local cloud embedding providers without ALLOW_CLOUD=1
+- Structured doctor diagnostics report
 """
 
 import unittest
-from krusch_nexus.config import NexusConfig
+from krusch_nexus.models import NexusConfig
 from krusch_nexus.exceptions import AirGapViolationError, ConfigurationError
-from krusch_nexus.offline_check import verify_offline_environment
+from krusch_nexus.cli import run_doctor_checks
 
 
 class TestSecurity(unittest.TestCase):
@@ -35,16 +36,19 @@ class TestSecurity(unittest.TestCase):
         self.assertEqual(conf.embedding_provider, "openai")
         self.assertTrue(conf.allow_cloud)
 
-    def test_offline_check_structure(self):
-        """Verify offline verification returns expected structured report."""
+    def test_doctor_checks_structure(self):
+        """Verify nexus doctor diagnostics returns expected structured report."""
         conf = NexusConfig(
             database_url="sqlite:///:memory:",
             ollama_url="http://127.0.0.1:11434"
         )
-        report = verify_offline_environment(conf)
-        self.assertIn("air_gap_secure", report)
-        self.assertIn("ollama_is_local", report)
-        self.assertTrue(report["ollama_is_local"])
+        report = run_doctor_checks(conf)
+        self.assertIn("air_gap", report)
+        self.assertIn("poppler", report)
+        self.assertIn("tesseract", report)
+        self.assertIn("database", report)
+        self.assertIn("ollama", report)
+        self.assertIn("healthy", report)
 
 
 if __name__ == "__main__":

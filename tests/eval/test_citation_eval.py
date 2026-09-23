@@ -62,6 +62,19 @@ class TestCitationEvaluation(unittest.TestCase):
             )
             cls.ingest_reports[fname] = report
 
+        # Calculate p50 and p95 ingest latency
+        durations = [r.duration_ms for r in cls.ingest_reports.values() if r.duration_ms]
+        durations.sort()
+        n = len(durations)
+        cls.p50_ingest_ms = durations[n // 2] if n else 0.0
+        cls.p95_ingest_ms = durations[min(n - 1, int(0.95 * n))] if n else 0.0
+
+        # Calculate OCR page error rate
+        expected_ocr_pages = 1
+        scanned_rep = cls.ingest_reports.get("scanned_page.pdf")
+        actual_ocr_pages = len(scanned_rep.ocr_pages) if scanned_rep else 0
+        cls.ocr_page_error_rate = abs(expected_ocr_pages - actual_ocr_pages) / expected_ocr_pages
+
         # Ingest isolated file into Beta workspace for leakage assertion
         isolated_path = os.path.join(FIXTURES_DIR, "municipal_code.txt")
         cls.nexus.ingest(
@@ -169,6 +182,8 @@ class TestCitationEvaluation(unittest.TestCase):
 
         total = len(benchmark_queries)
         recall_5_count = 0
+        mrr_sum = 0.0
+        citation_exact_count = 0
         page_acc_count = 0
         header_acc_count = 0
         snippet_acc_count = 0
@@ -193,48 +208,66 @@ class TestCitationEvaluation(unittest.TestCase):
                 if b["is_ocr"]:
                     ocr_hit_count += 1
 
+            # MRR computation
+            rr = 0.0
+            for rank_idx, h in enumerate(hits, 1):
+                if h.filename == b["file"]:
+                    rr = 1.0 / rank_idx
+                    break
+            mrr_sum += rr
+
             if hits:
                 top = hits[0]
                 if top.filename == b["file"]:
                     # Exact page / locator check
-                    if b["page"] is not None:
-                        if top.page_number == b["page"]:
-                            page_acc_count += 1
-                    else:
+                    page_matches = (b["page"] is None) or (top.page_number == b["page"])
+                    if page_matches:
                         page_acc_count += 1
 
                     # Section header accuracy
                     header_str = (top.header or "") + " " + (top.locator or "") + " " + top.citation
-                    if re.search(b["header"], header_str, re.IGNORECASE):
+                    header_matches = bool(re.search(b["header"], header_str, re.IGNORECASE))
+                    if header_matches:
                         header_acc_count += 1
 
                     # Ground-truth snippet containment
-                    if b["snippet"].lower() in top.text.lower():
+                    snippet_matches = b["snippet"].lower() in top.text.lower()
+                    if snippet_matches:
                         snippet_acc_count += 1
+
+                    if page_matches and header_matches and snippet_matches:
+                        citation_exact_count += 1
 
             status_str = "PASS" if target_in_top5 else "FAIL"
             top_cit = hits[0].citation if hits else "None"
             print(f"[{status_str}] Query: '{q[:42]:<42}' -> {top_cit}")
 
         recall_5 = recall_5_count / total
+        mrr = mrr_sum / total
+        citation_exact_match = citation_exact_count / total
         page_acc = page_acc_count / total
         header_acc = header_acc_count / total
         snippet_acc = snippet_acc_count / total
         ocr_recall = ocr_hit_count / max(1, ocr_total)
 
         print("-" * 80)
-        print(f"Recall@5:            {recall_5 * 100:.1f}% ({recall_5_count}/{total})")
-        print(f"Page/Loc Accuracy:   {page_acc * 100:.1f}% ({page_acc_count}/{total})")
-        print(f"Header Accuracy:     {header_acc * 100:.1f}% ({header_acc_count}/{total})")
-        print(f"Snippet Containment: {snippet_acc * 100:.1f}% ({snippet_acc_count}/{total})")
-        print(f"OCR Recall:          {ocr_recall * 100:.1f}% ({ocr_hit_count}/{ocr_total})")
+        print(f"Recall@5:             {recall_5 * 100:.1f}% ({recall_5_count}/{total})")
+        print(f"MRR:                  {mrr:.3f}")
+        print(f"Citation Exact-Match: {citation_exact_match * 100:.1f}% ({citation_exact_count}/{total})")
+        print(f"OCR Page Error Rate:  {self.ocr_page_error_rate * 100:.1f}%")
+        print(f"p50 Ingest Latency:   {self.p50_ingest_ms:.1f} ms")
+        print(f"p95 Ingest Latency:   {self.p95_ingest_ms:.1f} ms")
+        print(f"Page/Loc Accuracy:    {page_acc * 100:.1f}% ({page_acc_count}/{total})")
+        print(f"Header Accuracy:      {header_acc * 100:.1f}% ({header_acc_count}/{total})")
+        print(f"Snippet Containment:  {snippet_acc * 100:.1f}% ({snippet_acc_count}/{total})")
+        print(f"OCR Recall:           {ocr_recall * 100:.1f}% ({ocr_hit_count}/{ocr_total})")
         print("=" * 80)
 
         # Release Gating Contracts
         self.assertGreaterEqual(recall_5, 0.92, f"Recall@5 ({recall_5:.2%}) must be >= 92%")
-        self.assertGreaterEqual(page_acc, 0.85, f"Page accuracy ({page_acc:.2%}) must be >= 85%")
-        self.assertGreaterEqual(header_acc, 0.85, f"Header accuracy ({header_acc:.2%}) must be >= 85%")
-        self.assertGreaterEqual(snippet_acc, 0.85, f"Snippet containment ({snippet_acc:.2%}) must be >= 85%")
+        self.assertGreaterEqual(mrr, 0.85, f"MRR ({mrr:.3f}) must be >= 0.85")
+        self.assertGreaterEqual(citation_exact_match, 0.80, f"Citation exact-match ({citation_exact_match:.2%}) must be >= 80%")
+        self.assertLessEqual(self.ocr_page_error_rate, 0.05, f"OCR page error rate ({self.ocr_page_error_rate:.2%}) must be <= 5%")
         self.assertEqual(ocr_recall, 1.0, f"OCR Recall must be 100%")
 
     def test_negative_and_distractor_query_resistance(self):

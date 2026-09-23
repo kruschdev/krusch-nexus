@@ -9,10 +9,11 @@ Does NOT mutate ambient os.environ.
 import os
 import json
 import logging
+import secrets
 from typing import Optional, List, Dict, Any, Union
 
-from .config import NexusConfig
 from .models import (
+    NexusConfig,
     IngestReport,
     SearchHit,
     SearchFilter,
@@ -21,7 +22,7 @@ from .models import (
     DocumentInfo,
     DocType
 )
-from .exceptions import WorkspaceNotFound, WorkspaceRequiredError, ParseError
+from .exceptions import WorkspaceNotFound, WorkspaceRequiredError, ParseError, AuthenticationError
 from .store import (
     get_engine,
     get_session_factory,
@@ -29,7 +30,7 @@ from .store import (
     Workspace,
     Document,
     DocumentChunk,
-    IngestReportRecord
+    IngestRun
 )
 from .embeddings import get_embedding
 from .retrieve import retrieve
@@ -39,10 +40,10 @@ logger = logging.getLogger("krusch_nexus.client")
 
 class NexusClient:
     """
-    Public typed SDK for KruschNexus Document Ingestion and Hybrid Corpus Retrieval.
+    Canonical typed SDK for KruschNexus Document Ingestion and Hybrid Corpus Retrieval.
 
     Example:
-        >>> from krusch_nexus import NexusClient
+        >>> from krusch_nexus import NexusClient, DocType
         >>> client = NexusClient.from_env()
         >>> report = client.ingest("/data/lease.pdf", workspace="Matter_Smith", doc_type=DocType.AUTHORITY)
         >>> hits = client.search("liquidated damages", workspace="Matter_Smith", limit=5)
@@ -83,26 +84,29 @@ class NexusClient:
         """
         Ingest a local document (PDF, DOCX, EML, CSV, HTML, TXT/MD) into a workspace.
         """
-        if not workspace:
+        if not workspace or not workspace.strip():
             raise WorkspaceRequiredError("A workspace name is required to ingest documents.")
 
         from .ingest import IngestPipeline
         pipeline = IngestPipeline(self.config)
         return pipeline.process_file(
             filepath=filepath,
-            workspace_name=workspace,
+            workspace_name=workspace.strip(),
             doc_type=doc_type,
             archive_source=archive
         )
 
-    # Alias for backward compatibility
     ingest_file = ingest
 
-    def reparse(self, document_id: int) -> IngestReport:
+    def reparse(self, document_id: int, operator_token: Optional[str] = None) -> IngestReport:
         """
         Re-run the parser and chunker for an existing document in the corpus.
         Operators can use this after parser logic upgrades without manual file transfers.
         """
+        if self.config.operator_token:
+            if not operator_token or not secrets.compare_digest(operator_token, self.config.operator_token):
+                raise AuthenticationError("Operator authorization required to execute document reparse.")
+
         db = self._get_db()
         try:
             doc = db.query(Document).filter(Document.id == document_id).first()
@@ -110,9 +114,7 @@ class NexusClient:
                 raise ParseError(f"Document ID {document_id} not found.")
 
             source_path = doc.original_path
-            # Check if source file exists at original location
             if not source_path or not os.path.exists(source_path):
-                # Check .ingested/
                 ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
                 ws_name = ws.name if ws else "General"
                 potential = os.path.join(self.config.watch_dir or "./ingest_watch", ".ingested", ws_name, f"{doc.file_hash[:12]}_{doc.filename}")
@@ -125,7 +127,6 @@ class NexusClient:
             db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete()
             db.commit()
 
-            # Re-ingest
             from .ingest import IngestPipeline
             ws_obj = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
             ws_name = ws_obj.name if ws_obj else "General"
@@ -140,8 +141,15 @@ class NexusClient:
         finally:
             db.close()
 
-    def delete_document(self, document_id: int) -> bool:
-        """Delete a document and all its chunks from the database."""
+    def delete_document(self, document_id: int, operator_token: Optional[str] = None) -> bool:
+        """
+        Delete a document and all its chunks from the database.
+        Destructive operator operation.
+        """
+        if self.config.operator_token:
+            if not operator_token or not secrets.compare_digest(operator_token, self.config.operator_token):
+                raise AuthenticationError("Operator authorization required to delete corpus documents.")
+
         db = self._get_db()
         try:
             doc = db.query(Document).filter(Document.id == document_id).first()
@@ -153,136 +161,113 @@ class NexusClient:
         finally:
             db.close()
 
+    def get_ingest_report(self, doc_id_or_hash: Union[int, str]) -> Optional[IngestReport]:
+        """Fetch the stored IngestReport for a document by ID or SHA-256 hash."""
+        db = self._get_db()
+        try:
+            query = db.query(Document)
+            if isinstance(doc_id_or_hash, int) or str(doc_id_or_hash).isdigit():
+                doc = query.filter(Document.id == int(doc_id_or_hash)).first()
+            else:
+                doc = query.filter(Document.file_hash == str(doc_id_or_hash)).first()
+
+            if doc and doc.ingest_report:
+                return IngestReport.model_validate_json(doc.ingest_report)
+            return None
+        finally:
+            db.close()
+
     def search(
         self,
         query: str,
         workspace: str,
         doc_type: Optional[str] = None,
         limit: int = 5,
-        filters: Optional[Union[Dict[str, Any], SearchFilter]] = None
+        filters: Optional[SearchFilter] = None
     ) -> List[SearchHit]:
         """
-        Execute hybrid vector + full-text search across a specific workspace with optional filters.
+        Execute hybrid vector + full-text search across a workspace.
+        Returns ranked SearchHit models with canonical citations and explainability metadata.
         """
-        if not workspace:
-            raise WorkspaceRequiredError("Search requires an explicit workspace name.")
-
-        filter_dict = filters.model_dump(exclude_none=True) if isinstance(filters, SearchFilter) else dict(filters or {})
+        if not workspace or not workspace.strip():
+            raise WorkspaceRequiredError("A target workspace is required for search. Global multi-workspace search is disallowed.")
 
         db = self._get_db()
         try:
-            ws = db.query(Workspace).filter(Workspace.name == workspace).first()
+            ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
             if not ws:
                 return []
 
-            embed_fn = lambda q: get_embedding(q, config=self.config)
+            def _embed(text_str: str) -> List[float]:
+                return get_embedding(text_str, config=self.config, db=db)
+
+            resolved_filters = filters.model_dump(exclude_none=True) if filters else {}
+
             return retrieve(
                 query=query,
                 workspace_id=ws.id,
                 db=db,
-                embed_fn=embed_fn,
+                embed_fn=_embed,
                 doc_type=doc_type,
                 limit=limit,
-                filters=filter_dict
+                filters=resolved_filters,
+                config=self.config
             )
         finally:
             db.close()
 
-    def reindex_document(self, document_id: int, new_model: Optional[str] = None) -> IngestReport:
-        """
-        Re-parse, re-chunk, and re-embed an existing document in the corpus.
-        Updates chunker_version and embed_model.
-        """
-        if new_model:
-            self.config.embed_model = new_model
-        return self.reparse(document_id)
-
-    def reindex_workspace(self, workspace: str, new_model: Optional[str] = None) -> List[IngestReport]:
-        """
-        Re-index all documents in a workspace.
-        """
-        db = self._get_db()
-        try:
-            ws = db.query(Workspace).filter(Workspace.name == workspace).first()
-            if not ws:
-                raise WorkspaceNotFound(f"Workspace '{workspace}' not found.")
-            docs = db.query(Document).filter(Document.workspace_id == ws.id).all()
-            doc_ids = [d.id for d in docs]
-        finally:
-            db.close()
-
-        reports = []
-        for d_id in doc_ids:
-            rep = self.reindex_document(d_id, new_model=new_model)
-            reports.append(rep)
-        return reports
-
     def list_workspaces(self) -> List[WorkspaceInfo]:
-        """List all document workspaces and their indexed document counts."""
+        """List all workspaces and their indexed document counts."""
         db = self._get_db()
         try:
             workspaces = db.query(Workspace).all()
-            results = []
-            for ws in workspaces:
-                doc_count = db.query(Document).filter(Document.workspace_id == ws.id).count()
-                results.append(WorkspaceInfo(
-                    id=ws.id,
-                    name=ws.name,
-                    description=ws.description,
-                    document_count=doc_count,
-                    created_at=str(ws.created_at) if ws.created_at else None
+            res = []
+            for w in workspaces:
+                count = db.query(Document).filter(Document.workspace_id == w.id).count()
+                res.append(WorkspaceInfo(
+                    id=w.id,
+                    name=w.name,
+                    description=w.description,
+                    document_count=count,
+                    created_at=w.created_at.isoformat() if w.created_at else None
                 ))
-            return results
+            return res
         finally:
             db.close()
 
     def list_documents(self, workspace: Optional[str] = None) -> List[DocumentInfo]:
-        """List documents in a workspace or across all workspaces."""
+        """List documents with workspace isolation."""
         db = self._get_db()
         try:
-            q = db.query(Document, Workspace.name.label("ws_name")).join(Workspace, Document.workspace_id == Workspace.id)
-            if workspace:
-                q = q.filter(Workspace.name == workspace)
+            query = db.query(Document)
+            if workspace and workspace.strip():
+                ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
+                if not ws:
+                    return []
+                query = query.filter(Document.workspace_id == ws.id)
 
-            rows = q.all()
-            results = []
-            for doc, ws_name in rows:
-                results.append(DocumentInfo(
-                    id=doc.id,
-                    workspace_id=doc.workspace_id,
-                    workspace_name=ws_name,
-                    filename=doc.filename,
-                    file_hash=doc.file_hash,
-                    doc_type=doc.doc_type,
-                    total_pages=doc.total_pages,
-                    total_chunks=doc.total_chunks,
-                    has_report=bool(doc.ingest_report),
-                    status=doc.status,
-                    embedding_model=doc.embedding_model,
-                    created_at=str(doc.created_at) if doc.created_at else None
+            docs = query.all()
+            ws_map = {w.id: w.name for w in db.query(Workspace).all()}
+            res = []
+            for d in docs:
+                res.append(DocumentInfo(
+                    id=d.id,
+                    workspace_id=d.workspace_id,
+                    workspace_name=ws_map.get(d.workspace_id, "Unknown"),
+                    filename=d.filename,
+                    file_hash=d.file_hash,
+                    doc_type=d.doc_type,
+                    total_pages=d.total_pages,
+                    total_chunks=d.total_chunks,
+                    parser_name=d.parser_name or "default",
+                    parser_version=d.parser_version or "1.0",
+                    detected_mime=d.detected_mime or d.mime,
+                    has_report=bool(d.ingest_report),
+                    status=d.status,
+                    embedding_model=d.embedding_model,
+                    chunker_version=d.chunker_version,
+                    created_at=d.created_at.isoformat() if d.created_at else None
                 ))
-            return results
+            return res
         finally:
             db.close()
-
-    def get_ingest_report(self, doc_id_or_hash: str) -> Optional[IngestReport]:
-        """Retrieve stored IngestReport for a document by its database ID or SHA-256 hash."""
-        db = self._get_db()
-        try:
-            doc = None
-            if doc_id_or_hash.isdigit():
-                doc = db.query(Document).filter(Document.id == int(doc_id_or_hash)).first()
-            if not doc:
-                doc = db.query(Document).filter(Document.file_hash == doc_id_or_hash).first()
-
-            if doc and doc.ingest_report:
-                data = json.loads(doc.ingest_report)
-                return IngestReport(**data)
-            return None
-        finally:
-            db.close()
-
-
-# Backward-compatible alias
-Nexus = NexusClient
-NexusIngestClient = NexusClient

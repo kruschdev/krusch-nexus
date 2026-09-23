@@ -2,13 +2,15 @@
 KruschNexus Hardened Document Parsers (parsers.py)
 ==================================================
 Zero-heavy-dependency document extraction pipeline with:
-- Page-at-a-time PDF parsing via Poppler (pdftotext -f N -l N)
+- True MIME / signature detection (magic bytes inspection)
+- Page-at-a-time PDF parsing via Poppler (pdftotext -f N -l N -layout)
 - Encrypted PDF fail-closed detection (pdfinfo)
-- 300 DPI Tesseract OCR fallback with TESSDATA_PREFIX and --psm 4/6 support
-- DOCX in-order table extraction with hierarchical heading stacks (no fake page 1)
+- Unified OCR Policy: 300 DPI Tesseract OCR fallback (--psm 6 prose, --psm 4 sparse)
+- Distinct storage for digital_text vs ocr_text per page
+- DOCX single-pass in-order table extraction with hierarchical heading stacks (page_number=None)
 - EML RFC2047 MIME decoding with Message-ID and attachment extraction
 - CSV row-group chunking with replayed table headers
-- Typed ParserResult contract with parser versioning
+- Typed ParserResult contract with parser versioning and typed WarningCodes
 """
 
 import os
@@ -27,7 +29,7 @@ from html.parser import HTMLParser
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional, Tuple
 
-from .models import PageData, ParserResult, ContentBlock
+from .models import PageData, ParserResult, ContentBlock, StructuredLocator, WarningCode
 from .exceptions import EncryptedPdfError, EmptyOcrError, ParseError
 
 logger = logging.getLogger("krusch_nexus.parsers")
@@ -40,6 +42,81 @@ def compute_file_hash(file_path: str) -> str:
         while chunk := f.read(65536):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def detect_file_mime(file_path: str, filename: str) -> str:
+    """
+    Detect actual MIME type from file header magic bytes and structure,
+    rather than trusting the file extension alone.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(2048)
+    except Exception:
+        return "application/octet-stream"
+
+    if header.startswith(b"%PDF-"):
+        return "application/pdf"
+
+    if header.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(file_path, "r") as zf:
+                names = zf.namelist()
+                if "word/document.xml" in names:
+                    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        except Exception:
+            pass
+        return "application/zip"
+
+    # Check EML / RFC822
+    header_lower = header[:1024].lower()
+    if (b"from:" in header_lower and b"subject:" in header_lower) or (b"received:" in header_lower):
+        return "message/rfc822"
+
+    # Check HTML
+    stripped_head = header.strip().lower()
+    if stripped_head.startswith(b"<!doctype html") or stripped_head.startswith(b"<html"):
+        return "text/html"
+
+    # Check JSON
+    try:
+        text_preview = header.decode("utf-8").strip()
+        if (text_preview.startswith("{") and text_preview.endswith("}")) or (text_preview.startswith("[") and text_preview.endswith("]")):
+            json.loads(text_preview)
+            return "application/json"
+    except Exception:
+        pass
+
+    # Check CSV
+    try:
+        text_sample = header.decode("utf-8", errors="replace")
+        lines = [line.strip() for line in text_sample.splitlines() if line.strip()][:5]
+        if len(lines) >= 2 and all("," in line or "\t" in line for line in lines):
+            delimiter = "," if lines[0].count(",") >= lines[0].count("\t") else "\t"
+            counts = [l.count(delimiter) for l in lines]
+            if len(set(counts)) == 1 and counts[0] > 0:
+                return "text/csv"
+    except Exception:
+        pass
+
+    # Fallback to extension heuristic if text
+    ext = os.path.splitext(filename)[1].lower()
+    ext_map = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".doc": "application/msword",
+        ".eml": "message/rfc822",
+        ".msg": "application/vnd.ms-outlook",
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".csv": "text/csv",
+        ".json": "application/json",
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+        ".py": "text/x-python",
+        ".sql": "text/x-sql",
+    }
+    return ext_map.get(ext, "text/plain")
 
 
 # ─── PDF Parser: Page-at-a-Time + Encrypted Check + 300 DPI OCR ──────────────
@@ -57,8 +134,14 @@ def _get_pdf_info(file_path: str, timeout: float = 15.0) -> Dict[str, Any]:
             capture_output=True,
             text=True,
             errors="replace",
-            timeout=timeout
+            timeout=timeout,
+            check=False
         )
+        combined_output = (proc.stdout or "") + " " + (proc.stderr or "")
+        if "incorrect password" in combined_output.lower() or "password required" in combined_output.lower():
+            info["encrypted"] = True
+            return info
+
         if proc.returncode == 0:
             for line in proc.stdout.splitlines():
                 if line.startswith("Pages:"):
@@ -74,6 +157,18 @@ def _get_pdf_info(file_path: str, timeout: float = 15.0) -> Dict[str, Any]:
                         info["encrypted"] = True
     except Exception as e:
         logger.warning(f"pdfinfo check failed: {e}")
+
+    # Fallback raw inspection for encrypted PDF trailer / dictionary
+    if not info["encrypted"]:
+        try:
+            with open(file_path, "rb") as f:
+                header_trailer = f.read(4096)
+                f.seek(max(0, os.path.getsize(file_path) - 4096))
+                header_trailer += f.read(4096)
+                if b"/Encrypt" in header_trailer:
+                    info["encrypted"] = True
+        except Exception:
+            pass
 
     return info
 
@@ -94,13 +189,16 @@ def _try_tesseract_ocr(
     pdf_path: str,
     page_num: int,
     dpi: int = 300,
-    psm: str = "4",
+    lang: str = "eng",
     timeout: float = 30.0
 ) -> Tuple[Optional[str], Optional[float], List[ContentBlock]]:
     """
     Execute high-resolution OCR on a specific PDF page using pdftoppm + tesseract.
-    Uses 300 DPI for fine type and extracts word-level confidence and bounding boxes via TSV.
-    Returns: (extracted_text, mean_confidence_0_to_1, content_blocks)
+    Policy:
+    - pdftoppm -r 300
+    - tesseract --psm 6 (uniform block of text) with fallback to --psm 4 (sparse/columnar legal text)
+    - Language allowlist from config (default 'eng')
+    - Returns: (extracted_text, mean_confidence_0_to_1, content_blocks)
     """
     tess_path = shutil.which("tesseract")
     ppm_path = shutil.which("pdftoppm")
@@ -117,9 +215,7 @@ def _try_tesseract_ocr(
             pdf_path, img_prefix
         ]
         try:
-            res = subprocess.run(ppm_cmd, capture_output=True, text=True, timeout=timeout)
-            if res.returncode != 0:
-                return None, None, []
+            res = subprocess.run(ppm_cmd, capture_output=True, text=True, timeout=timeout, check=True)
         except Exception as e:
             logger.warning(f"pdftoppm failed for page {page_num}: {e}")
             return None, None, []
@@ -130,69 +226,70 @@ def _try_tesseract_ocr(
 
         img_file = os.path.join(tmpdir, files[0])
 
-        # 1. Try TSV output to gather word-level confidence scores and blocks
-        tsv_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", psm, "-l", "eng", "tsv"]
+        # Try PSM 6 first (prose), fallback to PSM 4 (sparse legal forms)
+        for psm_val in ["6", "4"]:
+            tsv_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", psm_val, "-l", lang, "tsv"]
+            try:
+                tsv_res = subprocess.run(tsv_cmd, capture_output=True, text=True, timeout=timeout, env=env, check=False)
+                if tsv_res.returncode == 0 and tsv_res.stdout.strip():
+                    lines = tsv_res.stdout.splitlines()
+                    words = []
+                    confs = []
+                    blocks: List[ContentBlock] = []
+                    current_line_words: List[str] = []
+                    current_line_num: Optional[int] = None
+                    current_block_num: Optional[int] = None
+
+                    for row in lines[1:]:
+                        parts = row.split('\t')
+                        if len(parts) >= 12:
+                            try:
+                                block_num = int(parts[2])
+                                line_num = int(parts[4])
+                                conf = float(parts[10])
+                                w_text = parts[11].strip()
+
+                                if conf >= 0 and w_text:
+                                    confs.append(conf)
+                                    words.append(w_text)
+                                    if current_line_num is not None and (line_num != current_line_num or (current_block_num is not None and block_num != current_block_num)):
+                                        if current_line_words:
+                                            blocks.append(ContentBlock(
+                                                text=" ".join(current_line_words),
+                                                block_type="paragraph"
+                                            ))
+                                            current_line_words = []
+                                    current_line_num = line_num
+                                    current_block_num = block_num
+                                    current_line_words.append(w_text)
+                            except (ValueError, IndexError):
+                                continue
+
+                    if current_line_words:
+                        blocks.append(ContentBlock(
+                            text=" ".join(current_line_words),
+                            block_type="paragraph"
+                        ))
+
+                    mean_conf = (sum(confs) / (100.0 * len(confs))) if confs else None
+                    extracted = "\n\n".join(b.text for b in blocks) if blocks else " ".join(words)
+                    printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
+                    if len(printable) >= 10:
+                        return extracted, mean_conf, blocks
+            except Exception as e:
+                logger.debug(f"Tesseract TSV psm={psm_val} failed for page {page_num}: {e}")
+
+        # Plain text fallback
+        ocr_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", "6", "-l", lang]
         try:
-            tsv_res = subprocess.run(tsv_cmd, capture_output=True, text=True, timeout=timeout, env=env)
-            if tsv_res.returncode == 0 and tsv_res.stdout.strip():
-                lines = tsv_res.stdout.splitlines()
-                words = []
-                confs = []
-                blocks: List[ContentBlock] = []
-                current_line_words: List[str] = []
-                current_line_num: Optional[int] = None
-                current_block_num: Optional[int] = None
-
-                for row in lines[1:]:
-                    parts = row.split('\t')
-                    if len(parts) >= 12:
-                        try:
-                            block_num = int(parts[2])
-                            line_num = int(parts[4])
-                            conf = float(parts[10])
-                            w_text = parts[11].strip()
-
-                            if conf >= 0 and w_text:
-                                confs.append(conf)
-                                words.append(w_text)
-                                if current_line_num is not None and (line_num != current_line_num or (current_block_num is not None and block_num != current_block_num)):
-                                    if current_line_words:
-                                        blocks.append(ContentBlock(
-                                            text=" ".join(current_line_words),
-                                            block_type="paragraph"
-                                        ))
-                                        current_line_words = []
-                                current_line_num = line_num
-                                current_block_num = block_num
-                                current_line_words.append(w_text)
-                        except (ValueError, IndexError):
-                            continue
-
-                if current_line_words:
-                    blocks.append(ContentBlock(
-                        text=" ".join(current_line_words),
-                        block_type="paragraph"
-                    ))
-
-                mean_conf = (sum(confs) / (100.0 * len(confs))) if confs else None
-                extracted = "\n\n".join(b.text for b in blocks) if blocks else " ".join(words)
-                printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
-                if len(printable) >= 5:
-                    return extracted, mean_conf, blocks
-        except Exception as e:
-            logger.debug(f"Tesseract TSV extraction failed for page {page_num}: {e}")
-
-        # 2. Fallback to standard text output
-        ocr_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", psm, "-l", "eng"]
-        try:
-            ocr_res = subprocess.run(ocr_cmd, capture_output=True, text=True, timeout=timeout, env=env)
+            ocr_res = subprocess.run(ocr_cmd, capture_output=True, text=True, timeout=timeout, env=env, check=False)
             if ocr_res.returncode == 0:
                 extracted = ocr_res.stdout.strip()
                 printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
-                if len(printable) >= 5:
+                if len(printable) >= 10:
                     return extracted, 0.85, [ContentBlock(text=extracted, block_type="paragraph")]
         except Exception as e:
-            logger.warning(f"Tesseract OCR failed for page {page_num}: {e}")
+            logger.warning(f"Tesseract fallback failed for page {page_num}: {e}")
 
     return None, None, []
 
@@ -209,7 +306,6 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
     page_num_regex = re.compile(r'^(?:page\s+\d+(?:\s+of\s+\d+)?|\d+\s*/\s*\d+|-\s*\d+\s*-|\d+)$', re.IGNORECASE)
     confidential_regex = re.compile(r'^(?:confidential|privileged|all rights reserved|attorney-client privilege)\b', re.IGNORECASE)
 
-    # Collect candidate lines from top and bottom lines of each page
     top_candidates: List[str] = []
     bottom_candidates: List[str] = []
     page_lines_map: List[List[str]] = []
@@ -259,16 +355,18 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
 def parse_pdf(
     file_path: str,
     filename: str,
-    ocr_threshold: int = 30,
+    ocr_threshold: int = 40,
     ocr_dpi: int = 300,
+    ocr_lang: str = "eng",
     timeout: float = 30.0
 ) -> ParserResult:
     """
-    Parse PDF page-by-page using Poppler 'pdftotext -f N -l N'.
+    Parse PDF page-by-page using Poppler 'pdftotext -f N -l N -layout'.
     Enforces encrypted PDF detection, quality-bounded OCR fallback with confidence,
-    and running header/footer suppression.
+    separate digital_text and ocr_text storage, and running header/footer suppression.
     """
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     info = _get_pdf_info(file_path, timeout=timeout)
     if info.get("encrypted"):
         raise EncryptedPdfError(f"PDF document '{filename}' is encrypted and cannot be parsed.")
@@ -283,56 +381,68 @@ def parse_pdf(
     warnings: List[str] = []
 
     for page_num in range(1, total_pages + 1):
-        clean_text = ""
+        digital_text = ""
         try:
             proc = subprocess.run(
                 [pdftotext_bin, "-layout", "-f", str(page_num), "-l", str(page_num), file_path, "-"],
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=timeout
+                timeout=timeout,
+                check=False
             )
             if proc.returncode == 0:
-                clean_text = proc.stdout.strip()
+                digital_text = proc.stdout.strip()
         except Exception as e:
             warnings.append(f"pdftotext failed on page {page_num}: {e}")
 
         ocr_applied = False
+        ocr_text: Optional[str] = None
         ocr_confidence: Optional[float] = None
         page_blocks: List[ContentBlock] = []
 
-        # Per-page OCR decision: selectable chars < threshold AND image streams present
-        if len(clean_text) < ocr_threshold and has_image_streams:
-            ocr_text, conf, blocks = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="4", timeout=timeout)
-            if not ocr_text:
-                # Try PSM 3 (fully automatic)
-                ocr_text, conf, blocks = _try_tesseract_ocr(file_path, page_num, dpi=ocr_dpi, psm="3", timeout=timeout)
-
-            # Meaningfully better check: OCR must yield noticeably more content
-            if ocr_text and len(ocr_text) > max(len(clean_text), 15):
-                clean_text = ocr_text
+        # Unified OCR Policy: fallback if page text chars < 40 OR image streams say scanned
+        if len(digital_text) < ocr_threshold or has_image_streams:
+            candidate_ocr, conf, blocks = _try_tesseract_ocr(
+                file_path,
+                page_num,
+                dpi=ocr_dpi,
+                lang=ocr_lang,
+                timeout=timeout
+            )
+            if candidate_ocr and len(candidate_ocr) > max(len(digital_text), 15):
                 ocr_applied = True
+                ocr_text = candidate_ocr
                 ocr_confidence = conf
                 page_blocks = blocks
                 if conf is not None and conf < 0.50:
-                    warnings.append(f"Low OCR confidence ({conf*100:.1f}%) on page {page_num}")
-                logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(ocr_text)} chars, conf: {conf})")
-            elif not clean_text:
-                clean_text = f"[Scanned page {page_num} - image text pending]"
-        else:
-            # Native text: populate paragraph blocks
-            for para in [p.strip() for p in clean_text.split('\n\n') if p.strip()]:
+                    warnings.append(WarningCode.LOW_OCR_CONFIDENCE.value)
+                logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(candidate_ocr)} chars, conf: {conf})")
+
+        chosen_text = ocr_text if (ocr_applied and ocr_text) else digital_text
+        if not chosen_text:
+            if ocr_applied:
+                warnings.append(WarningCode.OCR_EMPTY_PAGE.value)
+                chosen_text = f"[Scanned page {page_num} - image text pending]"
+            else:
+                chosen_text = ""
+
+        if not ocr_applied and digital_text:
+            for para in [p.strip() for p in digital_text.split('\n\n') if p.strip()]:
                 page_blocks.append(ContentBlock(text=para, block_type="paragraph"))
 
         pages_data.append(PageData(
             index=page_num,
             locator=f"Page {page_num}",
-            text=clean_text,
+            structured_locator=StructuredLocator(kind="page", page=page_num, path=[f"Page {page_num}"], formatted=f"Page {page_num}"),
+            text=chosen_text,
+            digital_text=digital_text,
+            ocr_text=ocr_text,
             blocks=page_blocks,
             has_images=has_image_streams,
             ocr_applied=ocr_applied,
             confidence=ocr_confidence,
-            char_count=len(clean_text)
+            char_count=len(chosen_text)
         ))
 
     # Suppress repeating running headers and footers across pages
@@ -341,6 +451,7 @@ def parse_pdf(
     return ParserResult(
         filename=filename,
         mime="application/pdf",
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="pdf-poppler",
         parser_version="pdf-poppler@2.0",
@@ -349,44 +460,15 @@ def parse_pdf(
     )
 
 
-# ─── Pluggable Parser Backend Protocol & Registry ────────────────────────────
-
-class BaseParserBackend:
-    """Protocol for pluggable document parser backends."""
-    name: str = "base"
-    version: str = "1.0"
-
-    def parse(self, file_path: str, filename: str, **kwargs) -> ParserResult:
-        raise NotImplementedError
-
-
-class PopplerParser(BaseParserBackend):
-    """Default offline Poppler + Tesseract OCR parser."""
-    name: str = "pdf-poppler"
-    version: str = "pdf-poppler@2.0"
-
-    def parse(self, file_path: str, filename: str, **kwargs) -> ParserResult:
-        return parse_pdf(file_path, filename, **kwargs)
-
-
-PARSER_REGISTRY: Dict[str, BaseParserBackend] = {
-    "pdf": PopplerParser(),
-}
-
-
-def register_parser_backend(ext_or_mime: str, backend: BaseParserBackend):
-    """Register an optional or custom parser backend (e.g., docling, unstructured)."""
-    PARSER_REGISTRY[ext_or_mime.lower()] = backend
-
-
 # ─── DOCX Parser: Single-Pass In-Order Elements with Heading Stack ───────────
 
 def parse_docx(file_path: str, filename: str) -> ParserResult:
     """
     Parse DOCX files by reading word/document.xml in single-pass natural order.
-    Emits page_number=None, maintaining a hierarchical heading stack (e.g. Article IV > Section 8.22).
+    Emits page_number=None, maintaining a hierarchical heading stack.
     """
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     pages_data: List[PageData] = []
     warnings: List[str] = []
     heading_stack: List[str] = []
@@ -453,10 +535,13 @@ def parse_docx(file_path: str, filename: str) -> ParserResult:
 
                 full_body = "\n\n".join(document_elements).strip()
                 loc = " > ".join(heading_stack) if heading_stack else "General"
+                struct_loc = StructuredLocator(kind="heading", page=None, path=list(heading_stack), formatted=loc)
                 pages_data.append(PageData(
                     index=None,  # No fake page numbers!
                     locator=loc,
+                    structured_locator=struct_loc,
                     text=full_body,
+                    digital_text=full_body,
                     char_count=len(full_body)
                 ))
 
@@ -471,6 +556,7 @@ def parse_docx(file_path: str, filename: str) -> ParserResult:
     return ParserResult(
         filename=filename,
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="docx-xml",
         parser_version="docx-xml@2.0",
@@ -498,6 +584,7 @@ def parse_eml(file_path: str, filename: str) -> ParserResult:
     and capturing attachments as distinct sections.
     """
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     with open(file_path, "rb") as f:
         msg = email.message_from_binary_file(f)
 
@@ -542,7 +629,9 @@ def parse_eml(file_path: str, filename: str) -> ParserResult:
                             attachment_sections.append(PageData(
                                 index=None,
                                 locator=f"Attachment: {att_name}",
+                                structured_locator=StructuredLocator(kind="heading", page=None, path=["Attachment", att_name], formatted=f"Attachment: {att_name}"),
                                 text=f"# Attachment: {att_name}\n\n{att_text.strip()}",
+                                digital_text=att_text.strip(),
                                 char_count=len(att_text)
                             ))
                     except Exception:
@@ -572,7 +661,9 @@ def parse_eml(file_path: str, filename: str) -> ParserResult:
     pages = [PageData(
         index=None,
         locator=f"Email: {subj or 'Untitled'}",
+        structured_locator=StructuredLocator(kind="heading", page=None, path=["Email", subj or "Untitled"], formatted=f"Email: {subj or 'Untitled'}"),
         text=full_email,
+        digital_text=full_email,
         char_count=len(full_email)
     )]
     pages.extend(attachment_sections)
@@ -580,6 +671,7 @@ def parse_eml(file_path: str, filename: str) -> ParserResult:
     return ParserResult(
         filename=filename,
         mime="message/rfc822",
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="eml-rfc822",
         parser_version="eml-rfc822@2.0",
@@ -590,7 +682,7 @@ def parse_eml(file_path: str, filename: str) -> ParserResult:
 # ─── HTML Parser using Python stdlib HTMLParser ──────────────────────────────
 
 class _HTMLTextExtractor(HTMLParser):
-    """Clean HTML text extractor converting semantic tags to Markdown."""
+    """Clean HTML text extractor converting semantic tags to Markdown and stripping scripts."""
     def __init__(self):
         super().__init__()
         self.result: List[str] = []
@@ -603,7 +695,7 @@ class _HTMLTextExtractor(HTMLParser):
     def handle_starttag(self, tag: str, attrs):
         t = tag.lower()
         self._current_tag = t
-        if t in ["script", "style", "head", "noscript"]:
+        if t in ["script", "style", "head", "noscript", "svg", "iframe"]:
             self._skip_depth += 1
         elif t in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             self._heading_level = int(t[1])
@@ -621,7 +713,7 @@ class _HTMLTextExtractor(HTMLParser):
 
     def handle_endtag(self, tag: str):
         t = tag.lower()
-        if t in ["script", "style", "head", "noscript"]:
+        if t in ["script", "style", "head", "noscript", "svg", "iframe"]:
             self._skip_depth = max(0, self._skip_depth - 1)
         elif t in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             self._heading_level = 0
@@ -653,7 +745,7 @@ class _HTMLTextExtractor(HTMLParser):
 
 
 def extract_html_text(html_content: str) -> str:
-    """Extract clean readable text from HTML string."""
+    """Extract clean readable text from HTML string with script tags stripped."""
     parser = _HTMLTextExtractor()
     parser.feed(html_content)
     return parser.get_text()
@@ -662,14 +754,23 @@ def extract_html_text(html_content: str) -> str:
 def parse_html(file_path: str, filename: str) -> ParserResult:
     """Parse HTML documents using Python stdlib HTMLParser."""
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         html = f.read()
 
     clean_text = extract_html_text(html)
-    pages = [PageData(index=None, locator="HTML Document", text=clean_text, char_count=len(clean_text))]
+    pages = [PageData(
+        index=None,
+        locator="HTML Document",
+        structured_locator=StructuredLocator(kind="heading", page=None, path=["HTML Document"], formatted="HTML Document"),
+        text=clean_text,
+        digital_text=clean_text,
+        char_count=len(clean_text)
+    )]
     return ParserResult(
         filename=filename,
         mime="text/html",
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="html-stdlib",
         parser_version="html-stdlib@2.0",
@@ -685,6 +786,7 @@ def parse_csv(file_path: str, filename: str, rows_per_group: int = 30) -> Parser
     and locator='Rows X-Y' to maintain citation truth.
     """
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     pages: List[PageData] = []
 
     content = ""
@@ -701,10 +803,11 @@ def parse_csv(file_path: str, filename: str, rows_per_group: int = 30) -> Parser
         return ParserResult(
             filename=filename,
             mime="text/csv",
+            detected_mime=detected_mime,
             file_hash=file_hash,
             parser_name="csv-rowgroup",
             parser_version="csv-rowgroup@2.0",
-            pages=[PageData(index=None, locator="Empty", text="[Empty CSV]")]
+            pages=[PageData(index=None, locator="Empty", text="[Empty CSV]", digital_text="")]
         )
 
     headers = [c.strip() for c in reader[0]]
@@ -714,7 +817,14 @@ def parse_csv(file_path: str, filename: str, rows_per_group: int = 30) -> Parser
 
     if not data_rows:
         table_text = f"{header_line}\n{divider_line}"
-        pages.append(PageData(index=None, locator="Headers Only", text=table_text, char_count=len(table_text)))
+        pages.append(PageData(
+            index=None,
+            locator="Headers Only",
+            structured_locator=StructuredLocator(kind="row_range", page=None, path=["Headers Only"], formatted="Headers Only"),
+            text=table_text,
+            digital_text=table_text,
+            char_count=len(table_text)
+        ))
     else:
         for idx in range(0, len(data_rows), rows_per_group):
             group = data_rows[idx:idx + rows_per_group]
@@ -730,13 +840,16 @@ def parse_csv(file_path: str, filename: str, rows_per_group: int = 30) -> Parser
             pages.append(PageData(
                 index=None,
                 locator=loc,
+                structured_locator=StructuredLocator(kind="row_range", page=None, path=[loc], formatted=loc),
                 text=group_text,
+                digital_text=group_text,
                 char_count=len(group_text)
             ))
 
     return ParserResult(
         filename=filename,
         mime="text/csv",
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="csv-rowgroup",
         parser_version="csv-rowgroup@2.0",
@@ -749,6 +862,7 @@ def parse_csv(file_path: str, filename: str, rows_per_group: int = 30) -> Parser
 def parse_plain_or_code(file_path: str, filename: str) -> ParserResult:
     """Parse plain text, Markdown, JSON, or code files with encoding detection."""
     file_hash = compute_file_hash(file_path)
+    detected_mime = detect_file_mime(file_path, filename)
     content = ""
 
     for enc in ["utf-8", "utf-8-sig", "latin-1"]:
@@ -774,16 +888,21 @@ def parse_plain_or_code(file_path: str, filename: str) -> ParserResult:
 
     clean_content = content.strip()
     idx = 1 if ext in ["txt", "text"] else None
+    loc = f"Page {idx}" if idx is not None else "General"
+    struct_loc = StructuredLocator(kind="page" if idx is not None else "heading", page=idx, path=[loc], formatted=loc)
     pages = [PageData(
         index=idx,
-        locator=None,
+        locator=loc,
+        structured_locator=struct_loc,
         text=clean_content,
+        digital_text=clean_content,
         char_count=len(clean_content)
     )]
 
     return ParserResult(
         filename=filename,
         mime=mime,
+        detected_mime=detected_mime,
         file_hash=file_hash,
         parser_name="text-plain",
         parser_version="text-plain@2.0",
@@ -801,8 +920,9 @@ ParsedDocument = ParserResult
 def parse_document(
     file_path: str,
     filename: str,
-    ocr_threshold: int = 30,
+    ocr_threshold: int = 40,
     ocr_dpi: int = 300,
+    ocr_lang: str = "eng",
     timeout: float = 30.0
 ) -> ParserResult:
     """
@@ -812,7 +932,7 @@ def parse_document(
     ext = filename.lower().split('.')[-1] if '.' in filename else ""
 
     if ext == "pdf":
-        return parse_pdf(file_path, filename, ocr_threshold=ocr_threshold, ocr_dpi=ocr_dpi, timeout=timeout)
+        return parse_pdf(file_path, filename, ocr_threshold=ocr_threshold, ocr_dpi=ocr_dpi, ocr_lang=ocr_lang, timeout=timeout)
     elif ext in ["docx", "doc"]:
         return parse_docx(file_path, filename)
     elif ext in ["eml", "msg"]:

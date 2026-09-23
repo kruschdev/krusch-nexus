@@ -11,7 +11,7 @@ Determine which client environment you are configuring:
 
 - **Option A**: Claude Desktop app (`claude_desktop_config.json`)
 - **Option B**: Cursor IDE / Antigravity IDE (`.cursor/mcp.json`)
-- **Option C**: Remote SSE Network Server (`http://10.0.0.85:8002/sse` or `http://localhost:8002/sse`)
+- **Option C**: Remote SSE Network Server (`http://127.0.0.1:8002/sse`)
 
 ---
 
@@ -33,7 +33,7 @@ Determine which client environment you are configuring:
          "args": ["-m", "krusch_nexus.mcp"],
          "cwd": "/path/to/krusch-nexus",
          "env": {
-           "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+           "DATABASE_URL": "postgresql://krusch:<your_secure_password>@127.0.0.1:5432/krusch_nexus_db",
            "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
          }
        }
@@ -55,7 +55,7 @@ Determine which client environment you are configuring:
          "args": ["-m", "krusch_nexus.mcp"],
          "cwd": "/path/to/krusch-nexus",
          "env": {
-           "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+           "DATABASE_URL": "postgresql://krusch:<your_secure_password>@127.0.0.1:5432/krusch_nexus_db",
            "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
          }
        }
@@ -72,7 +72,7 @@ If connecting across the local network:
 {
   "mcpServers": {
     "krusch-nexus-sse": {
-      "url": "http://10.0.0.85:8002/sse",
+      "url": "http://127.0.0.1:8002/sse",
       "transport": "sse"
     }
   }
@@ -85,6 +85,7 @@ If connecting across the local network:
 
 Once configured:
 
-1. Call `nexus_list_workspaces()` to inspect available workspaces (e.g. `General`, `Legal`, `Corporate`).
-2. Call `nexus_search_corpus(query="retention policy")` to test hybrid vector + FTS retrieval.
-3. Test ingesting a test file via `nexus_ingest_file(file_path="...")` and verify the returned JSON Ingest Report.
+1. Call `nexus_list_workspaces()` to inspect available workspaces (e.g. `General`, `Litigation`, `Corporate`).
+2. Call `nexus_search_corpus(query="§ 1950.5 security deposit", workspace_name="Litigation")` to test hybrid vector + FTS retrieval. Notice that `workspace_name` is mandatory for tenant isolation.
+3. Test ingesting a test file via `nexus_ingest_file(file_path="...", workspace_name="Litigation")` and verify the returned JSON Ingest Report.
+4. Run `nexus_doctor()` to confirm Poppler, Tesseract, and database extension health.

@@ -1,7 +1,6 @@
 services:
   db:
     image: ankane/pgvector:v0.5.1
-    profiles: ["core", "worker", "mcp"]
     env_file:
       - .env
     environment:
@@ -23,7 +22,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    profiles: ["core"]
     networks:
       - nexus_net
     volumes:
@@ -57,7 +55,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    profiles: ["worker"]
     networks:
       - nexus_net
     volumes:
@@ -87,7 +84,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    profiles: ["mcp"]
     networks:
       - nexus_net
     volumes:

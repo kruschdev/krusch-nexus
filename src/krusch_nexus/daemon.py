@@ -15,8 +15,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from .config import NexusConfig
-from .ingest import IngestPipeline, ALLOWED_EXT
+from .models import NexusConfig
+from .ingest import IngestPipeline, ALLOWED_EXT, reap_stale_locks
 
 logger = logging.getLogger("krusch_nexus.daemon")
 
@@ -28,39 +28,14 @@ def get_default_watch_dir() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "ingest_watch"))
 
 
-async def reap_stale_locks(staging_dir: str, timeout_seconds: float = 600.0):
-    """
-    Periodically scan staging directory for abandoned .part files older than
-    timeout_seconds and isolate them to .failed/stale_locks/ to prevent deadlocks.
-    """
+async def _run_periodic_reaper(staging_dir: str, timeout_seconds: float = 600.0):
+    """Periodically execute the standalone reap_stale_locks function."""
     while True:
         try:
-            now = time.time()
-            if os.path.exists(staging_dir):
-                for root, _, files in os.walk(staging_dir):
-                    for f in files:
-                        if f.endswith(".part"):
-                            f_path = os.path.join(root, f)
-                            try:
-                                mtime = os.path.getmtime(f_path)
-                                if now - mtime > timeout_seconds:
-                                    logger.warning(
-                                        f"Stale lock detected on '{f}' (age: {int(now - mtime)}s > {int(timeout_seconds)}s). "
-                                        "Reaping and quarantining abandoned file."
-                                    )
-                                    ws_name = os.path.basename(root)
-                                    base_dir = Path(staging_dir).parent
-                                    failed_dir = base_dir / ".failed" / ws_name
-                                    failed_dir.mkdir(parents=True, exist_ok=True)
-                                    clean_name = f.replace(".part", "")
-                                    dest = failed_dir / f"stale_{clean_name}"
-                                    shutil.move(f_path, str(dest))
-                            except Exception as e:
-                                logger.debug(f"Error checking file {f_path}: {e}")
+            reap_stale_locks(staging_dir, timeout_seconds=timeout_seconds)
         except Exception as e:
-            logger.error(f"Error during stale-lock reaper pass: {e}")
-
-        await asyncio.sleep(60)  # Check every 60 seconds
+            logger.error(f"Error during periodic stale lock reaper pass: {e}")
+        await asyncio.sleep(60)
 
 
 _RETRY_TRACKER: dict = {}
@@ -90,8 +65,8 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
     logger.info(f"Starting KruschNexus Ingest Daemon on: {target_watch_dir}")
     logger.info(f"Workers: {conf.max_ocr_workers} OCR, {conf.max_embed_workers} Embed. Staging: {staging_dir}")
 
-    # Launch background stale-lock reaper
-    reaper_task = asyncio.create_task(reap_stale_locks(staging_dir, timeout_seconds=600.0))
+    # Launch background stale-lock reaper task
+    reaper_task = asyncio.create_task(_run_periodic_reaper(staging_dir, timeout_seconds=conf.stale_lock_timeout_seconds))
 
     async def _safe_process(source_path: str, ws_name: str, fname: str):
         file_key = f"{ws_name}/{fname}"
@@ -107,6 +82,7 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
                 if os.path.exists(source_path):
                     shutil.move(source_path, str(dest))
                 with open(failed_dir / f"quarantined_{fname}.error.json", "w", encoding="utf-8") as f:
+                    import json
                     json.dump({"error": "MaxRetriesExceeded", "attempts": attempts, "status": "quarantined"}, f, indent=2)
             except Exception as q_err:
                 logger.warning(f"Could not quarantine poison file: {q_err}")

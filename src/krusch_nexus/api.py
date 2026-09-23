@@ -5,8 +5,8 @@ First-class HTTP API mirror of the in-process NexusClient SDK:
 - POST /v1/ingest: Direct multipart file upload or local filepath ingestion
 - POST /v1/search: Hybrid vector + FTS retrieval with canonical citations
 - GET /v1/documents: List documents with workspace isolation
-- POST /v1/documents/{id}/reparse: Re-parse existing document
-- DELETE /v1/documents/{id}: Delete document and cascade chunks
+- POST /v1/documents/{id}/reparse: Re-parse existing document (operator protected)
+- DELETE /v1/documents/{id}: Delete document and cascade chunks (operator protected)
 - GET /v1/workspaces: List workspaces
 - GET /health: Air-gapped healthcheck verifying DB, pgvector, and Ollama
 """
@@ -14,17 +14,35 @@ First-class HTTP API mirror of the in-process NexusClient SDK:
 import os
 import shutil
 import tempfile
+import secrets
 import httpx
 from typing import Optional, List
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Header, Depends, status
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Header, Depends, status, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 
-from .config import NexusConfig
-from .models import IngestReport, SearchHit, SearchFilter, WorkspaceInfo, DocumentInfo, DocType
-from .exceptions import ConfigurationError
+from .models import (
+    NexusConfig,
+    IngestReport,
+    SearchHit,
+    SearchFilter,
+    WorkspaceInfo,
+    DocumentInfo,
+    DocType
+)
+from .exceptions import (
+    ConfigurationError,
+    TooLargeError,
+    EncryptedPdfError,
+    EmptyOcrError,
+    UnsupportedMimeError,
+    PathSandboxError,
+    WorkspaceRequiredError,
+    AuthenticationError,
+    ParseError
+)
 from .client import NexusClient
 from .store import init_db, Workspace
 
@@ -34,7 +52,6 @@ client = NexusClient(config)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Enforce database password security guardrail
     db_url = config.database_url or os.getenv("DATABASE_URL", "")
     insecure_passwords = ["password", "kruschpassword", "admin", "postgres", "root", "123456"]
     for bad_pwd in insecure_passwords:
@@ -55,19 +72,82 @@ app = FastAPI(
 )
 
 
+# ─── Exception Handlers: Map Typed Errors to First-Class HTTP 4xx ───────────
+
+@app.exception_handler(TooLargeError)
+async def too_large_exception_handler(request: Request, exc: TooLargeError):
+    return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"error": "TooLargeError", "detail": str(exc)})
+
+
+@app.exception_handler(EncryptedPdfError)
+async def encrypted_pdf_exception_handler(request: Request, exc: EncryptedPdfError):
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"error": "EncryptedPdfError", "detail": str(exc)})
+
+
+@app.exception_handler(EmptyOcrError)
+async def empty_ocr_exception_handler(request: Request, exc: EmptyOcrError):
+    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"error": "EmptyOcrError", "detail": str(exc)})
+
+
+@app.exception_handler(UnsupportedMimeError)
+async def unsupported_mime_exception_handler(request: Request, exc: UnsupportedMimeError):
+    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "UnsupportedMimeError", "detail": str(exc)})
+
+
+@app.exception_handler(PathSandboxError)
+async def path_sandbox_exception_handler(request: Request, exc: PathSandboxError):
+    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"error": "PathSandboxError", "detail": str(exc)})
+
+
+@app.exception_handler(WorkspaceRequiredError)
+async def workspace_required_exception_handler(request: Request, exc: WorkspaceRequiredError):
+    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "WorkspaceRequiredError", "detail": str(exc)})
+
+
+@app.exception_handler(AuthenticationError)
+async def auth_exception_handler(request: Request, exc: AuthenticationError):
+    return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "AuthenticationError", "detail": str(exc)})
+
+
+# ─── Constant-Time Bearer Token Security ─────────────────────────────────────
+
 def verify_api_token(authorization: Optional[str] = Header(None)):
-    """Enforce API token authentication when NEXUS_API_TOKEN is configured."""
+    """Enforce API token authentication using constant-time comparison when configured."""
     if not config.api_token:
         return True
     if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization header")
     parts = authorization.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer" or parts[1] != config.api_token:
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Authorization header format")
+
+    if not secrets.compare_digest(parts[1], config.api_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
     return True
 
 
-# ─── Truthful Healthcheck Endpoint ───────────────────────────────────────────
+def verify_operator_token(
+    x_operator_token: Optional[str] = Header(None, alias="X-Operator-Token"),
+    authorization: Optional[str] = Header(None)
+) -> Optional[str]:
+    """Enforce operator authorization for destructive day-two actions."""
+    if not config.operator_token:
+        return None
+
+    token = x_operator_token
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+        else:
+            token = authorization
+
+    if not token or not secrets.compare_digest(token, config.operator_token):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operator token required for destructive operation")
+    return token
+
+
+# ─── Healthcheck Endpoint ───────────────────────────────────────────────────
 
 @app.get("/health")
 def health_check():
@@ -98,10 +178,9 @@ def health_check():
             else:
                 vector_ok = True
 
-            # Query last failure class
             try:
                 fail_row = conn.execute(
-                    text("SELECT error_class FROM ingest_reports WHERE status = 'failed' ORDER BY id DESC LIMIT 1")
+                    text("SELECT error_class FROM ingest_runs WHERE state = 'failed' ORDER BY id DESC LIMIT 1")
                 ).fetchone()
                 if fail_row:
                     last_failure_class = fail_row[0]
@@ -121,7 +200,6 @@ def health_check():
     if not tesseract_ok:
         errors.append("Tesseract OCR binary is missing; scanned PDF OCR fallback is unavailable")
 
-    # Measure queue depth
     queue_depth = 0
     watch_dir = config.watch_dir or "./ingest_watch"
     staging_dir = os.path.join(watch_dir, "staging")
@@ -163,6 +241,7 @@ async def ingest_document(
 ):
     """
     Ingest a document into a workspace via multipart file upload or local filepath.
+    Enforces upload size budget (50MB) and workspace isolation.
     """
     if not workspace or not workspace.strip():
         raise HTTPException(status_code=400, detail="A workspace name is required.")
@@ -171,10 +250,18 @@ async def ingest_document(
 
     if file:
         temp_dir = tempfile.mkdtemp(prefix="nexus_upload_")
-        target_path = os.path.join(temp_dir, file.filename)
+        target_path = os.path.join(temp_dir, file.filename or "upload.bin")
         try:
+            total_bytes = 0
             with open(target_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
+                while chunk := await file.read(65536):
+                    total_bytes += len(chunk)
+                    if total_bytes > config.max_file_size_bytes:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"Uploaded file exceeds size budget of {config.max_file_size_bytes} bytes."
+                        )
+                    buffer.write(chunk)
 
             report = client.ingest(
                 filepath=target_path,
@@ -246,18 +333,24 @@ def get_document_ingest_report(doc_id_or_hash: str):
 
 
 @app.post("/v1/documents/{doc_id}/reparse", response_model=IngestReport, dependencies=[Depends(verify_api_token)])
-def reparse_document(doc_id: int):
-    """Re-parse and re-chunk an existing document in the corpus."""
+def reparse_document(
+    doc_id: int,
+    op_token: Optional[str] = Depends(verify_operator_token)
+):
+    """Re-parse and re-chunk an existing document in the corpus (operator action)."""
     try:
-        return client.reparse(doc_id)
+        return client.reparse(doc_id, operator_token=op_token)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Reparse failed: {e}")
 
 
 @app.delete("/v1/documents/{doc_id}", dependencies=[Depends(verify_api_token)])
-def delete_document(doc_id: int):
-    """Delete a document and its chunks from the database."""
-    success = client.delete_document(doc_id)
+def delete_document(
+    doc_id: int,
+    op_token: Optional[str] = Depends(verify_operator_token)
+):
+    """Delete a document and its chunks from the database (operator action)."""
+    success = client.delete_document(doc_id, operator_token=op_token)
     if not success:
         raise HTTPException(status_code=404, detail=f"Document ID {doc_id} not found")
     return {"status": "deleted", "document_id": doc_id}

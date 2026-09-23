@@ -6,7 +6,7 @@ Splits multi-page documents into structure-aware chunks while:
 - Computing source_hash over raw text ONLY (breadcrumbs changes don't alter hashes)
 - Carrying hierarchical heading stacks (e.g. Article IV > Section 8.22)
 - Flowing sliding-window overlap across page boundaries
-- Supporting DocType enums and locator citations for unpaged formats (DOCX/CSV)
+- Supporting DocType enums, StructuredLocator, and locator citations for unpaged formats
 """
 
 import re
@@ -14,17 +14,17 @@ import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Set, Tuple
 
-from .models import PageData, DocType, Citation
+from .models import PageData, DocType, Citation, StructuredLocator
 
 logger = logging.getLogger("krusch_nexus.chunking")
 
 # Section heading patterns for legal and corporate statutory documents
 SECTION_PATTERN = re.compile(
-    r'(?:§+|Section|Sec\.|Article|Clause|Exhibit)\s*([0-9A-Za-z\.\-:]*(?:\s+[A-Za-z0-9\s,\-\'\":]{0,60})?)',
+    r'(?:§+|Section|Sec\.|Article|Art\.|Clause|Exhibit)\s*([0-9A-Za-z\.\-:]*(?:\s+[A-Za-z0-9\s,\-\'\":]{0,60})?)',
     re.IGNORECASE
 )
 OPERATIVE_PATTERN = re.compile(
-    r'(?:§+|Section|Sec\.|Article|Clause)\s*([0-9IVXLCDM]+)',
+    r'(?:§+|Section|Sec\.|Article|Art\.|Clause)\s*([0-9IVXLCDM]+)',
     re.IGNORECASE
 )
 MARKDOWN_HEADING_PATTERN = re.compile(r'^(#{1,6}\s+[^\n]+)', re.MULTILINE)
@@ -44,6 +44,7 @@ class Chunk:
         source_hash: str,       # SHA-256 over raw_text ONLY
         doc_hash: str,
         filename: str,
+        structured_locator: Optional[StructuredLocator] = None,
         metadata: Optional[Dict[str, Any]] = None,
         char_start: Optional[int] = None,
         char_end: Optional[int] = None,
@@ -61,6 +62,9 @@ class Chunk:
         self.source_hash = source_hash
         self.doc_hash = doc_hash
         self.filename = filename
+        self.structured_locator = structured_locator or StructuredLocator.from_raw(
+            page=page_number, locator_str=locator, header=header
+        )
         self.metadata = metadata or {}
         self.char_start = char_start
         self.char_end = char_end
@@ -75,6 +79,7 @@ class Chunk:
             "citation": self.citation,
             "header": self.header,
             "locator": self.locator,
+            "structured_locator": self.structured_locator.model_dump() if self.structured_locator else None,
             "page_number": self.page_number,
             "chunk_index": self.chunk_index,
             "source_hash": self.source_hash,
@@ -149,7 +154,6 @@ def chunk_document_pages(
 ) -> List[Chunk]:
     """
     Split document pages into structure-aware chunks.
-    - Preserves subsection atomic boundaries.
     - Embed text is purely raw section text.
     - source_hash is calculated strictly on raw_text.
     - Heading stacks are tracked across the document.
@@ -164,7 +168,7 @@ def chunk_document_pages(
     resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
     base_meta["doc_type"] = resolved_doc_type
 
-    # 1. Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header)
+    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header)
     elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool]] = []
     for p in pages:
         p_text = p.text
@@ -200,7 +204,6 @@ def chunk_document_pages(
     if not elements:
         return []
 
-    # 2. Sliding window chunking with structure-first boundaries
     current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool]] = []
     current_len = 0
     current_header = "General"
@@ -225,7 +228,6 @@ def chunk_document_pages(
         c_hash = compute_chunk_hash(raw_chunk)
         cit_str = format_chunk_citation(filename, page_number=first_page, locator=loc, header=current_header)
 
-        # Calculate bounding offsets
         c_start = current_items[0][4]
         c_end = current_items[-1][5]
         item_confs = [x[3] for x in current_items if x[3] is not None]
@@ -243,6 +245,7 @@ def chunk_document_pages(
             source_hash=c_hash,      # Hashed on raw text only!
             doc_hash=file_hash,
             filename=filename,
+            structured_locator=StructuredLocator.from_raw(page=first_page, locator_str=loc, header=current_header),
             metadata=chunk_meta,
             char_start=c_start,
             char_end=c_end,
@@ -260,7 +263,6 @@ def chunk_document_pages(
             has_operative_in_chunk = False
             return
 
-        # Extract structural unit overlap (last 1-2 items)
         overlap_items = []
         accum = 0
         for item in reversed(current_items):
@@ -282,7 +284,6 @@ def chunk_document_pages(
         first_line = para.split('\n')[0]
         detected = detect_header_candidate(first_line)
 
-        # Update heading stack
         if detected:
             is_operative = bool(OPERATIVE_PATTERN.search(first_line) or first_line.startswith('#'))
             should_flush = False
@@ -304,7 +305,6 @@ def chunk_document_pages(
 
         para_len = len(para)
 
-        # Handle massive single paragraphs with sentence splitting
         if para_len > max_chars:
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
             s_offset = c_start or 0

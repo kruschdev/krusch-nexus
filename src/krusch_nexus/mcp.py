@@ -2,18 +2,18 @@
 KruschNexus FastMCP Server (mcp.py)
 ===================================
 Exposes local-first document ingestion and hybrid retrieval tools to AI agents.
-Enforces strict workspace requirements, path sandboxing, and frozen contract JSON outputs.
+Enforces strict workspace requirements, structured citations, and operator-gated
+destructive operations.
 """
 
 import os
 import json
 import logging
-from typing import Optional
+from typing import Optional, List
 from mcp.server.fastmcp import FastMCP
 
 from .client import NexusClient
-from .models import DocType
-from .config import NexusConfig
+from .models import DocType, NexusConfig
 
 logger = logging.getLogger("krusch_nexus.mcp")
 
@@ -32,6 +32,8 @@ def get_client() -> NexusClient:
         _client = NexusClient.from_env()
     return _client
 
+
+# ─── 6 Canonical User Tools ──────────────────────────────────────────────────
 
 @mcp.tool()
 def nexus_list_workspaces() -> str:
@@ -66,9 +68,9 @@ def nexus_ingest_file(
     Ingest a local document into the KruschNexus corpus.
     
     Args:
-        file_path: Path to the document file. Must reside within approved ingest roots.
+        file_path: Path to document file (must reside within approved ingest roots).
         workspace_name: Target workspace name (REQUIRED - no cross-contamination defaults).
-        doc_type: Document classification category ('authority', 'work_product', 'fact_narrative', 'general').
+        doc_type: Classification category ('authority', 'work_product', 'fact_narrative', 'general').
         archive: Whether to move source file to .ingested/ upon successful indexing.
     """
     if not workspace_name or not workspace_name.strip():
@@ -92,33 +94,47 @@ def nexus_ingest_file(
 
 
 @mcp.tool()
-def nexus_reparse(document_id: int) -> str:
+def nexus_ingest_directory(
+    directory_path: str,
+    workspace_name: str,
+    doc_type: str = "general",
+    recursive: bool = False
+) -> str:
     """
-    Re-parse and re-chunk an existing document in the corpus.
+    Ingest all supported documents from a directory into a workspace.
     
     Args:
-        document_id: Database ID of the document to re-parse.
+        directory_path: Local directory path. Must be within approved ingest roots.
+        workspace_name: Target workspace name (REQUIRED).
+        doc_type: Classification category.
+        recursive: Whether to scan subdirectories recursively.
     """
-    try:
-        report = get_client().reparse(document_id)
-        return json.dumps(report.model_dump(), indent=2)
-    except Exception as e:
-        return json.dumps({"status": "error", "error": str(e)})
+    if not workspace_name or not workspace_name.strip():
+        return json.dumps({"status": "error", "error": "workspace_name is required."})
 
+    client = get_client()
+    reports = []
+    from .ingest import ALLOWED_EXT
 
-@mcp.tool()
-def nexus_delete_document(document_id: int) -> str:
-    """
-    Delete a document and all associated chunks from the corpus.
-    
-    Args:
-        document_id: Database ID of the document to delete.
-    """
     try:
-        success = get_client().delete_document(document_id)
-        if success:
-            return json.dumps({"status": "deleted", "document_id": document_id})
-        return json.dumps({"status": "not_found", "message": f"Document ID {document_id} not found"})
+        resolved_doc_type = DocType(doc_type.lower()) if doc_type.lower() in [e.value for e in DocType] else DocType.GENERAL
+        walker = os.walk(directory_path) if recursive else [(directory_path, [], os.listdir(directory_path))]
+
+        for root, _, files in walker:
+            for f in sorted(files):
+                if f.startswith(".") or f.endswith(".part"):
+                    continue
+                if f.lower().endswith(ALLOWED_EXT):
+                    f_path = os.path.join(root, f)
+                    rep = client.ingest(filepath=f_path, workspace=workspace_name.strip(), doc_type=resolved_doc_type)
+                    reports.append(rep.model_dump())
+
+        return json.dumps({
+            "status": "completed",
+            "workspace": workspace_name,
+            "total_ingested": len(reports),
+            "reports": reports
+        }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
 
@@ -144,9 +160,10 @@ def nexus_search_corpus(
 ) -> str:
     """
     Execute hybrid vector + full-text search across a specific workspace.
+    Returns structured citation fields with grounded text snippets.
     
     Args:
-        query: Search question or keywords (supports statutory section tokens like § 1950.5).
+        query: Search question, keywords, or statutory section tokens (e.g. '§ 1950.5' or '"liquidated damages"').
         workspace_name: Target workspace name (REQUIRED).
         doc_type: Optional document type filter.
         limit: Number of top chunk hits to return (default 5).
@@ -160,7 +177,34 @@ def nexus_search_corpus(
     try:
         ws = workspace_name.strip()
         hits = get_client().search(query=query, workspace=ws, doc_type=doc_type, limit=limit)
-        results = [h.model_dump() for h in hits]
+        results = []
+        for h in hits:
+            results.append({
+                "chunk_id": h.chunk_id,
+                "document_id": h.document_id,
+                "filename": h.filename,
+                "workspace": h.workspace,
+                "score": h.score,
+                "text": h.text,
+                "citation": {
+                    "filename": h.filename,
+                    "page_number": h.page_number,
+                    "header": h.header,
+                    "locator": h.locator,
+                    "formatted": h.citation,
+                    "structured_locator": h.structured_locator.model_dump() if h.structured_locator else None
+                },
+                "explainability": {
+                    "dense_score": h.dense_score,
+                    "sparse_score": h.sparse_score,
+                    "vector_rank": h.vector_rank,
+                    "fts_rank": h.fts_rank,
+                    "section_boost": h.section_boost,
+                    "phrase_boost": h.phrase_boost,
+                    "match_reasons": h.match_reasons
+                }
+            })
+
         return json.dumps({
             "status": "success",
             "query": query,
@@ -168,6 +212,58 @@ def nexus_search_corpus(
             "results_count": len(results),
             "results": results
         }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+# ─── Operator-Restricted Tools ───────────────────────────────────────────────
+
+@mcp.tool()
+def nexus_reparse(document_id: int, operator_confirmed: bool = False, operator_token: Optional[str] = None) -> str:
+    """
+    Re-parse and re-chunk an existing document in the corpus.
+    OPERATOR ACTION: Requires operator_confirmed=True.
+    
+    Args:
+        document_id: Database ID of the document to re-parse.
+        operator_confirmed: Confirmation flag. Must be set to True.
+        operator_token: Optional operator token if configured.
+    """
+    if not operator_confirmed:
+        return json.dumps({
+            "status": "error",
+            "error": "nexus_reparse is an operator-only action. You must pass operator_confirmed=True to proceed."
+        })
+
+    try:
+        report = get_client().reparse(document_id, operator_token=operator_token)
+        return json.dumps(report.model_dump(), indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_delete_document(document_id: int, operator_confirmed: bool = False, operator_token: Optional[str] = None) -> str:
+    """
+    Delete a document and all associated chunks from the corpus.
+    OPERATOR ACTION: Requires operator_confirmed=True.
+    
+    Args:
+        document_id: Database ID of the document to delete.
+        operator_confirmed: Confirmation flag. Must be set to True.
+        operator_token: Optional operator token if configured.
+    """
+    if not operator_confirmed:
+        return json.dumps({
+            "status": "error",
+            "error": "nexus_delete_document is a destructive operator action. You must pass operator_confirmed=True to proceed."
+        })
+
+    try:
+        success = get_client().delete_document(document_id, operator_token=operator_token)
+        if success:
+            return json.dumps({"status": "deleted", "document_id": document_id})
+        return json.dumps({"status": "not_found", "message": f"Document ID {document_id} not found"})
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
 

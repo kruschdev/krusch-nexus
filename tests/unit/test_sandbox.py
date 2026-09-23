@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from krusch_nexus.sandbox import validate_safe_path
+from krusch_nexus.ingest import validate_safe_path
 from krusch_nexus.exceptions import PathSandboxError
 
 

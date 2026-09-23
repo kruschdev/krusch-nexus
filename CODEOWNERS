@@ -1,0 +1,14 @@
+# KruschNexus Core Repository Ownership & Allowlist
+# Air-gapped corpus factory and citation spine
+
+* @kruschdev
+src/krusch_nexus/ @kruschdev
+tests/ @kruschdev
+alembic/ @kruschdev
+.github/ @kruschdev
+docker-compose.yml @kruschdev
+Dockerfile.backend @kruschdev
+pyproject.toml @kruschdev
+README.md @kruschdev
+spec.md @kruschdev
+LICENSE @kruschdev

@@ -8,7 +8,7 @@ KruschNexus serves as the shared, air-gapped document ingestion engine and citat
 
 - **kruschserv** (Primary Host): Runs the PostgreSQL/pgvector database container (`krusch_nexus_db`), the FastAPI REST API, and the background ingestion watch daemon (`nexus-daemon`).
 - **kruschgame** (Ollama GPU Inference): Hosts local embedding models (`bge-large`, 1024 dims) for high-throughput zero-cloud vector generation.
-- **kruschdev / Workstations**: Connect to KruschNexus via the Model Context Protocol (FastMCP) or the Python SDK (`from krusch_nexus import Nexus`).
+- **kruschdev / Workstations**: Connect to KruschNexus via the Model Context Protocol (FastMCP) or the Python SDK (`from krusch_nexus import NexusClient`).
 
 ## Domain Consumers
 
@@ -27,4 +27,4 @@ Domain applications consume KruschNexus strictly via its public client or MCP su
 
 - **Zero UI in Ingestion Core**: No frontend or web chat interfaces live in `krusch-nexus`.
 - **Zero Agent Handoff Logic**: Domain prompting, legal drafting, and agentic reasoning remain in consumer projects.
-- **Strict Versioned SDK**: All consumers import from `krusch_nexus` (`from krusch_nexus import Nexus, SearchHit, IngestReport`), never internal modules.
+- **Strict Versioned SDK**: All consumers import from `krusch_nexus` (`from krusch_nexus import NexusClient, SearchHit, IngestReport, DocType`), never internal modules.

@@ -1,9 +1,10 @@
 """
-Integration tests for KruschNexus client SDK (from krusch_nexus import Nexus).
+Integration tests for KruschNexus client SDK (from krusch_nexus import NexusClient).
 Verifies:
-- Standard library usage: nx = Nexus.from_env()
-- Ingestion and hybrid search flow returning typed models
+- Standard library usage: nx = NexusClient.from_env()
+- Ingestion and hybrid search flow returning typed Pydantic models (IngestReport, SearchHit)
 - Mandatory workspace isolation checks
+- Operator authorization enforcement on delete_document and reparse
 """
 
 import os
@@ -11,8 +12,16 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import Nexus, NexusConfig, WorkspaceRequiredError, IngestReport, ChunkHit
-from krusch_nexus.db import init_db, get_engine
+from krusch_nexus import (
+    NexusClient,
+    NexusConfig,
+    WorkspaceRequiredError,
+    IngestReport,
+    SearchHit,
+    DocType,
+    AuthenticationError
+)
+from krusch_nexus.store import init_db, get_engine
 
 
 class TestNexusClient(unittest.TestCase):
@@ -22,11 +31,12 @@ class TestNexusClient(unittest.TestCase):
         self.db_path = os.path.join(self.temp_dir, "test.db")
         self.config = NexusConfig(
             database_url=f"sqlite:///{self.db_path}",
-            allowed_ingest_roots=[self.temp_dir]
+            allowed_ingest_roots=[self.temp_dir],
+            operator_token="secret_op_xyz"
         )
         self.engine = get_engine(self.config.database_url)
         init_db(self.engine)
-        self.nexus = Nexus(self.config)
+        self.nexus = NexusClient(self.config)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -45,11 +55,11 @@ class TestNexusClient(unittest.TestCase):
         report: IngestReport = self.nexus.ingest(
             filepath=test_file,
             workspace="Matter_Acme",
-            doc_type="authority"
+            doc_type=DocType.AUTHORITY
         )
         self.assertEqual(report.status, "completed")
         self.assertEqual(report.workspace, "Matter_Acme")
-        self.assertGreater(report.total_chunks, 0)
+        self.assertGreater(report.chunks, 0)
 
         # Search
         hits = self.nexus.search(
@@ -58,7 +68,7 @@ class TestNexusClient(unittest.TestCase):
             limit=3
         )
         self.assertGreaterEqual(len(hits), 1)
-        hit: ChunkHit = hits[0]
+        hit: SearchHit = hits[0]
         self.assertEqual(hit.filename, "contract_clause.txt")
         self.assertEqual(hit.page_number, 1)
         self.assertIn("contract_clause.txt p.1 Section 8.22", hit.citation)
@@ -85,6 +95,31 @@ class TestNexusClient(unittest.TestCase):
 
         with self.assertRaises(WorkspaceRequiredError):
             self.nexus.search(query="test", workspace="")
+
+    def test_operator_token_authorization(self):
+        """Verify operator-gated actions require operator_token."""
+        test_file = os.path.join(self.temp_dir, "privileged.txt")
+        with open(test_file, "w") as f:
+            f.write("Privileged document text")
+
+        report = self.nexus.ingest(
+            filepath=test_file,
+            workspace="Matter_Privileged",
+            doc_type=DocType.WORK_PRODUCT
+        )
+        doc_id = report.document_id
+
+        # Calling delete without token fails
+        with self.assertRaises(AuthenticationError):
+            self.nexus.delete_document(doc_id, operator_token=None)
+
+        # Calling delete with invalid token fails
+        with self.assertRaises(AuthenticationError):
+            self.nexus.delete_document(doc_id, operator_token="bad_token")
+
+        # Calling delete with valid token succeeds
+        success = self.nexus.delete_document(doc_id, operator_token="secret_op_xyz")
+        self.assertTrue(success)
 
 
 if __name__ == "__main__":

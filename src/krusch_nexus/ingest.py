@@ -6,7 +6,7 @@ Closed-loop state machine with explicit transitions:
 or FAILED with redacted error sidecar.
 
 Guarantees atomic single-transaction DB commits, provenance recording,
-and poison file isolation.
+content-addressed disk archival, path sandboxing, and poison file isolation.
 """
 
 import os
@@ -15,14 +15,20 @@ import time
 import json
 import shutil
 import logging
-from enum import Enum
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-from .config import NexusConfig
-from .models import IngestReport, PageData, ParserResult, DocType
-from .sandbox import validate_safe_path
+from .models import (
+    NexusConfig,
+    IngestReport,
+    PageData,
+    ParserResult,
+    DocType,
+    IngestState,
+    WarningCode
+)
 from .exceptions import (
     PathSandboxError,
     FileOversizedError,
@@ -36,11 +42,12 @@ from .store import (
     Workspace,
     Document,
     DocumentChunk,
-    IngestReportRecord,
+    IngestRun,
     get_engine,
-    get_session_factory
+    get_session_factory,
+    get_db_session
 )
-from .parsers import parse_document, compute_file_hash
+from .parsers import parse_document, compute_file_hash, detect_file_mime
 from .chunking import chunk_document_pages, Chunk
 from .embeddings import get_embeddings_batch
 
@@ -52,18 +59,138 @@ ALLOWED_EXT = (
     '.py', '.js', '.ts', '.yaml', '.yml', '.sql'
 )
 
+# Standard system locations strictly forbidden from ingestion
+DENIED_SYSTEM_ROOTS = [
+    Path("/etc").resolve(),
+    Path("/proc").resolve(),
+    Path("/sys").resolve(),
+    Path("/dev").resolve(),
+    Path("/var/run").resolve(),
+    Path(os.path.expanduser("~/.ssh")).resolve(),
+    Path(os.path.expanduser("~/.gnupg")).resolve(),
+]
 
-class IngestState(str, Enum):
-    """Explicit lifecycle states for document ingestion."""
-    DETECTED = "detected"
-    STAGED = "staged"
-    HASHED = "hashed"
-    PARSED = "parsed"
-    CHUNKED = "chunked"
-    EMBEDDED = "embedded"
-    COMMITTED = "committed"
-    ARCHIVED = "archived"
-    FAILED = "failed"
+
+def validate_safe_path(
+    file_path: str,
+    allowed_roots: Optional[List[str]] = None,
+    allow_temp_dirs: bool = True
+) -> Path:
+    """
+    Resolve and validate that a target file path is within safe ingest bounds.
+    Guards against path traversal, symlink escapes, and system file ingestion.
+    """
+    try:
+        resolved = Path(file_path).resolve()
+    except Exception as e:
+        raise PathSandboxError(f"Invalid path specification '{file_path}': {e}")
+
+    # 1. Deny forbidden system paths
+    for denied in DENIED_SYSTEM_ROOTS:
+        try:
+            if resolved == denied or resolved.is_relative_to(denied):
+                raise PathSandboxError(
+                    f"Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
+                )
+        except AttributeError:
+            try:
+                resolved.relative_to(denied)
+                raise PathSandboxError(
+                    f"Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
+                )
+            except ValueError:
+                pass
+
+    # 2. Enforce allowed roots
+    valid_roots: List[Path] = []
+    if allowed_roots:
+        for r in allowed_roots:
+            if r:
+                valid_roots.append(Path(r).resolve())
+    else:
+        valid_roots.append(Path.cwd().resolve())
+
+    if allow_temp_dirs:
+        valid_roots.append(Path(tempfile.gettempdir()).resolve())
+        if os.path.exists("/tmp"):
+            valid_roots.append(Path("/tmp").resolve())
+
+    if valid_roots:
+        is_safe = False
+        for root in valid_roots:
+            try:
+                if resolved == root or resolved.is_relative_to(root):
+                    is_safe = True
+                    break
+            except AttributeError:
+                try:
+                    resolved.relative_to(root)
+                    is_safe = True
+                    break
+                except ValueError:
+                    pass
+
+        if not is_safe:
+            roots_str = ", ".join(str(r) for r in valid_roots)
+            raise PathSandboxError(
+                f"Path sandbox violation: '{resolved}' is not within any approved ingest root: [{roots_str}]"
+            )
+
+    return resolved
+
+
+def reap_stale_locks(
+    staging_dir: str,
+    timeout_seconds: float = 600.0,
+    max_age_seconds: Optional[float] = None
+) -> List[str]:
+    """
+    Scan staging directory for abandoned .part and .lock files older than timeout.
+    Quarantines or unlinks them to prevent deadlocks.
+    Returns list of reaped file paths.
+    """
+    timeout = max_age_seconds if max_age_seconds is not None else timeout_seconds
+    reaped = []
+    now = time.time()
+    if not os.path.exists(staging_dir):
+        return reaped
+
+    for root, _, files in os.walk(staging_dir):
+        for f in files:
+            if f.endswith(".part") or f.endswith(".lock"):
+                f_path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(f_path)
+                    if now - mtime > timeout:
+                        if f.endswith(".lock"):
+                            try:
+                                os.unlink(f_path)
+                            except OSError:
+                                pass
+                            reaped.append(f_path)
+                            logger.info(f"Reaped stale lock file: {f_path}")
+                        else:
+                            ws_name = os.path.basename(root)
+                            base_dir = Path(staging_dir).parent
+                            failed_dir = base_dir / ".failed" / ws_name
+                            failed_dir.mkdir(parents=True, exist_ok=True)
+                            clean_name = f.replace(".part", "")
+                            dest = failed_dir / f"stale_{clean_name}"
+                            shutil.move(f_path, str(dest))
+                            sidecar = failed_dir / f"stale_{clean_name}.error.json"
+                            with open(sidecar, "w", encoding="utf-8") as s_file:
+                                json.dump({
+                                    "filename": clean_name,
+                                    "workspace": ws_name,
+                                    "error_class": "StaleLockReaped",
+                                    "error_message": f"Lock age ({int(now - mtime)}s) exceeded timeout ({int(timeout)}s)",
+                                    "timestamp": datetime.now(timezone.utc).isoformat()
+                                }, s_file, indent=2)
+                            reaped.append(str(dest))
+                            logger.warning(f"Reaped stale lock: {f_path} -> {dest}")
+                except Exception as e:
+                    logger.debug(f"Error checking potential stale lock {f_path}: {e}")
+    return reaped
 
 
 def sanitize_filename(filename: str) -> str:
@@ -130,6 +257,19 @@ class IngestPipeline:
                 error=f"File '{filepath_str}' not found"
             )
 
+        # Check empty file (0-byte)
+        file_size = os.path.getsize(filepath_str)
+        if file_size == 0:
+            err = ParseError(f"File '{orig_filename}' is empty (0 bytes).")
+            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="")
+            return IngestReport(
+                status="failed",
+                filename=orig_filename,
+                workspace=workspace_name,
+                file_hash="",
+                error=f"{err.__class__.__name__}: {str(err)}"
+            )
+
         # Extension check
         ext = os.path.splitext(orig_filename)[1].lower()
         if ext not in ALLOWED_EXT:
@@ -140,11 +280,10 @@ class IngestPipeline:
                 filename=orig_filename,
                 workspace=workspace_name,
                 file_hash="",
-                error=str(err)
+                error=f"{err.__class__.__name__}: {str(err)}"
             )
 
         # File size check
-        file_size = os.path.getsize(filepath_str)
         if file_size > self.config.max_file_size_bytes:
             err = TooLargeError(f"File size ({file_size}B) exceeds limit of {self.config.max_file_size_bytes}B")
             self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="")
@@ -153,7 +292,7 @@ class IngestPipeline:
                 filename=orig_filename,
                 workspace=workspace_name,
                 file_hash="",
-                error=str(err)
+                error=f"{err.__class__.__name__}: {str(err)}"
             )
 
         mtime = os.path.getmtime(filepath_str)
@@ -183,6 +322,23 @@ class IngestPipeline:
                     self._archive_success(filepath_str, orig_filename, workspace_name, file_hash)
 
                 elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                try:
+                    dup_run = IngestRun(
+                        document_id=existing_doc.id,
+                        workspace_id=workspace.id,
+                        workspace=workspace_name,
+                        workspace_name=workspace_name,
+                        filename=orig_filename,
+                        file_hash=file_hash,
+                        state=IngestState.COMMITTED.value,
+                        started_at=datetime.fromtimestamp(start_time, timezone.utc),
+                        completed_at=datetime.now(timezone.utc),
+                        duration_ms=elapsed_ms
+                    )
+                    db.add(dup_run)
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 return IngestReport(
                     status="skipped_duplicate",
                     document_id=existing_doc.id,
@@ -190,6 +346,9 @@ class IngestPipeline:
                     workspace=workspace_name,
                     file_hash=file_hash,
                     doc_type=existing_doc.doc_type,
+                    parser_name=existing_doc.parser_name or "default",
+                    parser_version=existing_doc.parser_version or "1.0",
+                    detected_mime=existing_doc.detected_mime or existing_doc.mime,
                     pages=existing_doc.total_pages,
                     chunks=existing_doc.total_chunks,
                     duration_ms=elapsed_ms
@@ -202,6 +361,7 @@ class IngestPipeline:
                 filename=orig_filename,
                 ocr_threshold=self.config.ocr_threshold_chars,
                 ocr_dpi=self.config.ocr_dpi,
+                ocr_lang=self.config.ocr_lang,
                 timeout=self.config.subprocess_timeout
             )
 
@@ -212,8 +372,11 @@ class IngestPipeline:
                 )
 
             ocr_pages = [p.index for p in parser_result.pages if p.ocr_applied and p.index is not None]
-            ocr_confs = [p.confidence for p in parser_result.pages if p.ocr_applied and p.confidence is not None]
-            mean_ocr_conf = (sum(ocr_confs) / len(ocr_confs)) if ocr_confs else None
+            ocr_conf_dict: Dict[int, float] = {
+                p.index: p.confidence for p in parser_result.pages
+                if p.ocr_applied and p.index is not None and p.confidence is not None
+            }
+            mean_ocr_conf = (sum(ocr_conf_dict.values()) / len(ocr_conf_dict)) if ocr_conf_dict else None
 
             # 4. Stage: CHUNKED (Citation-first structure chunking)
             current_state = IngestState.CHUNKED
@@ -235,14 +398,14 @@ class IngestPipeline:
             if not chunks:
                 raise ParseError(f"No usable content chunks could be generated for '{orig_filename}'")
 
-            # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client in batches of 16)
+            # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client in batches)
             current_state = IngestState.EMBEDDED
             chunk_texts = [c.text for c in chunks]  # Embed raw text only!
             embeddings: List[List[float]] = []
-            embed_batch_size = 16
+            embed_batch_size = self.config.embed_batch_size
             for b_idx in range(0, len(chunk_texts), embed_batch_size):
                 b_slice = chunk_texts[b_idx:b_idx + embed_batch_size]
-                b_vecs = get_embeddings_batch(b_slice, config=self.config)
+                b_vecs = get_embeddings_batch(b_slice, config=self.config, db=db)
                 embeddings.extend(b_vecs)
 
             # 6. Stage: COMMITTED (Atomic single-transaction commit)
@@ -254,12 +417,15 @@ class IngestPipeline:
                 workspace_id=workspace.id,
                 file_hash=file_hash,
                 mime=parser_result.mime,
+                detected_mime=parser_result.detected_mime,
+                parser_name=parser_result.parser_name,
                 parser_version=parser_result.parser_version,
                 chunker_version="1.0",
                 total_pages=total_pages,
                 total_chunks=len(chunks),
                 doc_type=resolved_doc_type,
                 ocr_pages=json.dumps(ocr_pages),
+                ocr_confidence=json.dumps(ocr_conf_dict),
                 status=IngestState.COMMITTED.value,
                 original_path=filepath_str,
                 mtime=mtime,
@@ -303,26 +469,34 @@ class IngestPipeline:
                 workspace=workspace_name,
                 file_hash=file_hash,
                 doc_type=resolved_doc_type,
+                parser_name=parser_result.parser_name,
+                parser_version=parser_result.parser_version,
+                detected_mime=parser_result.detected_mime,
                 pages=total_pages,
                 chunks=len(chunks),
                 ocr_pages=ocr_pages,
+                ocr_confidence=ocr_conf_dict,
                 ocr_mean_confidence=mean_ocr_conf,
                 duration_ms=elapsed_ms,
                 warnings=parser_result.warnings,
                 citation_preview=first_cit
             )
 
-            # Add ledger record to ingest_reports
-            report_rec = IngestReportRecord(
+            # Record run in ingest_runs ledger
+            run_rec = IngestRun(
                 document_id=new_doc.id,
                 workspace_id=workspace.id,
+                workspace=workspace_name,
+                workspace_name=workspace_name,
                 filename=orig_filename,
                 file_hash=file_hash,
-                status="completed",
+                state=IngestState.COMMITTED.value,
+                started_at=datetime.fromtimestamp(start_time, timezone.utc),
+                completed_at=datetime.now(timezone.utc),
                 duration_ms=elapsed_ms,
                 payload=report.model_dump_json()
             )
-            db.add(report_rec)
+            db.add(run_rec)
             new_doc.ingest_report = report.model_dump_json()
 
             # ATOMIC COMMIT of all records
@@ -337,9 +511,11 @@ class IngestPipeline:
                     "pages": total_pages,
                     "chunks": len(chunks),
                     "ocr_pages": ocr_pages,
+                    "ocr_confidence": ocr_conf_dict,
                     "ocr_mean_confidence": mean_ocr_conf,
                     "parser_name": parser_result.parser_name,
                     "parser_version": parser_result.parser_version,
+                    "detected_mime": parser_result.detected_mime,
                     "chunker_version": "1.0",
                     "embed_model": self.config.embed_model,
                     "ingested_at": datetime.now(timezone.utc).isoformat()
@@ -357,17 +533,21 @@ class IngestPipeline:
             err_class = type(e).__name__
             logger.error(f"Ingest failed at state [{current_state.value}] for '{orig_filename}': {err_class}: {e}")
 
-            # Record failure in ledger if DB available
+            # Record failure run in ingest_runs ledger
             try:
-                fail_rec = IngestReportRecord(
+                fail_run = IngestRun(
                     filename=orig_filename,
+                    workspace=workspace_name,
+                    workspace_name=workspace_name,
                     file_hash=file_hash,
-                    status="failed",
+                    state=IngestState.FAILED.value,
+                    started_at=datetime.fromtimestamp(start_time, timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
                     duration_ms=round((time.time() - start_time) * 1000, 2),
                     error_class=err_class,
                     error_message=str(e)
                 )
-                db.add(fail_rec)
+                db.add(fail_run)
                 db.commit()
             except Exception:
                 db.rollback()
@@ -427,7 +607,7 @@ class IngestPipeline:
     ):
         """
         Isolate failed file to .failed/<workspace>/<name> and write redacted sidecar .error.json.
-        Never leaves document chunks or raw file text in the error JSON.
+        Never leaves document chunks, raw file text, or credentials in the error JSON.
         """
         try:
             p = Path(filepath)
@@ -460,6 +640,26 @@ class IngestPipeline:
             }
             with open(sidecar_file, "w", encoding="utf-8") as f:
                 json.dump(sidecar_data, f, indent=2)
+
+            # Persist failure to IngestRun ledger
+            try:
+                with get_db_session(self.engine) as db_sess:
+                    run_rec = IngestRun(
+                        filename=filename,
+                        workspace=workspace_name,
+                        workspace_name=workspace_name,
+                        file_hash=file_hash,
+                        state=IngestState.FAILED.value,
+                        started_at=datetime.fromtimestamp(start_time, timezone.utc),
+                        completed_at=datetime.now(timezone.utc),
+                        duration_ms=round((time.time() - start_time) * 1000, 2),
+                        error_class=type(error).__name__,
+                        error_message=str(error)
+                    )
+                    db_sess.add(run_rec)
+                    db_sess.commit()
+            except Exception as dbe:
+                logger.debug(f"Could not persist failed IngestRun: {dbe}")
 
             logger.info(f"Isolated poison file '{filename}' ({type(error).__name__}) to {failed_dir}")
         except Exception as e:

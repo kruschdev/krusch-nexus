@@ -5,10 +5,10 @@ Verifies:
 - HTML stdlib parsing (headings, paragraphs, lists, tables)
 - EML RFC2047 MIME header decoding
 - PDF multi-page fidelity
+- True MIME / signature detection from magic bytes
 """
 
 import os
-import tempfile
 import unittest
 from krusch_nexus.parsers import (
     parse_docx,
@@ -16,13 +16,28 @@ from krusch_nexus.parsers import (
     parse_eml,
     parse_pdf,
     parse_plain_or_code,
-    extract_html_text
+    extract_html_text,
+    detect_file_mime
 )
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
 
 
 class TestParsers(unittest.TestCase):
+
+    def test_detect_file_mime_from_magic_bytes(self):
+        """Verify detect_file_mime detects real MIME type from file header bytes."""
+        pdf_path = os.path.join(FIXTURES_DIR, "sample_contract.pdf")
+        self.assertEqual(detect_file_mime(pdf_path, "sample_contract.pdf"), "application/pdf")
+
+        docx_path = os.path.join(FIXTURES_DIR, "policy_manual.docx")
+        self.assertEqual(detect_file_mime(docx_path, "policy_manual.docx"), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        eml_path = os.path.join(FIXTURES_DIR, "deal_memo.eml")
+        self.assertEqual(detect_file_mime(eml_path, "deal_memo.eml"), "message/rfc822")
+
+        csv_path = os.path.join(FIXTURES_DIR, "vendor_matrix.csv")
+        self.assertEqual(detect_file_mime(csv_path, "vendor_matrix.csv"), "text/csv")
 
     def test_docx_in_order_table_extraction(self):
         """
@@ -36,14 +51,9 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(doc.total_pages, 1)
         text = doc.pages[0].text
 
-        # Verify heading 1 and heading 2 are present
         self.assertIn("# Section 1: Fleet Information Security Policy", text)
         self.assertIn("## Section 1.2: Backup Retention Standards", text)
 
-        # In policy_manual.docx, the sequence is:
-        # 1. "Document archives in .ingested/ must be retained according to the following schedule:"
-        # 2. Table: "| Document Class | Minimum Retention Period |" ... "| Privileged Corporate Paper | Seven (7) Years |"
-        # 3. Following paragraph: "Purging of records prior to the expiration of seven years constitutes a policy violation."
         idx_lead_paragraph = text.find("according to the following schedule")
         idx_table = text.find("Privileged Corporate Paper")
         idx_trailing_paragraph = text.find("Purging of records prior to the expiration")
@@ -52,7 +62,6 @@ class TestParsers(unittest.TestCase):
         self.assertNotEqual(idx_table, -1, "Table row must be found")
         self.assertNotEqual(idx_trailing_paragraph, -1, "Trailing paragraph must be found")
 
-        # ASSERT STRICT DOCUMENT ORDER: lead paragraph < table < trailing paragraph
         self.assertLess(
             idx_lead_paragraph,
             idx_table,
@@ -87,19 +96,12 @@ class TestParsers(unittest.TestCase):
         """
         text = extract_html_text(html_sample)
 
-        # Style tags must be stripped
         self.assertNotIn("color: red", text)
         self.assertNotIn("style", text)
-
-        # Headings converted to Markdown
         self.assertIn("# Legal Memorandum", text)
         self.assertIn("## Statutory Analysis", text)
-
-        # Bullet list converted
         self.assertIn("- Factor A", text)
         self.assertIn("- Factor B", text)
-
-        # Table converted
         self.assertIn("| Header 1 | Header 2 |", text)
         self.assertIn("| Val 1 | Val 2 |", text)
         self.assertIn("Final conclusion.", text)
@@ -112,7 +114,6 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(doc.total_pages, 1)
         text = doc.pages[0].text
 
-        # Headers must be cleanly decoded (not raw =?utf-8?B?...?=)
         self.assertIn("Subject: Privileged - Acquisition Review Protocol", text)
         self.assertIn("From: General Counsel <general.counsel@krusch.dev>", text)
         self.assertNotIn("=?utf-8?", text, "Raw MIME encoded-word tokens should not appear in parsed output")

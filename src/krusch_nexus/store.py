@@ -2,14 +2,14 @@
 KruschNexus Minimal Storage Layer (store.py)
 =============================================
 Single source of truth for relational metadata, structural chunks,
-and pgvector embeddings. Strictly enforces workspace isolation.
-DDL migrations are managed via Alembic.
+pgvector embeddings, persistent embedding cache, and the 8-state ingest ledger.
+Strictly enforces workspace isolation.
 """
 
 import os
 import json
 from datetime import datetime, timezone
-from typing import Optional, Generator, List
+from typing import Optional, Generator, List, Dict, Any
 from sqlalchemy import (
     create_engine,
     Column,
@@ -61,6 +61,8 @@ class Document(Base):
     file_hash = Column(String(64), nullable=False, index=True)  # SHA-256
     doc_type = Column(String(50), default="general", index=True)
     mime = Column(String(100), default="application/octet-stream")
+    detected_mime = Column(String(100), default="application/octet-stream")
+    parser_name = Column(String(100), default="default")
     parser_version = Column(String(50), default="1.0")
     chunker_version = Column(String(50), default="1.0")
     total_pages = Column(Integer, default=1)
@@ -68,6 +70,7 @@ class Document(Base):
     ingest_report = Column(Text, nullable=True)  # JSON-encoded IngestReport
     ingested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     ocr_pages = Column(Text, nullable=True)  # JSON list of page numbers where OCR was applied
+    ocr_confidence = Column(Text, nullable=True)  # JSON dict {page_num: conf}
     status = Column(String(50), default="completed", index=True)
     original_path = Column(String(1024), nullable=True)
     mtime = Column(Float, nullable=True)
@@ -114,20 +117,44 @@ class DocumentChunk(Base):
     document = relationship("Document", back_populates="chunks")
 
 
-class IngestReportRecord(Base):
-    """Persistent ledger of every ingestion attempt, duration, and error."""
-    __tablename__ = "ingest_reports"
+class IngestRun(Base):
+    """Persistent 8-state machine run tracking every ingestion attempt."""
+    __tablename__ = "ingest_runs"
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=True, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    workspace = Column(String(255), nullable=True, index=True)
+    workspace_name = Column(String(255), nullable=True)
     filename = Column(String(512), nullable=False)
     file_hash = Column(String(64), nullable=False, index=True)
-    status = Column(String(50), nullable=False, default="completed", index=True)
+    state = Column(String(50), nullable=False, default="detected", index=True)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
     duration_ms = Column(Float, default=0.0)
     error_class = Column(String(100), nullable=True)
     error_message = Column(Text, nullable=True)
-    payload = Column(Text, nullable=True)  # JSON-encoded details
+    payload = Column(Text, nullable=True)  # JSON-encoded IngestReport
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+# Legacy alias for backward compatibility
+IngestReportRecord = IngestRun
+
+
+class EmbedCache(Base):
+    """Persistent on-disk / database embedding cache preventing re-embedding on daemon restart."""
+    __tablename__ = "embed_cache"
+    __table_args__ = (
+        UniqueConstraint("text_hash", "model", name="uq_embed_cache_hash_model"),
+        Index("ix_embed_cache_hash_model", "text_hash", "model"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    text_hash = Column(String(64), nullable=False, index=True)
+    model = Column(String(100), nullable=False, default="bge-large", index=True)
+    dim = Column(Integer, default=1024)
+    vector = Column(Text, nullable=False)  # JSON-serialized float list
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -136,7 +163,6 @@ class IngestReportRecord(Base):
 def get_engine(db_url: Optional[str] = None):
     url = db_url or os.getenv("DATABASE_URL")
     if not url:
-        # Default to SQLite for test or unconfigured local use
         url = "sqlite:///./nexus.db"
 
     if "kruschpassword" in url:
@@ -153,6 +179,18 @@ def get_engine(db_url: Optional[str] = None):
 def get_session_factory(engine=None):
     eng = engine or get_engine()
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def get_db_session(engine=None):
+    factory = get_session_factory(engine)
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 def init_db(engine=None):

@@ -1,6 +1,6 @@
 # KruschNexus Local Document Ingestion & Search FastMCP Server
 
-The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gateway for closed-loop document ingestion, structural chunking, and hybrid vector/full-text retrieval. It enables local AI agents (Claude Desktop, Cursor, Antigravity, OpenClaw) to ingest messy files and perform citation-grounded searches directly against PostgreSQL/pgvector.
+The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gateway for closed-loop document ingestion, structural chunking, and hybrid vector/full-text retrieval. It enables local AI agents (Claude Desktop, Cursor, Antigravity, OpenClaw) to ingest unstructured files and perform citation-grounded searches directly against PostgreSQL/pgvector or SQLite.
 
 ---
 
@@ -8,58 +8,56 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
 
 - **100% Air-Gapped & Local**: Uses Poppler `pdftotext`, local Tesseract OCR fallback, and local Ollama `bge-large` embeddings. No external cloud API egress.
 - **Strict Provenance**: Every chunk preserves exact 1-based page numbers (`p. N`), section heading breadcrumbs, and SHA-256 content hashes.
-- **Decoupled Spine**: Serves downstream applications (KruschLaw for legal workflows, KruschBiz for corporate ops) without polluting the core parser engine.
+- **Structured Citations**: Searches return structured dictionaries (`filename`, `page_number`, `header`, `locator`) alongside formatted strings to avoid hallucinated citations.
+- **Decoupled Spine**: Serves downstream applications (KruschLaw for legal workflows, KruschBiz for corporate ops) without polluting the core ingestion engine.
 
 ---
 
 ## 🔌 Canonical MCP Tool Catalog
 
-### 1. Ingestion & Archival Tools
+### 1. User Tools (Safe Standard Operations)
 
 - **`nexus_ingest_file(file_path, workspace_name, doc_type, archive)`**
   - **Description**: Ingest a local document (PDF with automated local OCR fallback, DOCX, EML, CSV, HTML, TXT/MD). Preserves 1-based page numbers, computes SHA-256 hashes, generates 1024d local embeddings, and stores structural chunks with HNSW & tsvector indexes.
   - **Parameters**:
-    - `file_path` (str, required): Absolute or relative path to the local document.
-    - `workspace_name` (str, optional, default: `"General"`): Target matter or workspace.
+    - `file_path` (str, required): Absolute or relative path to the local document. Must reside within `allowed_ingest_roots`.
+    - `workspace_name` (str, required): Target matter or workspace.
     - `doc_type` (str, optional, default: `"general"`): Category (`"authority"`, `"work_product"`, `"fact_narrative"`, `"general"`).
-    - `archive` (bool, optional, default: `False`): If `True`, moves the file safely into `.ingested/` upon completion.
+    - `archive` (bool, optional, default: `False`): If `True`, moves the file safely into `.ingested/<workspace>/` upon commit.
   - **Returns**: JSON Ingest Report with page count, chunk count, OCR status, and processing duration.
 
-- **`nexus_ingest_directory(directory_path, workspace_name, archive, recursive)`**
-  - **Description**: Batch-ingest all supported documents from a directory into the corpus.
-  - **Parameters**: `directory_path` (str), `workspace_name` (str), `archive` (bool), `recursive` (bool).
-  - **Returns**: Batch summary report with per-document ingestion statistics.
-
 - **`nexus_get_ingest_report(doc_id_or_hash)`**
-  - **Description**: Retrieve the detailed processing report for any document by database ID or SHA-256 hash.
-
----
-
-### 2. Search & Retrieval Tools
+  - **Description**: Retrieve the stored `IngestReport` for any document by database ID or SHA-256 hash.
 
 - **`nexus_search_corpus(query, workspace_name, doc_type, limit)`**
-  - **Description**: Execute hybrid vector (HNSW cosine) + full-text (tsvector) Reciprocal Rank Fusion (RRF) search across all ingested document chunks. Returns exact page/section citations `[filename, p. X, § Section]` and grounded text snippets.
+  - **Description**: Execute hybrid vector (HNSW cosine) + full-text Reciprocal Rank Fusion (RRF) search with statutory section boosting and exact quote phrase boosting.
   - **Parameters**:
-    - `query` (str, required): Natural language or keyword query.
-    - `workspace_name` (str, optional): Restrict search to a specific workspace.
+    - `query` (str, required): Natural language or keyword query (supports exact quotes e.g. `"liquidated damages"` and legal citations e.g. `§ 1950.5`).
+    - `workspace_name` (str, required): Mandatory target workspace. Global multi-workspace search is disallowed.
     - `doc_type` (str, optional): Filter by document category.
     - `limit` (int, optional, default: 5): Maximum number of top chunks to return.
+  - **Returns**: Structured results with `score`, `text`, `citation` (object with `filename`, `page_number`, `header`, `locator`), and `explainability`.
 
 - **`nexus_list_workspaces()`**
-  - **Description**: List all available workspaces/matters in the database.
+  - **Description**: List all active workspaces and their document counts in the database.
 
-- **`nexus_list_documents(workspace_name_or_id, limit)`**
+- **`nexus_list_documents(workspace, limit)`**
   - **Description**: List ingested documents and metadata (page counts, chunk counts, hashes) in a workspace.
+
+- **`nexus_doctor()`**
+  - **Description**: Run a diagnostic environment audit inspecting Poppler binaries, Tesseract OCR, database vector extensions, and Ollama embedding status.
 
 ---
 
-### 3. Governance & Review Tools
+### 2. Operator Tools (Destructive Guarded Actions)
 
-- **`nexus_classify_document(doc_id, classification_level, allowed_roles)`**
-  - **Description**: Set security classification level (`"public"`, `"internal"`, `"confidential"`, `"management_only"`) and role-based access for a document.
+- **`nexus_reparse(document_id, operator_confirmed, operator_token)`**
+  - **Description**: Re-parse and re-index an existing document from archive.
+  - **Guards**: Requires explicit `operator_confirmed=True`.
 
-- **`nexus_flag_document_for_review(doc_id, reason)`**
-  - **Description**: Flag a document as sensitive or suspicious for human review and audit.
+- **`nexus_delete_document(document_id, operator_confirmed, operator_token)`**
+  - **Description**: Delete a document and its chunks from the database.
+  - **Guards**: Requires explicit `operator_confirmed=True`.
 
 ---
 
@@ -75,7 +73,7 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
       "args": ["-m", "krusch_nexus.mcp"],
       "cwd": "/path/to/krusch-nexus",
       "env": {
-        "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+        "DATABASE_URL": "postgresql://krusch:<your_secure_password>@127.0.0.1:5432/krusch_nexus_db",
         "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
       }
     }
@@ -93,7 +91,7 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
       "args": ["-m", "krusch_nexus.mcp"],
       "cwd": "/path/to/krusch-nexus",
       "env": {
-        "DATABASE_URL": "postgresql://krusch:kruschpassword@localhost:5432/krusch_nexus_db",
+        "DATABASE_URL": "postgresql://krusch:<your_secure_password>@127.0.0.1:5432/krusch_nexus_db",
         "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
       }
     }
@@ -113,7 +111,7 @@ Connect remote clients via URL:
 {
   "mcpServers": {
     "krusch-nexus": {
-      "url": "http://10.0.0.85:8002/sse",
+      "url": "http://127.0.0.1:8002/sse",
       "transport": "sse"
     }
   }
