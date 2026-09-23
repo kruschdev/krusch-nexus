@@ -121,6 +121,7 @@ def test_ingest_report_schema_contract():
         "doc_type",
         "parser_name",
         "parser_version",
+        "tool_versions",
         "detected_mime",
         "total_pages",
         "total_chunks",

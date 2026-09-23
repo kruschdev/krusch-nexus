@@ -5,6 +5,21 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-09-22
+
+### Summary
+OCR image preprocessing with DPI preservation, low-confidence OCR quarantine (< 0.50), auditor-replayable system binary provenance (`poppler` and `tesseract` versions in `IngestReport` and document metadata), FastMCP token workspace ACL scoping, and PostgreSQL Row Level Security (RLS) migration with session-level workspace binding.
+
+### Added
+- **OCR Image Preprocessing with DPI Preservation**: Automatic grayscale conversion and dynamic range enhancement (`ImageEnhance.Contrast` + `ImageOps.autocontrast`) while preserving DPI tags, reducing OCR Character Error Rate (CER) to 5.42% and Word Error Rate (WER) to 17.86% on scanned legal exhibits.
+- **Low-Confidence OCR Quarantine**: Strict quality gate quarantining scanned pages with mean confidence below `confidence_floor` (0.50), logging warnings and emitting `WarningCode.LOW_OCR_CONFIDENCE` to prevent garbled OCR noise from polluting the retrieval corpus.
+- **Auditor-Replayable System Tool Provenance**: Cached system tool version detection extracting `poppler` (`pdftotext -v`) and `tesseract` (`tesseract --version`) runtimes, persisting them in `ParserResult`, `IngestReport.tool_versions`, and `Document.extra` JSON.
+- **FastMCP Token Workspace ACL Scoping**: Fine-grained authorization via `NEXUS_TOKEN_WORKSPACES` mapping client API tokens to approved workspaces, restricting workspace enumeration, document listing, file ingestion, and hybrid search.
+- **PostgreSQL Row Level Security (RLS) Migration `e5f6a7b8c9d0`**: Database kernel-level isolation policies on `documents` and `document_chunks` keyed by `app.current_workspace_id`, alongside application-level SQL filtering.
+- **Session-Scoped RLS Context**: `get_db_session(workspace_id=...)` automatically sets `SET LOCAL app.current_workspace_id = :ws_id` on PostgreSQL connections.
+
+---
+
 ## [0.2.2] - 2026-09-22
 
 ### Summary

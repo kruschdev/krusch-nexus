@@ -33,13 +33,56 @@ def get_client() -> NexusClient:
     return _client
 
 
+# ─── Workspace ACL Verification ───────────────────────────────────────────────
+
+def verify_workspace_access(workspace: str, token: Optional[str] = None) -> Optional[str]:
+    """
+    Verify whether the token is authorized to access the given workspace.
+    Returns None if authorized, or an error description string if access is denied.
+    """
+    client = get_client()
+    token_map = getattr(client.config, "token_workspaces", {})
+    if not token_map:
+        return None
+
+    supplied = token or os.getenv("NEXUS_API_TOKEN")
+    if not supplied:
+        return "Authentication required: no API token provided for workspace access."
+
+    if supplied in (client.config.api_token, client.config.operator_token):
+        return None
+
+    allowed = token_map.get(supplied)
+    if allowed is None:
+        return "Access denied: invalid API token."
+
+    if "*" not in allowed and workspace not in allowed:
+        return f"Access denied: token not authorized for workspace '{workspace}'."
+
+    return None
+
+
 # ─── 6 Canonical User Tools ──────────────────────────────────────────────────
 
 @mcp.tool()
-def nexus_list_workspaces() -> str:
-    """List all document workspaces and their indexed document counts."""
+def nexus_list_workspaces(token: Optional[str] = None) -> str:
+    """List document workspaces and indexed document counts, filtered by token authorization."""
     try:
-        workspaces = get_client().list_workspaces()
+        client = get_client()
+        token_map = getattr(client.config, "token_workspaces", {})
+        workspaces = client.list_workspaces()
+
+        if token_map:
+            supplied = token or os.getenv("NEXUS_API_TOKEN")
+            if not supplied:
+                return json.dumps({"status": "error", "error": "Authentication required: no API token provided"})
+            if supplied not in (client.config.api_token, client.config.operator_token):
+                allowed = token_map.get(supplied)
+                if allowed is None:
+                    return json.dumps({"status": "error", "error": "Access denied: invalid API token"})
+                if "*" not in allowed:
+                    workspaces = [w for w in workspaces if w.name in allowed]
+
         results = [w.model_dump() for w in workspaces]
         return json.dumps({"workspaces": results, "count": len(results)}, indent=2)
     except Exception as e:
@@ -47,10 +90,26 @@ def nexus_list_workspaces() -> str:
 
 
 @mcp.tool()
-def nexus_list_documents(workspace_name: Optional[str] = None) -> str:
-    """List ingested documents in a specific workspace or across all workspaces."""
+def nexus_list_documents(workspace_name: Optional[str] = None, token: Optional[str] = None) -> str:
+    """List ingested documents in a specific workspace or across authorized workspaces."""
     try:
+        if workspace_name:
+            err = verify_workspace_access(workspace_name.strip(), token)
+            if err:
+                return json.dumps({"status": "error", "error": err})
+
         docs = get_client().list_documents(workspace=workspace_name)
+        client = get_client()
+        token_map = getattr(client.config, "token_workspaces", {})
+        if token_map and not workspace_name:
+            supplied = token or os.getenv("NEXUS_API_TOKEN")
+            if not supplied:
+                return json.dumps({"status": "error", "error": "Authentication required: no API token provided"})
+            if supplied not in (client.config.api_token, client.config.operator_token):
+                allowed = set(token_map.get(supplied, []))
+                if "*" not in allowed:
+                    docs = [d for d in docs if d.workspace in allowed]
+
         results = [d.model_dump() for d in docs]
         return json.dumps({"documents": results, "count": len(results)}, indent=2)
     except Exception as e:
@@ -62,7 +121,8 @@ def nexus_ingest_file(
     file_path: str,
     workspace_name: str,
     doc_type: str = "general",
-    archive: bool = False
+    archive: bool = False,
+    token: Optional[str] = None
 ) -> str:
     """
     Ingest a local document into the KruschNexus corpus.
@@ -72,12 +132,17 @@ def nexus_ingest_file(
         workspace_name: Target workspace name (REQUIRED - no cross-contamination defaults).
         doc_type: Classification category ('authority', 'work_product', 'fact_narrative', 'general').
         archive: Whether to move source file to .ingested/ upon successful indexing.
+        token: Optional API token for workspace authorization when ACLs are configured.
     """
     if not workspace_name or not workspace_name.strip():
         return json.dumps({
             "status": "error",
             "error": "workspace_name is required. Cross-contamination defaults are disallowed."
         })
+
+    err = verify_workspace_access(workspace_name.strip(), token)
+    if err:
+        return json.dumps({"status": "error", "error": err})
 
     try:
         resolved_doc_type = DocType(doc_type.lower()) if doc_type.lower() in [e.value for e in DocType] else DocType.GENERAL
@@ -98,7 +163,8 @@ def nexus_ingest_directory(
     directory_path: str,
     workspace_name: str,
     doc_type: str = "general",
-    recursive: bool = False
+    recursive: bool = False,
+    token: Optional[str] = None
 ) -> str:
     """
     Ingest all supported documents from a directory into a workspace.
@@ -108,9 +174,14 @@ def nexus_ingest_directory(
         workspace_name: Target workspace name (REQUIRED).
         doc_type: Classification category.
         recursive: Whether to scan subdirectories recursively.
+        token: Optional API token for workspace authorization when ACLs are configured.
     """
     if not workspace_name or not workspace_name.strip():
         return json.dumps({"status": "error", "error": "workspace_name is required."})
+
+    err = verify_workspace_access(workspace_name.strip(), token)
+    if err:
+        return json.dumps({"status": "error", "error": err})
 
     client = get_client()
     reports = []
@@ -159,7 +230,8 @@ def nexus_search_corpus(
     limit: int = 5,
     page: Optional[int] = None,
     doc_id: Optional[int] = None,
-    filename: Optional[str] = None
+    filename: Optional[str] = None,
+    token: Optional[str] = None
 ) -> str:
     """
     Execute hybrid vector + full-text search across a specific workspace.
@@ -173,12 +245,17 @@ def nexus_search_corpus(
         page: Optional physical page number predicate (exact SQL filter).
         doc_id: Optional document ID predicate (exact SQL filter).
         filename: Optional source filename predicate (exact SQL filter).
+        token: Optional API token for workspace authorization when ACLs are configured.
     """
     if not workspace_name or not workspace_name.strip():
         return json.dumps({
             "status": "error",
             "error": "workspace_name is required. Global multi-workspace search is disallowed."
         })
+
+    err = verify_workspace_access(workspace_name.strip(), token)
+    if err:
+        return json.dumps({"status": "error", "error": err})
 
     try:
         ws = workspace_name.strip()

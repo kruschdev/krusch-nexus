@@ -14,7 +14,7 @@ from typing import List, Dict, Any, Optional
 
 from ..models import PageData, ParserResult, ContentBlock, StructuredLocator, WarningCode
 from ..exceptions import EncryptedPdfError, ParseError
-from .ocr import OCRPolicy, try_tesseract_ocr
+from .ocr import OCRPolicy, try_tesseract_ocr, get_system_tool_versions
 
 logger = logging.getLogger("krusch_nexus.parsers.pdf")
 
@@ -214,9 +214,10 @@ def parse_pdf(
                 ocr_text = candidate_ocr
                 ocr_confidence = conf
                 page_blocks = blocks
-                if conf is not None and conf < policy.confidence_floor:
-                    warnings.append(WarningCode.LOW_OCR_CONFIDENCE.value)
                 logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(candidate_ocr)} chars, conf: {conf})")
+            elif conf is not None and conf < policy.confidence_floor:
+                warnings.append(WarningCode.LOW_OCR_CONFIDENCE.value)
+                logger.warning(f"Page {page_num} quarantined due to low OCR confidence: {conf:.2f} < {policy.confidence_floor:.2f}")
 
         # Invariant: Never overwrite digital_text with ocr_text!
         chosen_text = ocr_text if (ocr_applied and ocr_text) else digital_text
@@ -224,6 +225,8 @@ def parse_pdf(
             if ocr_applied:
                 warnings.append(WarningCode.OCR_EMPTY_PAGE.value)
                 chosen_text = f"[Scanned page {page_num} - image text pending]"
+            elif WarningCode.LOW_OCR_CONFIDENCE.value in warnings:
+                chosen_text = f"[Scanned page {page_num} - low OCR confidence quarantined]"
             else:
                 chosen_text = ""
 
@@ -255,6 +258,7 @@ def parse_pdf(
         file_hash=file_hash or "",
         parser_name="pdf-poppler",
         parser_version="pdf-poppler@2.0",
+        tool_versions=get_system_tool_versions(),
         pages=pages_data,
         warnings=warnings
     )

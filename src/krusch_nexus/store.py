@@ -223,10 +223,14 @@ def get_session_factory(engine=None):
 from contextlib import contextmanager
 
 @contextmanager
-def get_db_session(engine=None):
+def get_db_session(engine=None, workspace_id: Optional[int] = None):
     factory = get_session_factory(engine)
     session = factory()
     try:
+        if workspace_id is not None:
+            bind = session.get_bind()
+            if bind is not None and getattr(bind, "dialect", None) and bind.dialect.name == "postgresql":
+                session.execute(text("SET LOCAL app.current_workspace_id = :ws_id"), {"ws_id": str(workspace_id)})
         yield session
     finally:
         session.close()

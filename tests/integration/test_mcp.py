@@ -119,6 +119,52 @@ class TestMCPIntegration(unittest.TestCase):
         no_match_res = json.loads(no_match_raw)
         self.assertEqual(no_match_res["results_count"], 0)
 
+    def test_mcp_token_workspace_acl(self):
+        """Verify token ACL restricts workspace listing, ingestion, and retrieval."""
+        self.config.token_workspaces = {
+            "tok_alpha": ["Matter_Alpha"],
+            "tok_beta": ["Matter_Beta"]
+        }
+
+        f_alpha = os.path.join(self.temp_dir, "alpha.txt")
+        with open(f_alpha, "w") as f:
+            f.write("Alpha confidential legal memorandum.\n")
+
+        # 1. Ingest without token -> fails
+        unauth_raw = nexus_ingest_file(file_path=f_alpha, workspace_name="Matter_Alpha", token=None)
+        unauth_res = json.loads(unauth_raw)
+        self.assertEqual(unauth_res["status"], "error")
+        self.assertIn("Authentication required", unauth_res["error"])
+
+        # 2. Ingest with wrong token -> fails
+        wrong_raw = nexus_ingest_file(file_path=f_alpha, workspace_name="Matter_Alpha", token="tok_beta")
+        wrong_res = json.loads(wrong_raw)
+        self.assertEqual(wrong_res["status"], "error")
+        self.assertIn("not authorized", wrong_res["error"])
+
+        # 3. Ingest with correct token -> succeeds
+        ok_raw = nexus_ingest_file(file_path=f_alpha, workspace_name="Matter_Alpha", token="tok_alpha")
+        ok_res = json.loads(ok_raw)
+        self.assertEqual(ok_res["status"], "completed")
+
+        # 4. List workspaces with tok_alpha -> only Matter_Alpha is listed
+        list_raw = nexus_list_workspaces(token="tok_alpha")
+        list_res = json.loads(list_raw)
+        ws_names = [w["name"] for w in list_res["workspaces"]]
+        self.assertIn("Matter_Alpha", ws_names)
+        self.assertNotIn("Matter_Filter_Test", ws_names)
+
+        # 5. Search Matter_Alpha with tok_alpha -> succeeds
+        search_ok_raw = nexus_search_corpus(query="confidential", workspace_name="Matter_Alpha", token="tok_alpha")
+        search_ok_res = json.loads(search_ok_raw)
+        self.assertEqual(search_ok_res["status"], "success")
+
+        # 6. Search Matter_Alpha with tok_beta -> fails
+        search_denied_raw = nexus_search_corpus(query="confidential", workspace_name="Matter_Alpha", token="tok_beta")
+        search_denied_res = json.loads(search_denied_raw)
+        self.assertEqual(search_denied_res["status"], "error")
+        self.assertIn("not authorized", search_denied_res["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

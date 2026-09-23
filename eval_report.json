@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-23T01:23:30.333004+00:00",
-  "commit": "5b6444e412d9da3c6e32c37047b3b47d07429c3f",
+  "generated_at": "2026-09-23T01:54:26.296158+00:00",
+  "commit": "c488d0d4cb4e6b9ed4430bdf72a314b33b994c18",
   "release_gates": {
     "regression_recall_at_5": {
       "gate": 1.0,
@@ -77,9 +77,9 @@
     {
       "file": "scanned_page.pdf",
       "page": 1,
-      "confidence": 0.7364,
-      "cer": 0.0739,
-      "wer": 0.3929,
+      "confidence": 0.7191,
+      "cer": 0.0542,
+      "wer": 0.1786,
       "max_cer_gate": 0.15,
       "max_wer_gate": 0.45,
       "status": "PASS"
@@ -87,9 +87,9 @@
     {
       "file": "adversarial_fax_stamp.pdf",
       "page": 1,
-      "confidence": 0.6377,
-      "cer": 0.3869,
-      "wer": 0.55,
+      "confidence": 0.6553,
+      "cer": 0.4033,
+      "wer": 0.65,
       "max_cer_gate": 0.45,
       "max_wer_gate": 0.65,
       "status": "PASS"

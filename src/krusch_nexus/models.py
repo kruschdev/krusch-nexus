@@ -7,6 +7,7 @@ and runtime configuration.
 """
 
 import os
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any, Literal
@@ -188,6 +189,7 @@ class ParserResult(BaseModel):
     file_hash: str
     parser_name: str
     parser_version: str
+    tool_versions: Dict[str, str] = Field(default_factory=dict)
     pages: List[PageData]
     warnings: List[str] = Field(default_factory=list)
 
@@ -227,6 +229,7 @@ class IngestReport(BaseModel):
     doc_type: str = "general"
     parser_name: str = "default"
     parser_version: str = "1.0"
+    tool_versions: Dict[str, str] = Field(default_factory=dict)
     detected_mime: str = "application/octet-stream"
     pages: int = 0
     chunks: int = 0
@@ -431,6 +434,9 @@ class NexusConfig(BaseModel):
     hnsw_ef_search: int = 40
     operator_token: Optional[str] = Field(
         default_factory=lambda: os.getenv("NEXUS_OPERATOR_TOKEN")
+    )
+    token_workspaces: Dict[str, List[str]] = Field(
+        default_factory=lambda: json.loads(os.getenv("NEXUS_TOKEN_WORKSPACES", "{}")) if os.getenv("NEXUS_TOKEN_WORKSPACES") else {}
     )
 
     @model_validator(mode="after")

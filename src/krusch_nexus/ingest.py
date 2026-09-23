@@ -471,6 +471,7 @@ class IngestPipeline:
                 mtime=mtime,
                 embedding_model=self.config.embed_model,
                 embedding_dim=len(embeddings[0]) if (embeddings and embeddings[0]) else 1024,
+                extra=json.dumps({"tool_versions": getattr(parser_result, "tool_versions", {})}),
                 ingested_at=datetime.now(timezone.utc)
             )
             db.add(new_doc)
@@ -512,6 +513,7 @@ class IngestPipeline:
                 doc_type=resolved_doc_type,
                 parser_name=parser_result.parser_name,
                 parser_version=parser_result.parser_version,
+                tool_versions=getattr(parser_result, "tool_versions", {}),
                 detected_mime=parser_result.detected_mime,
                 pages=total_pages,
                 chunks=len(chunks),

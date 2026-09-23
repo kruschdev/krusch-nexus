@@ -179,6 +179,25 @@ class TestParsers(unittest.TestCase):
         self.assertIn("SETTLEMENT RELEASE", p3.ocr_text.upper())
         self.assertIn("LIQUIDATED DAMAGES", p3.ocr_text.upper())
 
+    def test_low_ocr_confidence_quarantine(self):
+        """Verify that pages with mean OCR confidence below confidence_floor are quarantined."""
+        from krusch_nexus import WarningCode
+        scanned_path = os.path.join(FIXTURES_DIR, "scanned_page.pdf")
+        policy = OCRPolicy(confidence_floor=0.99)
+        doc = parse_pdf(scanned_path, "scanned_page.pdf", policy=policy)
+
+        self.assertIn(WarningCode.LOW_OCR_CONFIDENCE.value, doc.warnings)
+        self.assertFalse(doc.pages[0].ocr_applied)
+        self.assertIn("low OCR confidence quarantined", doc.pages[0].text)
+
+    def test_system_tool_versions_provenance(self):
+        """Verify that parse_pdf attaches detected system tool versions (poppler, tesseract)."""
+        pdf_path = os.path.join(FIXTURES_DIR, "sample_contract.pdf")
+        doc = parse_pdf(pdf_path, "sample_contract.pdf")
+        self.assertIsInstance(doc.tool_versions, dict)
+        self.assertIn("poppler", doc.tool_versions)
+        self.assertIn("tesseract", doc.tool_versions)
+
 
 if __name__ == "__main__":
     unittest.main()
