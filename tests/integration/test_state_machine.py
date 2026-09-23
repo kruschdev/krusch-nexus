@@ -160,6 +160,33 @@ class TestStateMachine(unittest.TestCase):
         self.assertEqual(len(reaped_fresh), 0)
         self.assertTrue(os.path.exists(fresh_lock))
 
+    def test_workspace_model_dimension_drift_rejection(self):
+        """Verify ingestion rejects model dimension drift in an existing workspace."""
+        f1 = os.path.join(self.temp_dir, "doc1.txt")
+        with open(f1, "w") as f:
+            f.write("Document 1 in 1024d space.\n")
+
+        rep1 = self.pipeline.process_file(filepath=f1, workspace_name="Drift_Workspace")
+        self.assertEqual(rep1.status, "completed")
+
+        # Now configure pipeline with different dimension (768)
+        conf_768 = NexusConfig(
+            database_url=f"sqlite:///{self.db_path}",
+            allowed_ingest_roots=[self.temp_dir],
+            embedding_dim=768,
+            embed_model="nomic-embed-text"
+        )
+        pipeline_768 = IngestPipeline(conf_768)
+
+        f2 = os.path.join(self.temp_dir, "doc2.txt")
+        with open(f2, "w") as f:
+            f.write("Document 2 attempting to enter with 768d space.\n")
+
+        rep2 = pipeline_768.process_file(filepath=f2, workspace_name="Drift_Workspace")
+        self.assertEqual(rep2.status, "failed")
+        self.assertIn("ModelDimensionDriftError", rep2.error)
+        self.assertIn("already contains documents indexed with 1024d", rep2.error)
+
 
 if __name__ == "__main__":
     unittest.main()

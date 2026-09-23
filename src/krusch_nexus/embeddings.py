@@ -225,6 +225,12 @@ def get_embeddings_batch(
                     embs = data.get("embeddings", [])
                     if len(embs) == len(batch_slice):
                         for orig_i, h, emb in zip(batch_orig_idx, batch_h_slice, embs):
+                            if emb and conf.embedding_dim and len(emb) != conf.embedding_dim:
+                                from .exceptions import ModelDimensionDriftError
+                                raise ModelDimensionDriftError(
+                                    f"Ollama returned embedding of dimension {len(emb)}, "
+                                    f"but configured embedding_dim is {conf.embedding_dim}."
+                                )
                             results[orig_i] = emb
                             new_cached_records.append((h, emb))
                             if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:

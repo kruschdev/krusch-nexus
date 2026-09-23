@@ -432,6 +432,19 @@ class IngestPipeline:
             if simulate_crash_after_state == IngestState.CHUNKED:
                 raise SystemExit("Worker killed after CHUNKED")
 
+            # Verify workspace embedding dimension homogeneity
+            existing_doc = db.query(Document).filter(
+                Document.workspace_id == workspace.id,
+                Document.status == IngestState.COMMITTED.value
+            ).first()
+            if existing_doc and existing_doc.embedding_dim and self.config.embedding_dim and existing_doc.embedding_dim != self.config.embedding_dim:
+                from .exceptions import ModelDimensionDriftError
+                raise ModelDimensionDriftError(
+                    f"Workspace '{workspace_name}' already contains documents indexed with {existing_doc.embedding_dim}d "
+                    f"vectors (model '{existing_doc.embedding_model}'). Cannot ingest new documents with {self.config.embedding_dim}d "
+                    f"vectors (model '{self.config.embed_model}'). Reindex or reparse the workspace to change models."
+                )
+
             # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client in batches)
             current_state = IngestState.EMBEDDED
             run_rec.state = IngestState.EMBEDDED.value
@@ -443,6 +456,13 @@ class IngestPipeline:
             for b_idx in range(0, len(chunk_texts), embed_batch_size):
                 b_slice = chunk_texts[b_idx:b_idx + embed_batch_size]
                 b_vecs = get_embeddings_batch(b_slice, config=self.config, db=db)
+                for vec in b_vecs:
+                    if vec and self.config.embedding_dim and len(vec) != self.config.embedding_dim:
+                        from .exceptions import ModelDimensionDriftError
+                        raise ModelDimensionDriftError(
+                            f"Generated chunk vector dimension {len(vec)} mismatches configured "
+                            f"dimension {self.config.embedding_dim} for model '{self.config.embed_model}'."
+                        )
                 embeddings.extend(b_vecs)
 
             if simulate_crash_after_state == IngestState.EMBEDDED:

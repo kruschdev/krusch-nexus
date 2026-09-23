@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-23T01:54:26.296158+00:00",
-  "commit": "c488d0d4cb4e6b9ed4430bdf72a314b33b994c18",
+  "generated_at": "2026-09-23T01:58:18.800923+00:00",
+  "commit": "1a5b0b38f7629d9994700dec9773f66f93d56ca9",
   "release_gates": {
     "regression_recall_at_5": {
       "gate": 1.0,
