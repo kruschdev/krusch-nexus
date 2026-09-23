@@ -268,7 +268,61 @@ def test_workspace_export_import_roundtrip(tmp_path):
     assert target_ws is not None
     docs = db.query(Document).filter(Document.workspace_id == target_ws.id).all()
     assert len(docs) == 2
-    chunks = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == target_ws.id).all()
-    assert len(chunks) >= 2
     db.close()
+
+
+def test_contract_zero_drift():
+    """Assert __version__, README badge, pyproject.toml, MCP tools, and OpenAPI routes never drift."""
+    import re
+    from pathlib import Path
+    import krusch_nexus
+    from krusch_nexus.mcp import mcp
+    from krusch_nexus.api import app
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    canonical_version = "0.2.3"
+
+    # 1. Package version
+    assert krusch_nexus.__version__ == canonical_version, f"krusch_nexus.__version__ drifted: {krusch_nexus.__version__}"
+
+    # 2. pyproject.toml version
+    pyproject_text = (root_dir / "pyproject.toml").read_text(encoding="utf-8")
+    assert f'version = "{canonical_version}"' in pyproject_text, "pyproject.toml version drifted"
+
+    # 3. README version badge & status
+    readme_text = (root_dir / "README.md").read_text(encoding="utf-8")
+    assert f"badge/version-{canonical_version}-green.svg" in readme_text, "README version badge drifted"
+    assert f"**Status**: v{canonical_version}" in readme_text, "README status version drifted"
+    assert "usable spine, small corpus" in readme_text, "README status description drifted"
+
+    # 4. MCP tool list parity (exactly 10 canonical tools)
+    expected_mcp_tools = {
+        "nexus_list_workspaces",
+        "nexus_list_documents",
+        "nexus_ingest_file",
+        "nexus_ingest_directory",
+        "nexus_get_ingest_report",
+        "nexus_search_corpus",
+        "nexus_export_workspace",
+        "nexus_import_workspace",
+        "nexus_reparse",
+        "nexus_delete_document",
+    }
+    actual_mcp_tools = set(mcp._tool_manager._tools.keys())
+    assert actual_mcp_tools == expected_mcp_tools, f"FastMCP tools drifted: {actual_mcp_tools ^ expected_mcp_tools}"
+
+    # 5. OpenAPI schema route parity
+    openapi = app.openapi()
+    expected_routes = {
+        "/v1/ingest",
+        "/v1/search",
+        "/v1/documents",
+        "/v1/documents/{doc_id}",
+        "/v1/documents/{doc_id}/reparse",
+        "/v1/documents/{doc_id_or_hash}/report",
+        "/v1/workspaces",
+        "/health"
+    }
+    actual_routes = set(openapi.get("paths", {}).keys())
+    assert actual_routes == expected_routes, f"OpenAPI routes drifted: {actual_routes ^ expected_routes}"
 

@@ -1,7 +1,6 @@
 # KruschNexus
 
-> **Air-gapped document ingestion engine and page-true citation spine.**  
-> *Deterministic parsers, structure-first chunking, local vector embeddings, and page-true locators for formats that have pages.*
+> **Status**: v0.2.3 — usable spine, small corpus
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,14 +16,22 @@
 When standard vector pipelines ingest PDFs, DOCX files, and contracts, they strip pagination, ignore section hierarchies, and slice text by arbitrary character or token counts. By the time an LLM retrieves a chunk, the original page number, section header, and spatial bounding are lost. The model is forced to guess where the text came from—leading to phantom page citations, hallucinated statutes, and unverified assertions.
 
 **KruschNexus is a citation-preserving ingest and search engine:**
-- **Page-True**: Extracts PDF text page-by-page. A hit on page 4 points to physical page 4.
+- **Page-Faithful**: Extracts PDF text page-by-page. A hit on page 4 points to physical page 4.
 - **Structure-First**: Preserves statutory subsection integrity (`§ 1950.5`, `Section 8.22.030`, `Art. IV`) and carries hierarchical heading stacks (`Article IV > Section 8.22.030`).
-- **Explainable Hybrid Retrieval**: Combines pgvector dense cosine search with PostgreSQL full-text search (`tsvector`), statutory section boosting, quoted phrase matching (`"liquidated damages"`), hard tenant isolation (`workspace_id`), and explicit scoring breakdown (`vector_rank`, `fts_rank`, `section_boost`, `phrase_boost`, `score`).
+- **Explainable Hybrid Retrieval**: Combines pgvector dense cosine search with PostgreSQL full-text search (`tsvector`), statutory section boosting, quoted phrase matching (`"liquidated damages"`), hard tenant isolation (`workspace_id`), and explicit scoring breakdown (`vector_rank`, `fts_rank`, `section_boost`, `phrase_boost`, `score`, `score_vector`).
 - **Air-Gapped & Local**: Zero external API calls, zero telemetry, zero cloud egress. Runs entirely on local CPU/GPU with Ollama and PostgreSQL.
 
 ---
 
-## 2. Requirements & Verification
+## 2. Hardware Sizing & Minimal Requirements
+
+- **Library Mode (Zero DB, Zero Daemons)**: 512 MB RAM, runs anywhere Python 3.11+ is installed. Parse, chunk, and extract page-faithful citations directly into JSONL in-memory.
+- **CPU Ingest/Search**: 8 GB RAM, 10 GB disk, dual-core CPU. Runs full PostgreSQL + pgvector + Poppler + Ollama on local CPU without GPU hardware.
+- **GPU Homelab Factory**: 16 GB RAM, NVIDIA RTX GPU (8+ GB VRAM) for accelerated batch embeddings and high-DPI OCR preprocessing.
+
+---
+
+## 3. Requirements & Verification
 
 KruschNexus relies on standard offline binaries for document rendering and local embeddings:
 
@@ -44,7 +51,7 @@ nexus doctor
 
 ---
 
-## 3. Quickstart: One PDF, One Search, Honest Citations
+## 4. Quickstart: One PDF, One Search, Honest Citations
 
 ### Option A: Docker Compose (Recommended)
 
@@ -155,20 +162,37 @@ nexus-mcp
 nexus mcp
 ```
 
-### Available Tools
+### Available Tools (10 Canonical Tools)
 
-- `nexus_list_workspaces()`: List all document workspaces and document counts.
-- `nexus_list_documents(workspace)`: List documents in a workspace.
-- `nexus_ingest_file(file_path, workspace_name, doc_type, archive)`: Ingest a single file with page-true provenance.
+**User Tools (8):**
+- `nexus_list_workspaces(token)`: List document workspaces and indexed counts.
+- `nexus_list_documents(workspace_name, token)`: List documents within a workspace.
+- `nexus_ingest_file(file_path, workspace_name, doc_type, archive, token)`: Ingest a single file with page-faithful provenance.
+- `nexus_ingest_directory(directory_path, workspace_name, doc_type, recursive, token)`: Ingest all supported documents from a directory.
 - `nexus_get_ingest_report(doc_id_or_hash)`: Retrieve detailed ingest report and provenance.
-- `nexus_search_corpus(query, workspace_name, doc_type, limit)`: Execute hybrid search with structured citations.
-- `nexus_doctor()`: Run environment diagnostic audit.
-- `nexus_reparse(document_id, operator_confirmed)`: Operator-gated document reparse.
-- `nexus_delete_document(document_id, operator_confirmed)`: Operator-gated document deletion.
+- `nexus_search_corpus(query, workspace_name, doc_type, limit, page, doc_id, filename, token)`: Hybrid search with structured citations.
+- `nexus_export_workspace(workspace_name, output_path)`: Export a workspace into a self-contained `.tar.gz` bundle.
+- `nexus_import_workspace(tarball_path, target_workspace)`: Import a `.tar.gz` workspace bundle with Tar Slip traversal protection.
+
+**Operator-Gated Tools (2):**
+- `nexus_reparse(document_id, confirmation_token)`: Re-parse existing document. Requires `confirmation_token='CONFIRM_REPARSE_<id>'`.
+- `nexus_delete_document(document_id, confirmation_token)`: Delete document and cascade chunks. Requires `confirmation_token='CONFIRM_DELETE_<id>'`.
 
 ---
 
-## 8. Honest Evaluation Harness & Multi-Suite Benchmarks
+## 8. Public Contract & Compatibility
+
+| Surface | Canonical Identifier | Stable Properties / Guarantees |
+|---|---|---|
+| **Client Entrypoint** | `NexusClient` (`Nexus` thin alias) | Single public entry point. Ingest, search, export, import, parse_and_chunk, explain. |
+| **DocType Enum** | `DocType` | `authority`, `work_product`, `fact_narrative`, `general` |
+| **SearchHit v1** | `SearchHit` | `schema_version` ("1.0"), `citation`, `page_number`, `header`, `locator`, `structured_locator`, `score`, `text`, `document_id`, `chunk_id`, `phrase_boost`, `lexical_boost`, `section_boost`, `heading_path`, `vector_rank`, `fts_rank`, `doc_type`, `score_vector` |
+| **FastMCP Tools (10)** | `mcp.tool()` | 8 user tools + 2 operator tools requiring typed confirmation tokens |
+| **HTTP Routes** | FastAPI OpenAPI | `POST /v1/ingest`, `POST /v1/search`, `GET /v1/documents`, `GET /v1/documents/{doc_id_or_hash}/report`, `POST /v1/documents/{doc_id}/reparse`, `DELETE /v1/documents/{doc_id}`, `GET /v1/workspaces`, `GET /health` |
+
+---
+
+## 9. Honest Evaluation Harness & Multi-Suite Benchmarks
 
 KruschNexus partitions verification into four explicit suites (documented in detail in [Evaluation Methodology](docs/eval.md)):
 
