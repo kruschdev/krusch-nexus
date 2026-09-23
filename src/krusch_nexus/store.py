@@ -260,3 +260,22 @@ def init_db(engine=None):
     """
     target_engine = engine or get_engine()
     Base.metadata.create_all(bind=target_engine)
+
+    if target_engine.dialect.name == "sqlite":
+        with target_engine.connect() as conn:
+            try:
+                doc_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(documents)")).fetchall()]
+                if "version" not in doc_cols:
+                    conn.execute(text("ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 1"))
+                    conn.commit()
+            except Exception:
+                pass
+
+            try:
+                chunk_cols = [r[1] for r in conn.execute(text("PRAGMA table_info(document_chunks)")).fetchall()]
+                for col_name, col_type in [("char_start", "INTEGER"), ("char_end", "INTEGER"), ("bbox", "TEXT"), ("is_superseded", "BOOLEAN DEFAULT 0")]:
+                    if col_name not in chunk_cols:
+                        conn.execute(text(f"ALTER TABLE document_chunks ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+            except Exception:
+                pass
