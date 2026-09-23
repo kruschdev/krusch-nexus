@@ -1,339 +1,277 @@
-# The Sovereign Triad: Unifying Document Ingestion, Statutory Graphs, and Agentic Working Memory
+# Citation Spine, Statutory Graph & Working Memory: Systems Architecture Note on Bounding Generative Error in Legal Workflows
 
 > **Author**: Kevin Ruschman  
 > **Date**: September 2026  
-> **Status**: Systems Architecture Essay (Companion to *The Ingestion Imperative*)  
-> **Scope**: Document Geometry, Authority-Weighted Retrieval, Proposition Grounding, Episodic Working Memory, and Closed-Loop Agent Trajectories
+> **Status**: Systems Architecture Note (Companion to *The Ingestion Imperative*)  
+> **Scope**: Ingestion Geometry, Statutory Deference, Claim-Level Entailment, and Episodic Working Memory
 
 ---
 
-## Abstract & Systems Thesis
+## Abstract & Scope
 
-Autonomous AI agents fail in high-stakes domains—such as legal research, regulatory compliance, financial auditing, and engineering oversight—not because foundation models lack intelligence, but because standard architectures decouple **document ingestion**, **domain authority**, and **cognitive working memory** into three isolated, amnesiac silos.
+Generalist retrieval-augmented generation (RAG) fails in high-stakes legal workflows because it treats law as text rather than a versioned jurisdictional hierarchy, and treats memory as conversational history rather than structured state.
 
-1. **Ingestion Pipelines** treat complex documents as unstructured string streams, discarding physical page numbers, multi-column layouts, table geometry, and character span offsets.
-2. **Domain Retrieval Systems** treat statutes, regulations, and contracts as flat "bags of chunks," ignoring statutory hierarchy, temporal validity, appellate deference, and proposition verification.
-3. **Agentic Context Frameworks** treat memory as raw chat history dumps, suffering from catastrophic token bloat, attentional degradation, and multi-session amnesia.
-
-When these three components operate in isolation, agents hallucinate plausible citations, cite preempted municipal codes, and repeat discarded analytical mistakes across sessions.
-
-This essay articulates the architecture of the **Sovereign Triad**—a three-pillar local-first ecosystem engineered across three homelab repositories:
-- **`krusch-nexus` (The Ingestion Spine)**: Preserves document geometry, character span coordinates, and layout-true citations via Poppler, Tesseract OCR, and boundary-aware chunking.
-- **`krusch-law` (The Sovereign Statutory Engine)**: Enforces versioned statutory graphs, authority-weighted retrieval (1.25x to 0.8x), assertion-level proposition grounding, and confidential matter isolation.
-- **`krusch-context-mcp` (The Agentic Operating System)**: Supplies persistent episodic working memory, Lakebase SQLite compute caching, proactive trajectory auditing, and L2 neural semantic routing.
-
-By binding these three systems into a unified, air-gapped feedback loop running entirely on local PostgreSQL 16 and Ollama, we achieve an autonomous, self-auditing intelligence substrate with zero cloud egress.
-
----
+When evaluated against synthetic bootstrap fixtures, local pipelines appear solved (100% Recall@5, 100% rejection of invented citations). When evaluated against held-out statutes and semantic divergence tests, the real systems boundaries emerge:
+- **Held-Out Recall@1 drops to 66.7%**: Lexical and vector similarity struggle when colloquial grievances diverge from formal legislative drafting.
+- **Misgrounding Detection stalls at 70.0%**: While catching invented citations (non-existent sections) and stale law (repealed statutes) is straightforward syntax matching, verifying whether a genuine statute actually entails a specific claim is the central difficulty of legal RAG.
 
 ```
-                                  ┌──────────────────────────────────────────────────────────┐
-                                  │                PHYSICAL INGESTION BOUNDARY               │
-                                  │            (PDFs, Scans, DOCX, EML, Markdown)            │
-                                  └─────────────────────────────┬────────────────────────────┘
-                                                                │
-                                                                ▼
-                                  ┌──────────────────────────────────────────────────────────┐
-                                  │                  KRUSCH-NEXUS (Spine)                    │
-                                  │  • Poppler layout-true extraction & Tesseract 5.3.4 OCR  │
-                                  │  • Bit-for-bit span offset tracking & page coordinates   │
-                                  │  • Boundary-aware structural chunking (Section / Item)   │
-                                  │  • Hybrid RRF (k=60): tsvector + pgvector (1024d)        │
-                                  └──────────────────────┬───────────────────┬───────────────┘
-                                                         │                   │
-                                   Public Codes / Exhibit│                   │Confidential Facts
-                                                         ▼                   ▼
-┌────────────────────────────────────────────────────────┐                   ┌────────────────────────────────────────────────────────┐
-│               KRUSCHLAW (Domain Engine)                │                   │            KRUSCH-CONTEXT-MCP (Agent OS)               │
-├────────────────────────────────────────────────────────┤                   ├────────────────────────────────────────────────────────┤
-│ • Versioned Statutory Graph & Legislative Hierarchy    │                   │ • Persistent Episodic Memory (Priorities/Bugs/Lessons) │
-│ • Authority Weighting (Statute > Reg > Ordinance)      │◄─────────────────►│ • Lakebase Compute Cache (.agent/memory.db + Postgres) │
-│ • Assertion-Level Proposition Verifier (Grounding Gate)│  Proactive Audits │ • Active Memory Hygiene (Superseding & Invalidation)   │
-│ • Air-Gapped Matter Evidence & Hard Purge Isolation    │  & Semantic Route │ • Trajectory Auditor (`proactive_nudge` Interceptor)   │
-│ • Ethical Refusal: CANNOT_DRAFT_WITHOUT_AUTHORITIES    │                   │ • L2 Neural Semantic Router (13-Tool Lean Core Profile)│
-└────────────────────────────────────────────────────────┘                   └────────────────────────────────────────────────────────┘
-                                 │                                                                   │
-                                 └─────────────────────────────────┬─────────────────────────────────┘
-                                                                   ▼
-                                  ┌──────────────────────────────────────────────────────────┐
-                                  │              SHARED SOVEREIGN SUBSTRATE                  │
-                                  │  • PostgreSQL 16 + pgvector (HNSW Cosine Distance)       │
-                                  │  • Local Ollama Daemon (BAAI bge-large-en-v1.5, 1024d)   │
-                                  │  • Air-Gapped Loopback Containment (127.0.0.1)           │
-                                  └──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       MEASURED RETRIEVAL & GROUNDING BASELINE               │
+├──────────────────────────────────────┬──────────────────────────────────────┤
+│    FIXTURE CORPUS (Bootstrap)        │    HELD-OUT & EMPIRICAL REALITY      │
+├──────────────────────────────────────┼──────────────────────────────────────┤
+│ • Recall@1: 92.0%                    │ • Held-Out Recall@1: 66.7% (n=12)    │
+│ • Recall@5: 100.0%                   │ • Held-Out Recall@5: 100.0%          │
+│ • Invented Citations Blocked: 100.0% │ • Divergent Proposition Acc: 70.0%   │
+│ • Stale Law Detected: 100.0%         │ • Priority Inversions: 0             │
+└──────────────────────────────────────┴──────────────────────────────────────┘
+```
+
+This note documents the design contract of an air-gapped, local-first legal assistance architecture combining three specialized layers:
+1. **`krusch-nexus` (Citation Spine)**: Preserves physical page numbers, multi-column geometry, and character span offsets.
+2. **`krusch-law` (Statutory Graph & Verifier)**: Models statutory hierarchy, preemption relationships, and assertion grounding.
+3. **`krusch-context-mcp` (Working Memory)**: Governs project state, episodic lessons, and tool dispatching.
+
+We do not claim to "replace probabilistic guessing with verifiable intelligence." Rather, **we bound guessing to explicit propositions, enforce mechanical validation before semantic evaluation, and refuse claims when governing authority is absent.**
+
+---
+
+## 1. What Is Implemented vs. What Is Planned
+
+To maintain technical integrity, we explicitly distinguish between active code running in continuous integration and architectural roadmap:
+
+| Component | Status | Implementation Details |
+| :--- | :---: | :--- |
+| **Span-True Ingestion** | ✅ **Implemented** | Poppler layout extraction, Tesseract OCR fallback, bit-for-bit span offset tracking (`krusch-nexus`). |
+| **Hybrid RRF Search** | ✅ **Implemented** | Reciprocal Rank Fusion ($k=60$) combining `pgvector` HNSW cosine distance and `tsvector` cover density (`krusch-nexus`, `krusch-law`). |
+| **Grounding Failure Taxonomy** | ✅ **Implemented** | 4-class classifier: `supported`, `invented_citation`, `stale_law`, `wrong_proposition` (`krusch-law`). |
+| **Episodic Working Memory** | ✅ **Implemented** | Lakebase architecture: SQLite compute cache (`.agent/memory.db`) synced to PostgreSQL with explicit superseding and invalidation (`krusch-context-mcp`). |
+| **Lean Tool Routing** | ✅ **Implemented** | 13-tool core profile (~900 tokens) with dynamic L2 neural centroid dispatching (`krusch-context-mcp`). |
+| **Deterministic Preemption Engine** | 🟡 *In Progress* | Transitioning from authority multipliers (1.25x/1.15x) to a graph-based preemption filter (`applies_if`, `preempted_by`). |
+| **Claim-Level Entailment Split** | 🟡 *In Progress* | Separating Pass A (mechanical syntax/date) from Pass B (isolated natural language entailment). |
+| **Code-to-Statute CI Traceability** | ⚪ *Planned* | Curated `statute_id → symbol_id` table for regulatory compliance verification. |
+
+---
+
+## 2. Replacing Authority Multipliers with a Jurisdiction Machine
+
+The weakest technical pattern in early legal RAG prototypes is the **authority multiplier** (e.g. boosting state statutes by $1.25\times$ and local ordinances by $1.00\times$). 
+
+**Preemption is not a ranking boost.** A municipal rent control ordinance does not lose 20% of its relevance when a state statute applies; it is either controlling, preempted, or conditionally harmonized under statutory carve-outs.
+
+```
+                               ┌───────────────────────────┐
+                               │   Candidate Authorities   │
+                               │  (Hybrid Vector + Lexical)│
+                               └─────────────┬─────────────┘
+                                             │
+                                             ▼
+                               ┌───────────────────────────┐
+                               │  Pass 1: Temporal & Place │
+                               │  Drop repealed, sunset,   │
+                               │  or out-of-jurisdiction   │
+                               └─────────────┬─────────────┘
+                                             │
+                                             ▼
+                               ┌───────────────────────────┐
+                               │  Pass 2: Preemption Graph │
+                               │  Apply explicit edges:    │
+                               │  `preempted_by` pointers  │
+                               └─────────────┬─────────────┘
+                                             │
+                                             ▼
+                               ┌───────────────────────────┐
+                               │  Pass 3: Mandatory Graph  │
+                               │  Hydrate linked exception │
+                               │  and definition children  │
+                               └─────────────┬─────────────┘
+                                             │
+                                             ▼
+                               ┌───────────────────────────┐
+                               │   Ranked Live Authorities │
+                               │  (Only active law reaches │
+                               │   the prompt context)     │
+                               └───────────────────────────┘
+```
+
+### The Node Specification
+Each statutory node in `krusch-law` is modeled with deterministic relationship edges:
+- `jurisdiction`: Federal, State, County, City, Agency.
+- `instrument_type`: Statute, Regulation, Ordinance, Administrative Ruling.
+- `effective_from` / `effective_to`: Date boundaries.
+- `status`: `enacted`, `amended`, `repealed`, `sunset`, `enjoined`.
+- `relational_edges`: `preempted_by[]`, `preempts[]`, `implements[]`, `defines[]`, `exception_to[]`.
+- `applies_if`: Explicit fact gates (e.g. `unincorporated_island = true`, `multi_unit_residential = true`).
+
+### The Two-Stage Retrieval Pipeline
+1. **Stage 1 (Retrieval)**: Hybrid RRF retrieves a candidate set of textually and conceptually relevant nodes.
+2. **Stage 2 (Jurisdiction Machine)**:
+   - Evaluates matter facts against `applies_if` (e.g. property is in an unincorporated county parcel, immediately dropping municipal rent ordinances).
+   - Traverses `preempted_by` edges (e.g. statewide Costa-Hawkins Act preempting local vacancy control).
+   - Mandatorily attaches definition and exception sub-clauses.
+   - Only surviving, legally controlling nodes are supplied to downstream drafting.
+
+---
+
+## 3. Two-Pass Grounding Verification: Mechanical Gate vs. Proposition Entailment
+
+The dominant legal RAG failure mode in production is **misgrounding**: citing an authentic, active statutory section for a legal proposition that the statute does not support. This accounts for our **70.0% divergence baseline**.
+
+Asking the drafting LLM to grade its own output produces self-reinforcing hallucinations. Verification must be decoupled into two distinct passes:
+
+```
+Proposed Draft ──► [ PASS A: Mechanical Verification (Target: 100%) ]
+                         │
+                         ├── Citation exists in corpus?
+                         ├── Section alphanumeric string parses?
+                         ├── Span offsets resolve to source binary?
+                         └── Status was active on matter incident date?
+                         │
+                         ▼ (Pass A Clear)
+                   [ PASS B: Proposition Entailment ]
+                         │
+                         ├── Decompose draft into atomic claims {c1, c2, ... cn}
+                         ├── Bind each claim to specific source span IDs
+                         └── Isolated Natural Language Entailment Model:
+                               • entailed              ──► Accepted
+                               • contradicted          ──► Claim Refused
+                               • exception_applies     ──► Flagged for Carve-out
+                               • insufficient_context  ──► Claim Refused
+                               • not_in_corpus         ──► Claim Refused
+```
+
+### Refusing the Claim, Not the Brief
+When a draft contains three claims—two supported by Cal. Civ. Code § 1950.5 and one claiming an ungrounded 60-day deposit refund window—the system must **refuse the specific claim**, redacting or striking the unsupported proposition while preserving the valid analysis.
+
+### Defensible Audit Trail
+Every verification run records an immutable record in `audit_logs`:
+- `claim_text`: The exact sentence generated.
+- `source_span_ids`: Primary key pointers into `laws_vectors` or `matter_evidence`.
+- `physical_page`: Page coordinates in the underlying PDF.
+- `verdict`: `entailed`, `contradicted`, `insufficient_context`.
+- `model_version`: Identifier of the verifying model.
+
+---
+
+## 4. Separation of Invariants: Three Distinct Stores
+
+Treating lease exhibits, public statutes, and attorney theories as interchangeable vector records causes severe memory contamination. The architecture enforces three isolated stores with distinct invariants:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          THREE-STORE DATA ISOLATION                         │
+├──────────────────────┬──────────────────────┬───────────────────────────────┤
+│ 1. PUBLIC LAW STORE  │ 2. MATTER FACT STORE │ 3. CASE THEORY STORE          │
+├──────────────────────┼──────────────────────┼───────────────────────────────┤
+│ • Public statutes,   │ • Client leases,     │ • Attorney-asserted theories, │
+│   ordinances, regs.  │   notices, photos.   │   judge tendencies, deadlines.│
+│ • Versioned graph.   │ • Confidential.      │ • Project-scoped Lakebase.    │
+│ • Permanent: never   │ • Cryptographic hard │ • Active superseding &        │
+│   purged on matter   │   purge on matter    │   invalidation lifecycle.     │
+│   close.             │   conclusion.        │ • Survives across sessions.   │
+└──────────────────────┴──────────────────────┴───────────────────────────────┘
+```
+
+Retrieval is structured as an explicit relational join across stores:
+$$\text{Issue} \longrightarrow \text{Candidate Authorities} \xrightarrow[\text{Matter Facts}]{\text{Filter}} \text{Controlling Rules} \xrightarrow[\text{Case Theory}]{\text{Synthesize}} \text{Grounded Claims}$$
+
+---
+
+## 5. End-to-End Walkthrough: California Residential Just-Cause Defense
+
+Rather than attempting to solve all legal verticals simultaneously, the architecture is hardened against one exception-dense vertical: **California Residential Habitability, Security Deposits, and Just-Cause Evictions**.
+
+### Matter Facts
+- **Jurisdiction**: Oakland, CA.
+- **Tenancy**: Multi-family apartment built in 1978.
+- **Incident**: Landlord served a 30-day notice to terminate tenancy citing "owner move-in" for their adult nephew, without relocation assistance payment.
+
+```
+Step 1: Ingestion & Spatial Binding (KruschNexus)
+  Input: `30_day_notice_to_vacate.pdf` (scanned exhibit).
+  Processing: Poppler text layout extraction + Tesseract OCR on municipal notice stamp.
+  Output: Stamped notice date, exact physical page 1, character offsets [120-450].
+  Stored: Matter Evidence Store (isolated to matter_id = 104).
+
+Step 2: Candidate Authority Retrieval (KruschLaw)
+  Query: "owner move in eviction relative relocation payment"
+  RRF Candidates:
+    - OMC § 8.22.360 (Oakland Just Cause for Eviction Ordinance)
+    - Cal. Civ. Code § 1946.2 (Statewide Tenant Protection Act)
+    - OMC § 8.22.030 (Rent Adjustment Program Notice)
+
+Step 3: Deterministic Jurisdiction Filtering
+  - Matter location is incorporated Oakland. OMC § 8.22.360 applies.
+  - Preemption check: Cal. Civ. Code § 1946.2(g)(1)(B) exempts cities with more 
+    protective local just cause ordinances enacted before 2006. Oakland OMC § 8.22.360 
+    is more protective. OMC controls.
+  - Exception hydration: OMC § 8.22.360(A)(8) owner move-in allows only spouse, child, 
+    parent, or grandparent. Nephew is excluded as a qualifying relative.
+
+Step 4: Draft Generation & Claim-Level Entailment Gate
+  Drafted Claim 1: "Under OMC § 8.22.360, an owner move-in eviction cannot be based on occupancy by a nephew."
+    -> Pass A: OMC § 8.22.360 exists, active on incident date. PASS.
+    -> Pass B: Bound to span OMC § 8.22.360(A)(8). Verdict: ENTAILED.
+  
+  Drafted Claim 2: "Landlord must pay relocation assistance within 10 days of notice."
+    -> Pass A: OMC § 8.22.360 exists, active on incident date. PASS.
+    -> Pass B: Bound to span OMC § 8.22.360(G). Verdict: CONTRADICTED.
+       (Statute mandates half paid at service of notice, half upon vacating).
+    -> Action: Claim 2 REFUSED. Downstream text corrected before attorney presentation.
+
+Step 5: Working Memory Update (KruschContext MCP)
+  Committed to Lakebase (`.agent/memory.db`):
+  - Category: `lessons`
+  - Content: "OMC § 8.22.360 OMI defense: nephew is non-qualifying relative; notice relocation payment split required under Subsection G."
 ```
 
 ---
 
-## 1. The Tripartite Anatomy of Agent Failure
+## 6. The Amendment Pipeline: Stale-Law Review Queue
 
-To understand why autonomous legal and compliance agents fail, one must examine the chain of transmission through which a real-world document is converted into an agent action:
-
-### Failure Mode 1: The Severed Citation Chain (Ingestion Failure)
-Standard document splitters take a 40-page commercial lease or municipal code PDF, strip out whitespace and headers, and split text into fixed 500-token chunks with 50-token overlap.
-* **The Consequence**: A critical clause in Section 8.22.030 on Page 14 is severed from its section title on Page 13. The retrieved chunk contains orphan text: *"The tenant may petition the board within sixty days..."* 
-* When the downstream model cites this chunk, it has no page number, no parent section identifier, and no document hash. The model hallucinates a plausible-sounding citation: *"Under California Civil Code § 1942..."* The citation chain is dead on arrival.
-
-### Failure Mode 2: Authority Blindness (Retrieval Failure)
-Semantic vector search calculates cosine similarity between the query embedding and chunk embeddings. But in statutory and regulatory reasoning, **semantic similarity does not equal governing authority**:
-* A repealed 1998 city ordinance on security deposit interest may have a **0.89 cosine similarity** to a tenant grievance query.
-* The controlling 2024 California Civil Code § 1950.5 amendment capping deposits at one month's rent may have a **0.78 cosine similarity**.
-* A naive vector search ranks the obsolete municipal ordinance above the controlling state statute. The agent drafts a legal demand letter based on repealed law.
-
-### Failure Mode 3: Session Amnesia & Trajectory Drift (Cognitive Failure)
-Legal and compliance workflows are multi-turn, multi-session, and iterative:
-* In Session 1, an attorney spends 45 minutes clarifying that the subject property is located in an unincorporated county island exempt from municipal rent caps, and notes that the presiding judge in Department 51 strictly enforces 3-day notice service rules.
-* In Session 2, the user opens a new chat window. The agent starts from zero. It immediately re-suggests filing a municipal rent board petition and drafting an answer ignoring the 3-day notice defect.
-* The agent cannot maintain state, cannot self-correct, and repeats disproven hypotheses.
-
-The Sovereign Triad was designed specifically to eliminate each of these three failure modes.
-
----
-
-## 2. Pillar 1: KruschNexus — The Ingestion Spine
-
-KruschNexus serves as the physical document anchor for the ecosystem. Its primary design mandate is: **Never sever a word from its spatial and structural origin.**
-
-### Architectural Invariants of KruschNexus
-1. **Layout-True Text Extraction via Poppler**:
-   Instead of using simple text extraction streams that mangle multi-column PDF briefs and contractual indemnity schedules, KruschNexus invokes `pdftotext -layout` via Poppler. Column boundaries are preserved, tabular columns do not interleave, and indentation hierarchies remain intact.
-2. **Optical Character Recognition Fallback**:
-   When pages contain scanned exhibits, handwritten signatures, or municipal stamp seals, KruschNexus routes image pages through Tesseract OCR (v5.3.4), preserving bounding coordinates and tagging the chunk record with `ocr_processed: true`.
-3. **Bit-for-Bit Span Offset Tracking**:
-   Every parsed chunk does not simply store its text string; it records:
-   - `file_sha256`: Cryptographic hash of the source binary.
-   - `page_number`: 1-indexed physical PDF page number.
-   - `char_start` and `char_end`: Exact character offsets within the source page text stream.
-   - `heading_path`: The full breadcrumb stack (e.g., `Article IV > Chapter 8.22 > Section 8.22.360 > Subsection (A)(1)`).
-4. **Boundary-Aware Chunking (No Fixed Token Windows)**:
-   KruschNexus prohibits arbitrary token chunking. Chunking boundaries must align with natural structural demarcations: section headers, article breaks, lease covenants, and email thread delims. Breadcrumbs are stored in dedicated metadata columns rather than prepended into the text body, preventing embedding vector drift.
-
-### The Fail-Closed Hybrid Retrieval Contract
-KruschNexus rejects pure vector search. All queries execute through a PostgreSQL Reciprocal Rank Fusion (RRF) query combining:
-- **Dense Vector Search**: `pgvector` HNSW index on 1,024-dimensional normalized Euclidean distances ($1 - (\mathbf{u} \cdot \mathbf{v})$).
-- **Sparse Full-Text Search**: GIN index on `to_tsvector('english', content)` computing cover-density ranking (`ts_rank_cd`).
-- **Section Code Boosting**: Deterministic boosting (1.3x) for exact alphanumeric matches against statutory sections (`§ 1950.5`, `OMC 8.22.030`).
-- **Quoted Phrase Boosting**: String matching boost (1.2x) when exact user phrases appear verbatim in chunk text.
-
----
-
-## 3. Pillar 2: KruschLaw — The Sovereign Statutory Engine
-
-Where KruschNexus understands document layout, KruschLaw understands **governing legal authority**.
-
-### 1. The Versioned Statutory Graph
-Law is not a collection of static essays; it is a versioned, directed acyclic graph. KruschLaw represents municipal codes, state statutes, and administrative regulations within its `laws_vectors` schema:
-
-```sql
-CREATE TABLE laws_vectors (
-    id SERIAL PRIMARY KEY,
-    jurisdiction VARCHAR(100) NOT NULL,    -- "California Civil Code", "Oakland Municipal Code"
-    state VARCHAR(2) DEFAULT 'CA',
-    city VARCHAR(100),
-    title VARCHAR(255) NOT NULL,
-    section VARCHAR(100) NOT NULL,          -- "Section 8.22.360", "§ 1950.5"
-    parent_section VARCHAR(100),            -- Enables recursive parent hydration
-    authority_class VARCHAR(50) NOT NULL,   -- "controlling_statute", "municipal_ordinance", etc.
-    definitions_ref VARCHAR(255),           -- Link to section-level definition dictionary
-    exceptions_ref VARCHAR(255),            -- Link to statutory exception provisions
-    repealed BOOLEAN DEFAULT FALSE,
-    preempted_by VARCHAR(100),              -- e.g. "Preempted by Cal. Civ. Code § 1947.12"
-    effective_date DATE,
-    content TEXT NOT NULL,
-    embedding vector(1024)
-);
-```
-
-### 2. Authority-Weighted Scoring
-When an inquiry touches multiple jurisdictional layers, KruschLaw multiplies the hybrid RRF score by an authority coefficient:
-$$\text{FinalScore} = \text{Score}_{\text{RRF}} \times \mathbf{W}_{\text{authority}}$$
-
-| Authority Tier | Weight | Rationale |
-|---|---|---|
-| **Controlling Statute** | **1.25x** | State legislative enactments (e.g., California Civil Code) that preempt local rules. |
-| **Implementing Regulation** | **1.15x** | Formal agency administrative codes (e.g., CCR, RAP Board Regulations). |
-| **Municipal Ordinance** | **1.00x** | City/County codes (e.g., Oakland Municipal Code, SF Administrative Code). |
-| **Secondary Commentary** | **0.80x** | Practice guides, legal aid manuals, and internal case summaries. |
-
-Furthermore, whenever a section citing definitions or statutory exceptions is retrieved, KruschLaw automatically hydrates the referenced sections from the graph, guaranteeing that an agent reading a prohibition also sees its statutory exceptions.
-
-### 3. Assertion-Level Proposition Grounding
-Rather than trusting the language model to generate accurate text from retrieved context, KruschLaw implements an automated **Assertion-Level Proposition Grounding Scanner**:
-1. Generated draft briefs are parsed into discrete factual and legal propositions:
-   $$\text{Draft} \longrightarrow \{p_1, p_2, \dots, p_n\}$$
-2. Each proposition $p_i$ is cross-referenced against the verbatim spans of the retrieved statutory authorities.
-3. Each assertion is classified into one of four deterministic states:
-   - ❌ **Invented Citation**: The cited statutory code or section does not exist in the database.
-   - ⚠️ **Wrong Proposition**: The statute exists, but the proposition asserts a condition contrary to the statutory text (semantic divergence).
-   - 🛑 **Stale Law**: The cited section has `repealed = true` or contains an active `preempted_by` pointer.
-   - ✅ **Supported**: Verbatim quote or high-overlap semantic alignment with extracted source span coordinates.
-
-### 4. Ethical Guardrails & Refusal to Draft
-If a user asks KruschLaw to draft a brief for an issue where no supporting authorities exist in the air-gapped corpus, the engine does not sample generic hallucinated law. It triggers an ethical refusal:
-$$\text{Status} = \texttt{CANNOT\_DRAFT\_WITHOUT\_AUTHORITIES}$$
-All generated outputs are branded with mandatory UPL (Unauthorized Practice of Law) disclaimers, flagged with `review_required: true`, and categorized as `provisional_work_product: true`.
-
----
-
-## 4. Pillar 3: KruschContext MCP — The Cognitive Operating System
-
-Even with flawless document parsing (KruschNexus) and rigorous statutory hierarchy (KruschLaw), an autonomous agent will fail if it cannot remember facts across turns, manage token budgets, or detect when its actions drift from known constraints.
-
-KruschContext MCP is the **meta-cognitive context engine** that governs the agent's working memory and tool trajectory.
-
-### 1. The Lakebase Architecture (Compute / Storage Decoupling)
-Standard agent memory systems either store everything in remote cloud databases (high latency) or write unstructured JSON files to disk. KruschContext implements a two-tier **Lakebase Architecture**:
-- **Local Compute Cache**: Each project workspace maintains a zero-latency SQLite database (`.agent/memory.db`). Reads (nudge lookups, active priorities, project constraints) execute in sub-millisecond local time.
-- **Durable Fleet Storage**: Persistent PostgreSQL tables (`ide_agent_memory`, `ide_agent_nuggets`) on the homelab host maintain fleet-wide durability.
-- **Sync Fabric**: Asynchronous write-behind pushes local changes to PostgreSQL; read-ahead pulls hydrate the local cache upon initial project initialization.
-
-### 2. Active Memory Hygiene (Superseding & Invalidation)
-Traditional vector databases suffer from "memory pollution": once a fact is embedded, it remains forever. If a tenant moves out, or if a settlement agreement is executed, the old fact competes with the new fact during retrieval.
-
-KruschContext introduces first-class **Temporal Lineage**:
-- **Explicit Superseding (`supersede_memory`)**: When an operational rule or case fact changes, the new memory points to `supersedes_id`. The old memory is marked `SUPERSEDED` and dropped from standard search indices, while retaining cryptographic audit provenance.
-- **Active Invalidation (`invalidate_memory`)**: If a legal theory is rejected by counsel, or a statute is repealed, the agent marks the record as `INVALIDATED` with an explicit reason string. Invalidated records are permanently excluded from agent prompts.
-
-### 3. Steering Nuggets: Zero-Bloat Convention Enforcement
-Prompting models with lengthy instruction manuals consumes thousands of tokens per turn and causes attentional drift. KruschContext introduces **Holographic Steering Nuggets**: micro-key-value rules classified as `project`, `user`, or `agent`.
-* Example: `key: "alameda_unlawful_detainer_deadline"`, `value: "Answers must be filed within 5 court days of personal service; do not use calendar days."`
-* During retrieval, nuggets are matched via semantic similarity and injected as compact 2-line steering constraints, enforcing compliance without prompt bloat.
-
-### 4. L2 Neural Semantic Routing (The 13-Tool Sovereign Core)
-Exposing 60+ tools to an LLM degrades reasoning quality and wastes ~3,500 tokens per turn. KruschContext defaults to a lean **13-Tool Core Profile (~900 prompt tokens)**.
-
-To access specialized domains like KruschLaw, KruschContext utilizes an **L2 Neural Semantic Router (`krusch_context_semantic_route`)**:
-- Calibrated archetypes and exemplars are indexed in PostgreSQL using `bge-large` centroids.
-- When an agent or user presents an unstructured prompt (*"Does the Oakland rent board allow owner move-in evictions if the landlord owns multiple properties?"*), the semantic router computes cosine distance against the archetype centroids.
-- The router detects the `legal_statutory_research` centroid ($> 0.65$ confidence) and dynamically exposes KruschLaw's companion extension (`krusch_law_search_ordinances`, `krusch_law_get_section`, `krusch_law_draft_brief`). General coding turns remain completely unburdened by legal tool definitions.
-
----
-
-## 5. The Unified Trajectory: How the Triad Operates in Concert
-
-When all three systems are connected, the agent trajectory transforms from an error-prone heuristic sequence into an **audited, closed-loop state machine**.
-
-### Sequence Diagram: The Autonomous Legal Defense Loop
+Statutory change is a product feature, not an edge case. When a municipal code or chaptered state bill is amended, the system must not silently rewrite legal conclusions. It executes an automated review pipeline:
 
 ```
-User / Counsel           KruschContext MCP              KruschLaw                KruschNexus
-      │                         │                           │                         │
-      │ 1. Upload Lease & Notice│                           │                         │
-      ├──────────────────────────────────────────────────────────────────────────────►│ (Poppler / OCR)
-      │                         │                           │                         │ Extracts layout,
-      │                         │                           │                         │ page numbers,
-      │                         │                           │  2. Index Matter Facts  │ char spans
-      │                         │                           │◄────────────────────────┤
-      │                         │                           │ (laws_vectors/evidence) │
-      │                         │  3. Cache Working State   │                         │
-      │                         │◄──────────────────────────┤                         │
-      │                         │ (.agent/memory.db)        │                         │
-      │                         │                           │                         │
-      │ 4. "Analyze Defense"    │                           │                         │
-      ├────────────────────────►│                           │                         │
-      │                         │ 5. L2 Semantic Route      │                         │
-      │                         ├──────────────────────────►│                         │
-      │                         │ (legal_counsel archetype) │                         │
-      │                         │                           │                         │
-      │                         │                           │ 6. Authority Search     │
-      │                         │                           │ (Controlling Statutes)  │
-      │                         │                           │ OMC § 8.22.360 (1.25x)  │
-      │                         │                           │                         │
-      │                         │ 7. Draft Brief with Claims│                         │
-      │                         │◄──────────────────────────┤                         │
-      │                         │                           │                         │
-      │                         │ 8. PROACTIVE AUDIT HOOK   │                         │
-      │                         │ (proactive_nudge intercept)                         │
-      │                         ├──────────────────────────►│                         │
-      │                         │ Check Citation Validity   │ 9. Grounding Scanner    │
-      │                         │ & Proposition Drift       │ Claims vs Verbatim Spans│
-      │                         │                           │ Result: WRONG_PROP (OMI)│
-      │                         │ 10. Trajectory Warning    │                         │
-      │                         │◄──────────────────────────┤                         │
-      │                         │ 🛑 "Notice is 120 days,   │                         │
-      │                         │     not 60 days."         │                         │
-      │                         │                           │                         │
-      │                         │ 11. Self-Correction Turn  │                         │
-      │                         │ Re-synthesize with exact  │                         │
-      │                         │ statutory span coordinates│                         │
-      │                         │                           │                         │
-      │ 12. Grounded Legal Brief│                           │                         │
-      │◄────────────────────────┤                           │                         │
-      │ (Review Required + UPL) │                           │                         │
-      │                         │ 13. Persist Matter Lesson │                         │
-      │                         ├───────────────────────────┘                         │
-      │                         │ (supersede old theories   │                         │
-      │                         │  in Lakebase memory)      │                         │
+[ New Legislative Ingestion ] ──► Compute AST / Section Diff against existing node
+                                         │
+                                         ▼
+                                   Mark old node `status = amended`
+                                   Set `superseded_by` pointer
+                                         │
+                                         ▼
+                                   Query KruschContext for all active
+                                   memories and matter findings citing old section
+                                         │
+                                         ▼
+                                   Mark memories: `stale_pending_review`
+                                         │
+                                         ▼
+                                   Surface Review Queue to Counsel:
+                                   "3 saved matter theories may be invalidated"
 ```
-
-### The 5 Steps of the Closed Loop
-
-1. **Geometry-Preserving Ingestion**: KruschNexus ingests the tenant's lease and 30-day notice, recording exact page numbers and character bounding offsets into KruschLaw's `matter_evidence` partition.
-2. **Lean Intent Routing**: The user asks for an assessment. KruschContext's L2 router matches the query against the legal archetype centroid and loads the `law` companion tools into the turn context.
-3. **Authority-Weighted Retrieval**: KruschLaw retrieves relevant sections of the Oakland Municipal Code, applying a 1.25x multiplier to the controlling just cause ordinance (OMC § 8.22.360) while discounting secondary commentaries.
-4. **Proactive Grounding Interception**: As the agent drafts its preliminary analysis, KruschContext's `proactive_nudge` detects statutory citations in the trajectory text stream. It halts generation, queries KruschLaw's `verify_assertion_grounding` endpoint, identifies an erroneous notice duration claim, and injects a real-time warning nudge into the model's scratchpad.
-5. **Episodic Persistence**: The agent corrects the brief, cites the exact statutory span, and writes the verified legal conclusion into KruschContext's Lakebase memory (`category: 'lessons'`, `project: 'matter-oakland-104'`). If the local rent board subsequently amends the notice requirements, KruschContext's `supersede_memory` tool updates the knowledge graph, preventing the agent from ever citing the outdated rule in future sessions.
 
 ---
 
-## 6. Regulatory Code-to-Statute Traceability
+## 7. Threat Model & Failure Boundaries
 
-The ultimate payoff of the Sovereign Triad extends beyond legal briefs into **software engineering and regulatory compliance**.
+To prevent over-reliance on local agent architectures, operators must enforce defensive bounds against known failure vectors:
 
-In modern enterprises, software codebases regularly encode statutory requirements:
-- Fintech applications encode Regulation E electronic fund transfer dispute windows.
-- Proptech platforms encode state security deposit return deadlines.
-- Healthcare platforms encode HIPAA audit log retention schedules.
-
-Because KruschContext MCP maintains a structural **AST Symbol Graph** (`git_symbols`, `symbol_edges`, `symbol_graph`) and KruschLaw maintains a **Statutory Graph** (`laws_vectors`), we achieve **Bidirectional Regulatory Traceability**:
-
-```typescript
-/**
- * @compliance Cal. Civ. Code § 1950.5(g)(1)
- * @statute_id law_ca_civ_1950_5_g
- * Mandatory 21-calendar-day security deposit accounting and refund.
- */
-export function calculateDepositRefund(deposit: number, deductions: DeductionItem[]): RefundResult {
-  // Business logic implementing statutory mandate
-  ...
-}
-```
-
-When the California legislature amends Cal. Civ. Code § 1950.5 to reduce deposit return windows or cap deductions, KruschNexus ingests the new chaptered bill. KruschLaw flags the statutory node as amended. 
-
-A continuous integration job queries KruschContext:
-```javascript
-// Reverse impact analysis: find all code functions implementing this amended statute
-const affectedSymbols = await pool.query(`
-    SELECT s.symbol_name, s.file_path, s.line_number 
-    FROM git_symbols s
-    WHERE s.docstring LIKE '%Cal. Civ. Code § 1950.5%'
-`);
-```
-
-Before a single line of software drifts out of legal compliance, the developer's IDE agent highlights the affected functions, cites the newly enacted statutory span, and drafts the necessary code refactor.
+1. **Incomplete Municipal Corpus**: Municipal ordinances in small or unincorporated jurisdictions are frequently absent from public bulk archives. The system must fail closed: if a county code is missing, it must return `MISSING_GOVERNING_AUTHORITY` rather than falling back to state law assumptions.
+2. **Degraded OCR Coordinates**: On third-generation photocopies or skewed scans, OCR bounding boxes may miscalculate character span offsets. Downstream claim binding must tag OCR spans with confidence scores.
+3. **Missing Appellate Common Law**: Statutory text alone does not capture judicial gloss or binding appellate precedents. KruschLaw explicitly identifies that it indexes statutes and ordinances, not appellate case reporters.
+4. **False Reliance on Grounded Falsehoods**: An agent can generate a grammatically flawless, fully grounded legal theory based on an incomplete factual narrative supplied by the client. Outputs remain provisional research work product requiring independent human review under California RPC Rule 1.1 and Rule 5.3.
 
 ---
 
-## 7. The Homelab Sovereign Matrix
+## Conclusion: Engineering Bounds, Not Magic
 
-All three pillars of this architecture were built to run on standard homelab workstations with zero cloud dependencies:
+True sovereignty in legal artificial intelligence is not achieved by declaring an architecture "private" or running open weights on localhost. 
 
-| System Layer | Implementation Specification | Hardware Footprint |
-| :--- | :--- | :--- |
-| **Ingestion Engine** | `krusch-nexus` (FastAPI / Poppler / Tesseract 5.3.4) | Local CPU, ~512MB RAM in library mode |
-| **Statutory Graph** | `krusch-law` (FastAPI / pgvector 16 / SQLAlchemy) | Local PostgreSQL 16 container (Port: 5435) |
-| **Agent OS / MCP** | `krusch-context-mcp` (Node 22 / Stdio JSON-RPC / SQLite) | Local Node process, ~900 prompt tokens (Port: 5432) |
-| **Embedding Space** | Local Ollama (`baai/bge-large-en-v1.5`, 1,024 dims) | Shared across all 3 systems; normalized cosine similarity |
-| **Reasoning Model** | Local Ollama (`qwen2.5:14b` or `qwen2.5:7b`) | 12GB - 24GB VRAM workstation or local CPU |
-| **Network Boundary** | Strict Loopback (`127.0.0.1`), zero cloud egress | RFC1918 private containment |
+It is achieved by:
+- Bounding retrieval to **verified physical spans**.
+- Bounding legal relevance to **deterministic jurisdictional and preemption rules**.
+- Bounding generation to **independently verified, claim-level entailment**.
+- Bounding working memory to **isolated, hygiene-enforced stores**.
 
----
-
-## Conclusion: Data Sovereignty as Cohesive Systems Engineering
-
-True data sovereignty is not achieved by simply running an open-weight LLM on a desktop. A local model that receives broken text chunks will hallucinate just as readily as a cloud model. A local agent that forgets context across sessions is no more productive than an amnesiac chat window.
-
-Data sovereignty succeeds only when the entire pipeline—from the physical geometry of the source document, to the jurisdictional hierarchy of governing law, to the episodic memory of the agent—is engineered as a unified, self-auditing control system.
-
-By establishing **KruschNexus** as the physical document spine, **KruschLaw** as the authoritative statutory graph, and **KruschContext MCP** as the cognitive working memory harness, we replace probabilistic guessing with verifiable, grounded systems intelligence.
+When an agent operates within these constraints, it stops guessing what the law might be and provides attorneys with an auditable, verifiable research instrument.
