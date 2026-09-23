@@ -156,7 +156,10 @@ def nexus_search_corpus(
     query: str,
     workspace_name: str,
     doc_type: Optional[str] = None,
-    limit: int = 5
+    limit: int = 5,
+    page: Optional[int] = None,
+    doc_id: Optional[int] = None,
+    filename: Optional[str] = None
 ) -> str:
     """
     Execute hybrid vector + full-text search across a specific workspace.
@@ -167,6 +170,9 @@ def nexus_search_corpus(
         workspace_name: Target workspace name (REQUIRED).
         doc_type: Optional document type filter.
         limit: Number of top chunk hits to return (default 5).
+        page: Optional physical page number predicate (exact SQL filter).
+        doc_id: Optional document ID predicate (exact SQL filter).
+        filename: Optional source filename predicate (exact SQL filter).
     """
     if not workspace_name or not workspace_name.strip():
         return json.dumps({
@@ -176,7 +182,21 @@ def nexus_search_corpus(
 
     try:
         ws = workspace_name.strip()
-        hits = get_client().search(query=query, workspace=ws, doc_type=doc_type, limit=limit)
+        search_filters = {}
+        if page is not None:
+            search_filters["page"] = page
+        if doc_id is not None:
+            search_filters["doc_id"] = doc_id
+        if filename is not None:
+            search_filters["filename"] = filename
+
+        hits = get_client().search(
+            query=query,
+            workspace=ws,
+            doc_type=doc_type,
+            limit=limit,
+            filters=search_filters if search_filters else None
+        )
         results = []
         for h in hits:
             results.append({

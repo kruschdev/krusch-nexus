@@ -93,6 +93,32 @@ class TestMCPIntegration(unittest.TestCase):
         self.assertEqual(reparse_unconfirmed["status"], "error")
         self.assertIn("operator", reparse_unconfirmed["error"])
 
+    def test_mcp_search_with_sql_filters(self):
+        """Verify MCP search passes SQL filters (filename, page, doc_id)."""
+        test_file = os.path.join(self.temp_dir, "statute_filtered.txt")
+        with open(test_file, "w") as f:
+            f.write("Section 500 Filtered Clause Content\n")
+
+        nexus_ingest_file(file_path=test_file, workspace_name="Matter_Filter_Test")
+
+        # Search matching filename
+        match_raw = nexus_search_corpus(
+            query="Clause",
+            workspace_name="Matter_Filter_Test",
+            filename="statute_filtered.txt"
+        )
+        match_res = json.loads(match_raw)
+        self.assertEqual(match_res["results_count"], 1)
+
+        # Search non-matching filename
+        no_match_raw = nexus_search_corpus(
+            query="Clause",
+            workspace_name="Matter_Filter_Test",
+            filename="other_file.txt"
+        )
+        no_match_res = json.loads(no_match_raw)
+        self.assertEqual(no_match_res["results_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

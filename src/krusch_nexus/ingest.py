@@ -470,7 +470,7 @@ class IngestPipeline:
                 original_path=filepath_str,
                 mtime=mtime,
                 embedding_model=self.config.embed_model,
-                embedding_dim=1024,
+                embedding_dim=len(embeddings[0]) if (embeddings and embeddings[0]) else 1024,
                 ingested_at=datetime.now(timezone.utc)
             )
             db.add(new_doc)
