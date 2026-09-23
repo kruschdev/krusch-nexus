@@ -85,3 +85,8 @@ class CorruptedFileError(ParseError):
 class AuthenticationError(NexusError):
     """Raised when API token or authorization fails."""
     pass
+
+
+class ModelDimensionDriftError(NexusError):
+    """Raised when query vector dimension does not match document embedding dimension."""
+    pass

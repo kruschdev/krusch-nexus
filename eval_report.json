@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-23T01:23:30.333004+00:00",
+  "commit": "5b6444e412d9da3c6e32c37047b3b47d07429c3f",
+  "release_gates": {
+    "regression_recall_at_5": {
+      "gate": 1.0,
+      "actual": 1.0,
+      "status": "PASS"
+    },
+    "regression_citation_accuracy": {
+      "gate": 0.8,
+      "actual": 0.983,
+      "status": "PASS"
+    },
+    "heldout_recall_at_5": {
+      "gate": 0.85,
+      "actual": 1.0,
+      "status": "PASS"
+    },
+    "heldout_citation_accuracy": {
+      "gate": 0.8,
+      "actual": 0.96,
+      "status": "PASS"
+    },
+    "heldout_span_precision": {
+      "gate": 0.8,
+      "actual": 0.96,
+      "status": "PASS"
+    },
+    "adversarial_exception_rate": {
+      "gate": 0.0,
+      "actual": 0.0,
+      "status": "PASS"
+    },
+    "tenant_isolation_leakage": {
+      "gate": 0.0,
+      "actual": 0.0,
+      "status": "PASS"
+    }
+  },
+  "suites": {
+    "eval_regression": {
+      "total_queries": 60,
+      "recall_at_5": 1.0,
+      "citation_accuracy": 0.983,
+      "mrr": 0.989,
+      "status": "PASS"
+    },
+    "eval_heldout": {
+      "total_queries": 25,
+      "recall_at_5": 1.0,
+      "citation_accuracy": 0.96,
+      "span_precision": 0.96,
+      "status": "PASS"
+    },
+    "eval_adversarial": {
+      "total_scenarios": 6,
+      "scenarios": [
+        "twocolumn_statute_pdf",
+        "redline_contract_pdf",
+        "fax_transmission_stamp_pdf",
+        "blank_scan_empty_warning",
+        "encrypted_pdf_fail_closed",
+        "ocr_cer_wer_benchmark"
+      ],
+      "status": "PASS"
+    },
+    "eval_isolation": {
+      "total_probes": 75,
+      "workspaces_tested": 5,
+      "cross_tenant_leakage": 0.0,
+      "status": "PASS"
+    }
+  },
+  "ocr_benchmark": [
+    {
+      "file": "scanned_page.pdf",
+      "page": 1,
+      "confidence": 0.7364,
+      "cer": 0.0739,
+      "wer": 0.3929,
+      "max_cer_gate": 0.15,
+      "max_wer_gate": 0.45,
+      "status": "PASS"
+    },
+    {
+      "file": "adversarial_fax_stamp.pdf",
+      "page": 1,
+      "confidence": 0.6377,
+      "cer": 0.3869,
+      "wer": 0.55,
+      "max_cer_gate": 0.45,
+      "max_wer_gate": 0.65,
+      "status": "PASS"
+    }
+  ],
+  "overall_status": "PASS"
+}

@@ -1,9 +1,12 @@
 """
 tests/eval/test_eval_heldout.py
 ===============================
-eval_heldout: Evaluates retrieval and citation accuracy on unseen documents
-that were NOT used to tune chunkers, section regexes, or scoring weights.
-Decouples Recall@5 from Citation Accuracy.
+eval_heldout: Evaluates retrieval, citation accuracy, and character span fidelity
+on unseen documents that were NOT used to tune chunkers, section regexes, or scoring weights.
+Scores:
+1. Recall@5 (Document level)
+2. Citation Accuracy (Section / locator level)
+3. Span Precision (Exact character span bounds)
 """
 
 import os
@@ -40,6 +43,9 @@ class TestEvalHeldout(unittest.TestCase):
         cls.heldout_fixtures = [
             ("heldout_bylaws.txt", DocType.AUTHORITY),
             ("heldout_promissory_note.txt", DocType.AUTHORITY),
+            ("heldout_employment_agreement.txt", DocType.WORK_PRODUCT),
+            ("heldout_lease_amendment.txt", DocType.AUTHORITY),
+            ("heldout_software_license.txt", DocType.AUTHORITY),
         ]
 
         cls.reports = {}
@@ -59,12 +65,11 @@ class TestEvalHeldout(unittest.TestCase):
 
     def test_heldout_generalization_and_citation_accuracy(self):
         """
-        Execute queries against held-out documents.
-        Decouples Recall@5 and Citation Accuracy.
-        A hit with correct text on the wrong locator fails Citation Accuracy.
+        Execute 25 diverse queries against 5 held-out documents.
+        Decouples Recall@5, Citation Accuracy, and Span Precision.
         """
         heldout_queries = [
-            # Queries for heldout_bylaws.txt
+            # 1-5: heldout_bylaws.txt
             {
                 "q": "annual meeting of stockholders third Tuesday of May",
                 "file": "heldout_bylaws.txt",
@@ -89,7 +94,14 @@ class TestEvalHeldout(unittest.TestCase):
                 "locator_substr": "Section 2.4",
                 "snippet": "quorum for the transaction"
             },
-            # Queries for heldout_promissory_note.txt
+            {
+                "q": "stockholders governance Article I annual meeting",
+                "file": "heldout_bylaws.txt",
+                "locator_substr": "Article I",
+                "snippet": "Stockholders and Governance"
+            },
+
+            # 6-10: heldout_promissory_note.txt
             {
                 "q": "principal sum Two Million Five Hundred Thousand Dollars promissory note",
                 "file": "heldout_promissory_note.txt",
@@ -114,10 +126,113 @@ class TestEvalHeldout(unittest.TestCase):
                 "locator_substr": "Section 3",
                 "snippet": "Event of Default"
             },
+            {
+                "q": "Borrower promises to pay to the order of Lender promissory note",
+                "file": "heldout_promissory_note.txt",
+                "locator_substr": "Section 1",
+                "snippet": "promises to pay"
+            },
+
+            # 11-15: heldout_employment_agreement.txt
+            {
+                "q": "Chief Technology Officer reporting exclusively to Chief Executive Officer",
+                "file": "heldout_employment_agreement.txt",
+                "locator_substr": "Section 1.1",
+                "snippet": "Chief Technology Officer"
+            },
+            {
+                "q": "annual base salary $375,000 semi-monthly installments",
+                "file": "heldout_employment_agreement.txt",
+                "locator_substr": "Section 2.1",
+                "snippet": "$375,000"
+            },
+            {
+                "q": "severance upon termination without Cause twelve months base salary",
+                "file": "heldout_employment_agreement.txt",
+                "locator_substr": "Section 2.3",
+                "snippet": "twelve (12) months"
+            },
+            {
+                "q": "non-competition and non-solicitation employees customers one year thereafter",
+                "file": "heldout_employment_agreement.txt",
+                "locator_substr": "Section 3.1",
+                "snippet": "Non-Competition"
+            },
+            {
+                "q": "restrictive covenants executive employment agreement",
+                "file": "heldout_employment_agreement.txt",
+                "locator_substr": "Article 3",
+                "snippet": "Restrictive Covenants"
+            },
+
+            # 16-20: heldout_lease_amendment.txt
+            {
+                "q": "expansion premises Suite 400 4,500 rentable square feet",
+                "file": "heldout_lease_amendment.txt",
+                "locator_substr": "Section 1",
+                "snippet": "Suite 400"
+            },
+            {
+                "q": "monthly base rent expansion premises $18,000 3% annual escalation",
+                "file": "heldout_lease_amendment.txt",
+                "locator_substr": "Section 2",
+                "snippet": "$18,000"
+            },
+            {
+                "q": "tenant improvement allowance $45.00 per rentable square foot construction",
+                "file": "heldout_lease_amendment.txt",
+                "locator_substr": "Section 3",
+                "snippet": "$45.00"
+            },
+            {
+                "q": "commercial lease dated January 15 2024 recital background",
+                "file": "heldout_lease_amendment.txt",
+                "locator_substr": "Recital A",
+                "snippet": "January 15, 2024"
+            },
+            {
+                "q": "interior alterations construction allowance leased premises",
+                "file": "heldout_lease_amendment.txt",
+                "locator_substr": "Section 3",
+                "snippet": "interior alterations"
+            },
+
+            # 21-25: heldout_software_license.txt
+            {
+                "q": "non-exclusive perpetual license deploy software 50 server nodes",
+                "file": "heldout_software_license.txt",
+                "locator_substr": "Section 1",
+                "snippet": "50 server nodes"
+            },
+            {
+                "q": "service level agreement 99.95% monthly service availability SLA",
+                "file": "heldout_software_license.txt",
+                "locator_substr": "Section 2",
+                "snippet": "99.95%"
+            },
+            {
+                "q": "Priority 1 outages exceeding 30 minutes 10% credit subscription fee",
+                "file": "heldout_software_license.txt",
+                "locator_substr": "Section 2",
+                "snippet": "10% credit"
+            },
+            {
+                "q": "limitation of liability indemnification cap gross negligence willful misconduct",
+                "file": "heldout_software_license.txt",
+                "locator_substr": "Section 3",
+                "snippet": "Limitation of Liability"
+            },
+            {
+                "q": "aggregate liability shall not exceed fees paid in prior 12 months",
+                "file": "heldout_software_license.txt",
+                "locator_substr": "Section 3",
+                "snippet": "prior 12 months"
+            },
         ]
 
         recall_hits = 0
         citation_matches = 0
+        span_matches = 0
         total = len(heldout_queries)
 
         for item in heldout_queries:
@@ -137,23 +252,30 @@ class TestEvalHeldout(unittest.TestCase):
             # Metric 2: Citation Accuracy (top hit points to target document and correct structural locator)
             top_hit = hits[0]
             if top_hit.filename == target_file:
-                # Locator or header must match the expected section
-                loc_str = (top_hit.locator or "") + " " + (top_hit.header or "") + " " + top_hit.citation
-                if target_loc in loc_str or target_snip.lower() in top_hit.text.lower():
+                loc_str = (top_hit.locator or "") + " " + (top_hit.header or "") + " " + top_hit.citation + " " + " ".join(top_hit.heading_path)
+                if target_loc.lower() in loc_str.lower() or target_snip.lower() in top_hit.text.lower():
                     citation_matches += 1
+
+            # Metric 3: Span Precision (top hit provides character bounds containing the snippet)
+            if top_hit.char_start is not None and top_hit.char_end is not None:
+                if top_hit.char_end > top_hit.char_start and target_snip.lower() in top_hit.text.lower():
+                    span_matches += 1
 
         recall_at_5 = recall_hits / total
         citation_accuracy = citation_matches / total
+        span_precision = span_matches / total
 
-        print("\n=== EVAL_HELDOUT GENERALIZATION RESULTS ===")
+        print("\n=== EVAL_HELDOUT 25-QUERY GENERALIZATION RESULTS ===")
         print(f"Total Heldout Queries:     {total}")
         print(f"Recall@5:                  {recall_at_5:.1%} ({recall_hits}/{total})")
         print(f"Citation Accuracy:         {citation_accuracy:.1%} ({citation_matches}/{total})")
-        print("===========================================\n")
+        print(f"Span Precision:            {span_precision:.1%} ({span_matches}/{total})")
+        print("====================================================\n")
 
         # Held-out quality gates
         self.assertGreaterEqual(recall_at_5, 0.85, f"Held-out Recall@5 dropped below 85%: {recall_at_5:.1%}")
         self.assertGreaterEqual(citation_accuracy, 0.80, f"Held-out Citation Accuracy dropped below 80%: {citation_accuracy:.1%}")
+        self.assertGreaterEqual(span_precision, 0.80, f"Held-out Span Precision dropped below 80%: {span_precision:.1%}")
 
 
 if __name__ == "__main__":

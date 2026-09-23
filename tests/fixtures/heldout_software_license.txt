@@ -1,0 +1,11 @@
+ENTERPRISE SOFTWARE LICENSE AND SERVICE LEVEL AGREEMENT
+
+Section 1. Grant of License
+Vendor grants Customer a non-exclusive, perpetual license to deploy the software on up to 50 server nodes.
+
+Section 2. Service Level Commitments and Penalties
+Vendor warrants 99.95% monthly service availability. In the event of Priority 1 outages exceeding 30 minutes,
+Customer shall receive a 10% credit against the annual subscription fee.
+
+Section 3. Limitation of Liability and Indemnification Cap
+Except for gross negligence or willful misconduct, total aggregate liability shall not exceed fees paid in prior 12 months.

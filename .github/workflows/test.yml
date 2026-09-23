@@ -56,7 +56,7 @@ jobs:
         DATABASE_URL: "sqlite:///:memory:"
         OLLAMA_BASE_URL: "http://127.0.0.1:11434"
       run: |
-        python -c "from krusch_nexus import NexusClient; client = NexusClient(); report = client.ingest('tests/fixtures/sample_contract.pdf', workspace='CIQuickstart'); hits = client.search('confidentiality clause', workspace='CIQuickstart'); assert len(hits) > 0, 'Quickstart returned 0 hits'; print(f'CI Quickstart OK: {hits[0].citation}')"
+        python -c "from krusch_nexus import NexusClient; client = NexusClient(); report = client.ingest('tests/fixtures/sample_contract.pdf', workspace='CIQuickstart'); hits = client.search('termination for breach', workspace='CIQuickstart'); assert len(hits) > 0, 'Quickstart returned 0 hits'; print(f'CI Quickstart OK: {hits[0].citation}')"
 
     - name: Run Layered Test Suite & Citation Benchmark
       env:
@@ -64,3 +64,17 @@ jobs:
         OLLAMA_BASE_URL: "http://127.0.0.1:11434"
       run: |
         python -m pytest tests/ -v
+
+    - name: Generate Machine-Readable Evaluation Report
+      env:
+        DATABASE_URL: "sqlite:///:memory:"
+        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+      run: |
+        python -m krusch_nexus.eval_report eval_report.json
+        cat eval_report.json
+
+    - name: Upload Evaluation Report Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: eval-report-${{ matrix.python-version }}
+        path: eval_report.json

@@ -43,7 +43,8 @@ from .exceptions import (
     EmptyOcrError,
     UnsupportedMimeError,
     CorruptedFileError,
-    AuthenticationError
+    AuthenticationError,
+    ModelDimensionDriftError
 )
 
 __all__ = [
@@ -80,5 +81,6 @@ __all__ = [
     "UnsupportedMimeError",
     "CorruptedFileError",
     "AuthenticationError",
+    "ModelDimensionDriftError",
     "__version__"
 ]

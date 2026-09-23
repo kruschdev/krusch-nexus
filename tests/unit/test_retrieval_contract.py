@@ -101,3 +101,74 @@ class TestRetrievalContract(unittest.TestCase):
             trace_str = f"{t.dense_ranks} {t.sparse_ranks} {t.fused_ranks} {t.boosts_applied}"
             self.assertNotIn("COMMERCIAL LEASE AGREEMENT", trace_str)
             self.assertNotIn("thirty days notice", trace_str)
+
+    def test_zero_matches_returns_empty_without_hallucinating_recent_chunks(self):
+        """Verify queries with zero matching keywords/vectors return empty list instead of arbitrary recent chunks."""
+        hits = self.nexus.search("xyzzyqwertyfoobar nonmatching nonsense query", workspace="RetrievalTest")
+        self.assertEqual(len(hits), 0, "Zero-match query must return [] without hallucinating recent chunks.")
+
+    def test_bounded_lru_cache_eviction(self):
+        """Verify BoundedLRUCache enforces capacity limit and evicts oldest unused keys."""
+        from krusch_nexus.retrieve import BoundedLRUCache
+        cache = BoundedLRUCache(maxsize=3)
+        cache["q1"] = [0.1, 0.2]
+        cache["q2"] = [0.3, 0.4]
+        cache["q3"] = [0.5, 0.6]
+        self.assertEqual(len(cache), 3)
+
+        # Access q1 to make it recently used
+        _ = cache["q1"]
+
+        # Insert q4 -> q2 (oldest) must be evicted
+        cache["q4"] = [0.7, 0.8]
+        self.assertEqual(len(cache), 3)
+        self.assertIn("q1", cache)
+        self.assertIn("q3", cache)
+        self.assertIn("q4", cache)
+        self.assertNotIn("q2", cache)
+
+    def test_dimension_drift_rejection(self):
+        """Verify ModelDimensionDriftError is raised when embedding dimensions mismatch."""
+        from krusch_nexus.exceptions import ModelDimensionDriftError
+        from krusch_nexus.retrieve import retrieve
+
+        # Mock embedding function returning 768d instead of configured 1024d
+        mock_bad_embed = lambda q: [0.1] * 768
+
+        with get_db_session(self.engine) as sess:
+            from krusch_nexus.store import Workspace
+            ws = sess.query(Workspace).filter_by(name=self.rep1.workspace).first()
+            ws_id = ws.id
+            with self.assertRaises(ModelDimensionDriftError):
+                retrieve(
+                    query="dimension_drift_probe",
+                    workspace_id=ws_id,
+                    db=sess,
+                    embed_fn=mock_bad_embed,
+                    config=self.config
+                )
+
+    def test_invalid_and_oversized_header_regex_rejection(self):
+        """Verify unbounded or syntactically invalid header_regex patterns are rejected."""
+        from krusch_nexus.exceptions import NexusError
+
+        # Regex too long (>120 chars)
+        oversized = "a" * 150
+        with self.assertRaises(NexusError):
+            self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": oversized})
+
+        # Syntactically invalid regex
+        invalid_pattern = "[unclosed_bracket"
+        with self.assertRaises(NexusError):
+            self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": invalid_pattern})
+
+    def test_valid_header_regex_filtering(self):
+        """Verify valid header_regex correctly filters chunks by header or locator."""
+        hits_filtered = self.nexus.search(
+            "lease",
+            workspace="RetrievalTest",
+            filters={"header_regex": r"Permitted Use"}
+        )
+        self.assertGreater(len(hits_filtered), 0)
+        for h in hits_filtered:
+            self.assertIn("Permitted Use", f"{h.header} {h.locator}")

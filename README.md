@@ -172,20 +172,23 @@ nexus mcp
 
 KruschNexus partitions verification into four explicit suites (documented in detail in [Evaluation Methodology](docs/eval.md)):
 
-| Suite | Focus | Query Count | Recall@5 | Citation Accuracy | Gate Invariant |
-|---|---|---|---|---|---|
-| **`eval_regression`** | Frozen fixtures lock | 60 | **100.0%** | **98.3%** | Must stay 100% or an established invariant broke |
-| **`eval_heldout`** | Unseen contracts/bylaws | 8 | **100.0%** | **100.0%** | Generalization on documents not used to tune boosts |
-| **`eval_adversarial`** | Two-column, redline, empty OCR | Stress matrix | **100.0%** | **100.0%** | Fault tolerance on malformed and complex inputs |
-| **`eval_isolation`** | Cross-workspace multi-tenant | 75 | **100.0%** | **100.0%** | **0.0000% cross-workspace leakage** property test |
+| Suite | Focus | Queries / Tests | Release Gate Requirement | Measured Result |
+|---|---|---|---|---|
+| **`eval_regression`** | Frozen fixtures invariant lock | 60 queries | Recall@5 = 100%, Citation $\ge 80.0\%$ | **Recall@5 = 100.0%**<br>Citation Acc = 98.3%<br>MRR = 0.989 |
+| **`eval_heldout`** | Unseen legal instruments & spans | 25 queries | Recall@5 $\ge 85.0\%$, Citation $\ge 80.0\%$, Span $\ge 80.0\%$ | **Recall@5 = 100.0%**<br>Citation Acc = 96.0%<br>Span Precision = 96.0% |
+| **`eval_adversarial`** | Real PDFs (two-column, redline, fax/stamp) | 6 scenarios | Zero unhandled exceptions; Fail-closed; CER $\le 45\%$ | **0 exceptions**<br>Fail-closed verified<br>CER/WER passed |
+| **`eval_isolation`** | Cross-workspace multi-tenant probes | 75 checks | 0.0000% cross-tenant leakage | **0.0000% leakage**<br>(0/75 probes) |
 
-*Note: Recall@5 and Citation Accuracy are strictly decoupled. A retrieved chunk that appears on the wrong page fails Citation Accuracy even if retrieval succeeds.*
+*Note: Recall@5, Citation Accuracy, and Span Precision are strictly decoupled. A retrieved chunk that appears on the wrong page fails Citation Accuracy even if document retrieval succeeds.*
 
-### Run the Benchmark Suites
+### Run Benchmark Suites & Generate Machine-Readable Report
 
 ```bash
 # Run all evaluation suites
 pytest tests/eval/ -v -s
+
+# Generate machine-readable eval_report.json
+python -m krusch_nexus.eval_report
 ```
 
 ---

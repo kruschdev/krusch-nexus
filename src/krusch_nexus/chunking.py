@@ -20,7 +20,10 @@ logger = logging.getLogger("krusch_nexus.chunking")
 
 # Section heading patterns for legal and corporate statutory documents
 SECTION_PATTERN = re.compile(
-    r'(?:§+|Section|Sec\.|Article|Art\.|Clause|Exhibit)\s*([0-9A-Za-z\.\-:]*(?:\s+[A-Za-z0-9\s,\-\'\":]{0,60})?)',
+    r'(?:'
+    r'(?:(?:[A-Za-z\.]+\s+)*(?:Code|U\.S\.C\.|Stat\.|C\.F\.R\.)\s*)?(?:§+|Section|Sec\.|Article|Art\.|Clause|Exhibit)\s*[0-9A-Za-z\.\-:]+(?:\([0-9A-Za-z]+\))*'
+    r'|\b[0-9]{1,3}\.[0-9]{2,3}\.[0-9]{2,4}(?:\([A-Za-z0-9]+\))*'
+    r')(?:\s+[A-Za-z0-9\s,\-\'\":]{0,60})?',
     re.IGNORECASE
 )
 OPERATIVE_PATTERN = re.compile(

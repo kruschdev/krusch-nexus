@@ -11,13 +11,14 @@ import json
 import time
 import hashlib
 import logging
+from collections import OrderedDict
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .models import SearchHit, Citation, StructuredLocator, NexusConfig
-from .store import DocumentChunk, Workspace, SearchTrace
-from .exceptions import WorkspaceRequiredError
+from .store import DocumentChunk, Workspace, SearchTrace, Document
+from .exceptions import WorkspaceRequiredError, ModelDimensionDriftError, NexusError
 
 logger = logging.getLogger("krusch_nexus.retrieve")
 
@@ -26,7 +27,43 @@ SECTION_PATTERN = re.compile(
     re.IGNORECASE
 )
 QUOTE_PATTERN = re.compile(r'"([^"]{3,})"')
-_QUERY_EMBED_CACHE: Dict[str, List[float]] = {}
+
+
+class BoundedLRUCache:
+    """Bounded, process-local LRU cache for query vector embeddings."""
+    def __init__(self, maxsize: int = 1000):
+        self.maxsize = maxsize
+        self._cache: OrderedDict[str, Any] = OrderedDict()
+
+    def get(self, key: str) -> Optional[Any]:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        return None
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._cache
+
+    def __getitem__(self, key: str) -> Any:
+        val = self._cache[key]
+        self._cache.move_to_end(key)
+        return val
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key in self._cache:
+            self._cache.move_to_end(key)
+        self._cache[key] = value
+        if len(self._cache) > self.maxsize:
+            self._cache.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._cache)
+
+    def clear(self) -> None:
+        self._cache.clear()
+
+
+_QUERY_EMBED_CACHE = BoundedLRUCache(maxsize=1000)
 
 
 def hash_query(q: str) -> str:
@@ -100,6 +137,16 @@ def retrieve(
     filter_filename = resolved_filters.get("filename")
     filter_header_regex = resolved_filters.get("header_regex")
 
+    # Safe validation of header_regex filter
+    compiled_header_regex = None
+    if filter_header_regex:
+        if len(filter_header_regex) > 120:
+            raise NexusError("header_regex exceeds maximum length of 120 characters")
+        try:
+            compiled_header_regex = re.compile(filter_header_regex, re.IGNORECASE)
+        except re.error as err:
+            raise NexusError(f"Invalid header_regex pattern: {err}")
+
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     ws_name = ws.name if ws else f"Workspace_{workspace_id}"
 
@@ -123,19 +170,33 @@ def retrieve(
 
     # 1. Embed Query (cached by hash)
     query_vector = None
+    q_h = hash_query(q_str)
     if embed_fn:
-        q_h = hash_query(q_str)
         if q_h in _QUERY_EMBED_CACHE:
             query_vector = _QUERY_EMBED_CACHE[q_h]
         else:
             try:
                 query_vector = embed_fn(q_str)
-                if query_vector:
-                    _QUERY_EMBED_CACHE[q_h] = query_vector
             except Exception as e:
                 logger.warning(f"Query embed failed: {e}")
 
-    # 2. Vector ANN in workspace (strictly respecting hard workspace_id tenant key and SQL filters)
+    # Model Dimension Drift Guard
+    if query_vector:
+        expected_dim = conf.embedding_dim or 1024
+        if len(query_vector) != expected_dim:
+            raise ModelDimensionDriftError(
+                f"Dimension drift detected: query embedding has {len(query_vector)}d, but configuration expects {expected_dim}d."
+            )
+        sample_doc = db.query(Document).filter(Document.workspace_id == workspace_id).first()
+        if sample_doc and sample_doc.embedding_dim and len(query_vector) != sample_doc.embedding_dim:
+            raise ModelDimensionDriftError(
+                f"Dimension drift detected: query embedding has {len(query_vector)}d, but documents in workspace '{ws_name}' were embedded with {sample_doc.embedding_dim}d ({sample_doc.embedding_model}). Migration required."
+            )
+        # Store in cache only after passing drift validation
+        if embed_fn and q_h not in _QUERY_EMBED_CACHE:
+            _QUERY_EMBED_CACHE[q_h] = query_vector
+
+    # 2. Vector ANN in workspace (parameterized :qvec::vector without string interpolation)
     dense_results: List[Tuple[DocumentChunk, float]] = []
     if query_vector and is_postgres:
         vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
@@ -145,13 +206,14 @@ def retrieve(
             pass
 
         sql = f"""
-            SELECT id, 1 - (embedding <=> '{vec_literal}'::vector) as sim
+            SELECT id, 1 - (embedding <=> CAST(:qvec AS vector)) as sim
             FROM document_chunks
             WHERE workspace_id = :ws_id AND embedding IS NOT NULL {sql_filter_str}
-            ORDER BY embedding <=> '{vec_literal}'::vector ASC LIMIT :d_lim;
+            ORDER BY embedding <=> CAST(:qvec AS vector) ASC LIMIT :d_lim;
         """
         params = dict(sql_params)
         params["d_lim"] = dense_limit
+        params["qvec"] = vec_literal
         try:
             rows = db.execute(text(sql), params).fetchall()
             ids = [r[0] for r in rows]
@@ -162,14 +224,14 @@ def retrieve(
         except Exception as e:
             logger.debug(f"Dense search error: {e}")
 
-    # 3. FTS in workspace (strictly respecting hard workspace_id tenant key and SQL filters)
+    # 3. FTS in workspace (utilizing stored tsv_content GIN index on PostgreSQL)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
     if is_postgres:
         clean_fts_q = re.sub(r'["\'§]', ' ', q_str).strip()
         sql = f"""
-            SELECT id, ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) as r_score
+            SELECT id, ts_rank_cd(tsv_content, plainto_tsquery('english', :q)) as r_score
             FROM document_chunks
-            WHERE workspace_id = :ws_id AND to_tsvector('english', content) @@ plainto_tsquery('english', :q) {sql_filter_str}
+            WHERE workspace_id = :ws_id AND tsv_content @@ plainto_tsquery('english', :q) {sql_filter_str}
             ORDER BY r_score DESC LIMIT :s_lim;
         """
         params = dict(sql_params)
@@ -183,7 +245,22 @@ def retrieve(
                 if r[0] in chunk_map:
                     sparse_results.append((chunk_map[r[0]], float(r[1])))
         except Exception as e:
-            logger.debug(f"Sparse FTS error: {e}")
+            logger.debug(f"Stored tsv_content FTS failed or column missing ({e}); falling back to dynamic to_tsvector")
+            fallback_sql = f"""
+                SELECT id, ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) as r_score
+                FROM document_chunks
+                WHERE workspace_id = :ws_id AND to_tsvector('english', content) @@ plainto_tsquery('english', :q) {sql_filter_str}
+                ORDER BY r_score DESC LIMIT :s_lim;
+            """
+            try:
+                rows = db.execute(text(fallback_sql), params).fetchall()
+                ids = [r[0] for r in rows]
+                chunk_map = {c.id: c for c in db.query(DocumentChunk).filter(DocumentChunk.id.in_(ids)).all()} if ids else {}
+                for r in rows:
+                    if r[0] in chunk_map:
+                        sparse_results.append((chunk_map[r[0]], float(r[1])))
+            except Exception as fe:
+                logger.debug(f"Sparse FTS fallback error: {fe}")
     else:
         # SQLite lexical match fallback with SQL-level filtering
         toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
@@ -230,22 +307,9 @@ def retrieve(
         f_ranks[c.id] = rank
         rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
-    # Fallback if no vector/FTS match
+    # Return empty result if neither vector nor FTS matched (kill confident hallucinations)
     if not rrf:
-        fallback_query = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
-        if active_doc_type:
-            fallback_query = fallback_query.filter(DocumentChunk.doc_type == active_doc_type)
-        if filter_page is not None:
-            fallback_query = fallback_query.filter(DocumentChunk.page_number == filter_page)
-        if filter_doc_id is not None:
-            fallback_query = fallback_query.filter(DocumentChunk.document_id == filter_doc_id)
-        if filter_filename is not None:
-            fallback_query = fallback_query.filter(DocumentChunk.filename == filter_filename)
-
-        fallback = fallback_query.order_by(DocumentChunk.id.desc()).limit(limit).all()
-        for idx, c in enumerate(fallback):
-            obj_map[c.id] = c
-            rrf[c.id] = 1.0 / (k_val + idx + 1)
+        return []
 
     # 5. Exact Quoted Phrase Boosting ("liquidated damages")
     MAX_TOTAL_BOOST = 0.12  # Capped boosts so section mention cannot drown better semantic hit
@@ -294,14 +358,13 @@ def retrieve(
                 lex_boosted[c_id] = True
 
     # 7. Post-filter for header_regex (if specified)
-    candidate_ids = list(rrf.keys())
-    for c_id in candidate_ids:
-        chunk = obj_map[c_id]
-        if filter_header_regex:
+    if compiled_header_regex:
+        candidate_ids = list(rrf.keys())
+        for c_id in candidate_ids:
+            chunk = obj_map[c_id]
             full_h = (chunk.header or "") + " " + (chunk.locator or "")
-            if not re.search(filter_header_regex, full_h, re.IGNORECASE):
+            if not compiled_header_regex.search(full_h):
                 rrf.pop(c_id, None)
-                continue
 
     # 8. Deduplicate Near-Identical Chunks (same source_hash or >85% overlap)
     sorted_ids = sorted(rrf.keys(), key=lambda x: rrf[x], reverse=True)

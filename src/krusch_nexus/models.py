@@ -58,10 +58,15 @@ class StructuredLocator(BaseModel):
     @classmethod
     def from_raw(cls, page: Optional[int] = None, locator_str: Optional[str] = None, header: Optional[str] = None) -> "StructuredLocator":
         if page is not None:
+            path_items = [f"Page {page}"]
+            if header and header != "General":
+                path_items.append(header)
+            elif locator_str:
+                path_items.extend([p.strip() for p in locator_str.split(">") if p.strip()])
             return cls(
                 kind="page",
                 page=page,
-                path=[f"Page {page}"],
+                path=path_items,
                 formatted=f"Page {page}"
             )
         if locator_str and ("row" in locator_str.lower() or "rows" in locator_str.lower()):
@@ -397,6 +402,9 @@ class NexusConfig(BaseModel):
     )
     embed_model: str = Field(
         default_factory=lambda: os.getenv("OLLAMA_EMBED_MODEL", "bge-large")
+    )
+    embedding_dim: int = Field(
+        default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "1024"))
     )
     embed_batch_size: int = 16
     embed_timeout: float = 45.0

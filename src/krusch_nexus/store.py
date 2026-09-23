@@ -32,6 +32,11 @@ try:
 except ImportError:
     Vector = None
 
+try:
+    from sqlalchemy.dialects.postgresql import TSVECTOR
+except ImportError:
+    TSVECTOR = None
+
 Base = declarative_base()
 
 
@@ -112,6 +117,7 @@ class DocumentChunk(Base):
     confidence = Column(Float, nullable=True)
     char_start = Column(Integer, nullable=True)
     char_end = Column(Integer, nullable=True)
+    tsv_content = Column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True) if TSVECTOR is not None else Column(Text, nullable=True)
     embedding = Column(Vector(1024), nullable=True) if Vector else Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

@@ -5,6 +5,30 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-09-22
+
+### Summary
+Retrieval SQL security hardening, stored `tsv_content` generated column with GIN index, elimination of confident zero-match hallucinations, bounded query vector LRU cache, expanded 25-query held-out evaluation with span precision scoring, real scanned PDF stress fixtures, OCR CER/WER benchmarks, and machine-readable `eval_report.json` generation.
+
+### Added
+- **Parameterized Vector ANN Query**: Replaced string interpolation with parameterized SQL `CAST(:qvec AS vector)`, completely sealing the query injection surface.
+- **Alembic Migration `d4e5f6a7b8c9`**: Added stored generated `tsv_content tsvector` column and GIN index (`ix_chunks_tsv_content`) on `document_chunks` in PostgreSQL, moving FTS tokenization to ingest time.
+- **Zero-Hit Fallback Elimination**: Removed the arbitrary `id DESC` fallback that returned unrelated recent chunks when vector/FTS matches were empty. Zero-match queries now strictly return an empty list `[]`.
+- **Bounded Query Embedding LRU Cache**: Replaced unbounded process-global dict with `BoundedLRUCache` (capacity 1,000) with O(1) eviction of oldest unused vectors.
+- **Model Dimension Drift Guard**: Startup and query-time validation checking vector dimensions against configured model and stored document dimensions, raising `ModelDimensionDriftError` rather than silently mixing vector spaces.
+- **Safe Regex Filtering**: Enforces maximum length and pattern compilation checks on `header_regex` to eliminate ReDoS vulnerabilities.
+- **Expanded Legal Citation Recognition**: Broadened `SECTION_PATTERN` to support state codes (e.g., `Cal. Civ. Code § 1950.5`), municipal ordinances (`8.22.030(C)`), and nested subsections (`(a)(2)(B)`).
+- **Heading Continuity Stacks**: Split chunks copy the active `heading_stack` and formatted section titles onto continuation chunks so parent statutory citations are never lost.
+- **Expanded 25-Query Held-Out Suite (`tests/eval/test_eval_heldout.py`)**: Covers 5 unseen legal instruments (bylaws, promissory note, employment agreement, lease amendment, software license), scoring Recall@5 (100.0%), Citation Accuracy (96.0%), and Span Precision (96.0%).
+- **Real PDF Adversarial Fixtures**:
+  - `adversarial_twocolumn.pdf`: Multi-column statutory text layout.
+  - `adversarial_redline.pdf`: Visual redline contract with strikethroughs and additions.
+  - `adversarial_fax_stamp.pdf`: Real 300 DPI scan with transmission headers, noise, and red "RECEIVED & FILED" stamp overlay.
+- **OCR CER and WER Benchmarks**: Integrated Levenshtein-based Character Error Rate (CER) and Word Error Rate (WER) scoring against human ground-truth transcripts.
+- **Machine-Readable `eval_report.json`**: CLI/CI module (`python -m krusch_nexus.eval_report`) generating structured evaluation badges and release gate audit reports.
+
+---
+
 ## [0.2.1] - 2026-09-22
 
 ### Summary

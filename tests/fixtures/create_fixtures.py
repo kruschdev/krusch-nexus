@@ -223,6 +223,51 @@ def create_heldout_fixtures(target_dir: str):
         f.write(note_content)
 
 
+    employment_content = (
+        "EXECUTIVE EMPLOYMENT AGREEMENT\n\n"
+        "Article 1. Position and Duties\n"
+        "Section 1.1 Principal Office and Responsibilities\n"
+        "Executive shall serve as Chief Technology Officer reporting exclusively to the Chief Executive Officer.\n\n"
+        "Article 2. Compensation and Benefits\n"
+        "Section 2.1 Base Salary\n"
+        "Employer shall pay Executive an annual base salary of $375,000 payable in semi-monthly installments.\n\n"
+        "Section 2.3 Severance Upon Termination Without Cause\n"
+        "If Executive is terminated without Cause, Employer shall pay twelve (12) months base salary continuation.\n\n"
+        "Article 3. Restrictive Covenants\n"
+        "Section 3.1 Non-Competition and Non-Solicitation\n"
+        "During the term and for one year thereafter, Executive shall not solicit employees or customers of Employer."
+    )
+    with open(os.path.join(target_dir, "heldout_employment_agreement.txt"), "w", encoding="utf-8") as f:
+        f.write(employment_content)
+
+    lease_amend_content = (
+        "FIRST AMENDMENT TO COMMERCIAL LEASE AGREEMENT\n\n"
+        "Recital A. Existing Lease Background\n"
+        "Landlord and Tenant entered into that certain Commercial Lease dated January 15, 2024.\n\n"
+        "Section 1. Expansion Premises\n"
+        "Commencing October 1, 2026, the leased premises shall include Suite 400 comprising 4,500 rentable square feet.\n\n"
+        "Section 2. Base Rent Adjustment\n"
+        "Monthly Base Rent for the Expansion Premises shall be $18,000 per month with 3% annual escalation.\n\n"
+        "Section 3. Tenant Improvement Allowance\n"
+        "Landlord shall provide a construction allowance of $45.00 per rentable square foot for interior alterations."
+    )
+    with open(os.path.join(target_dir, "heldout_lease_amendment.txt"), "w", encoding="utf-8") as f:
+        f.write(lease_amend_content)
+
+    license_content = (
+        "ENTERPRISE SOFTWARE LICENSE AND SERVICE LEVEL AGREEMENT\n\n"
+        "Section 1. Grant of License\n"
+        "Vendor grants Customer a non-exclusive, perpetual license to deploy the software on up to 50 server nodes.\n\n"
+        "Section 2. Service Level Commitments and Penalties\n"
+        "Vendor warrants 99.95% monthly service availability. In the event of Priority 1 outages exceeding 30 minutes,\n"
+        "Customer shall receive a 10% credit against the annual subscription fee.\n\n"
+        "Section 3. Limitation of Liability and Indemnification Cap\n"
+        "Except for gross negligence or willful misconduct, total aggregate liability shall not exceed fees paid in prior 12 months."
+    )
+    with open(os.path.join(target_dir, "heldout_software_license.txt"), "w", encoding="utf-8") as f:
+        f.write(license_content)
+
+
 def create_adversarial_fixtures(target_dir: str):
     """Generate adversarial documents for stress-testing parsers, chunkers, and retrievers."""
     twocolumn = (
@@ -255,6 +300,56 @@ def create_adversarial_fixtures(target_dir: str):
     blank_img = Image.new("RGB", (800, 600), color="white")
     blank_path = os.path.join(target_dir, "adversarial_blank_scan.pdf")
     blank_img.save(blank_path, "PDF", resolution=300.0)
+
+    # 1. Real Scan PDF with simulated Fax Transmission header and red FILED stamp
+    fax_img = Image.new("RGB", (1200, 1600), color="white")
+    f_draw = ImageDraw.Draw(fax_img)
+    f_draw.text((40, 20), "FAX TRANSMISSION: 2026-09-22 14:30 EST   FROM: LEGAL DEPT   TO: 555-0199   PAGE 1/1", fill="gray")
+    f_draw.line([(30, 45), (1170, 45)], fill="gray", width=2)
+    f_draw.text((80, 100), "CONFIDENTIAL SETTLEMENT RELEASE AND COVENANT NOT TO SUE", fill="black")
+    f_draw.text((80, 180), "Section 12.4 Indemnification and Defense Obligations", fill="black")
+    f_draw.text((80, 240), "Indemnifying party agrees to defend, indemnify, and hold harmless all indemnitees.", fill="black")
+    f_draw.text((80, 300), "Section 12.5 Limitation of Liability", fill="black")
+    f_draw.text((80, 360), "Total aggregate liability shall not exceed fifty thousand dollars ($50,000).", fill="black")
+    # Red FILED / RECEIVED stamp
+    f_draw.rectangle([(850, 70), (1120, 170)], outline="red", width=3)
+    f_draw.text((870, 90), "RECEIVED & FILED", fill="red")
+    f_draw.text((900, 125), "SEP 22 2026", fill="red")
+    fax_img.save(os.path.join(target_dir, "adversarial_fax_stamp.pdf"), "PDF", resolution=300.0)
+
+    # 2. Real Two-Column PDF
+    col_img = Image.new("RGB", (1400, 1800), color="white")
+    c_draw = ImageDraw.Draw(col_img)
+    c_draw.text((80, 40), "COMMERCIAL CODE - TWO COLUMN STATUTORY DRAFT", fill="black")
+    c_draw.line([(80, 70), (1320, 70)], fill="black", width=2)
+    # Column A
+    c_draw.text((80, 100), "COLUMN A: STATUTORY TEXT", fill="black")
+    c_draw.text((80, 140), "Section 9.102 Definitions", fill="black")
+    c_draw.text((80, 180), "Accession means goods physically united with other goods.", fill="black")
+    c_draw.text((80, 220), "Account means right to payment of monetary obligation.", fill="black")
+    # Vertical dividing line
+    c_draw.line([(680, 90), (680, 1700)], fill="gray", width=1)
+    # Column B
+    c_draw.text((720, 100), "COLUMN B: OFFICIAL COMMENTS", fill="black")
+    c_draw.text((720, 140), "Comment 1: Definitions are comprehensive.", fill="black")
+    c_draw.text((720, 180), "Comment 2: Accessions retain identity after installation.", fill="black")
+    c_draw.text((720, 220), "Comment 3: Monetary rights apply to goods sold.", fill="black")
+    col_img.save(os.path.join(target_dir, "adversarial_twocolumn.pdf"), "PDF", resolution=300.0)
+
+    # 3. Real Redline PDF with strikethroughs and revisions
+    rl_img = Image.new("RGB", (1200, 1600), color="white")
+    r_draw = ImageDraw.Draw(rl_img)
+    r_draw.text((80, 50), "SETTLEMENT AGREEMENT (CONFIDENTIAL REDLINE)", fill="black")
+    r_draw.text((80, 120), "Article 3: Mutual Release of Claims", fill="black")
+    r_draw.text((80, 180), "Section 3.1 Plaintiff Release", fill="black")
+    r_draw.text((80, 230), "Plaintiff releases Defendant from all known and unknown claims", fill="black")
+    r_draw.line([(80, 238), (700, 238)], fill="red", width=2)  # Strikethrough
+    r_draw.text((80, 270), "[ADDED: provided that indemnification under Exhibit D is retained]", fill="blue")
+    r_draw.text((80, 340), "Section 4.1 Settlement Consideration", fill="black")
+    r_draw.text((80, 390), "The settlement consideration is $1,000,000", fill="black")
+    r_draw.line([(340, 398), (470, 398)], fill="red", width=2)  # Strikethrough
+    r_draw.text((500, 390), "[ADDED: $1,250,000]", fill="blue")
+    rl_img.save(os.path.join(target_dir, "adversarial_redline.pdf"), "PDF", resolution=300.0)
 
 
 def main():

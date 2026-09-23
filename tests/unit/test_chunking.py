@@ -86,6 +86,41 @@ class TestChunking(unittest.TestCase):
             self.assertIsInstance(c.heading_path, list)
             self.assertIn("Page 14", c.heading_path)
 
+    def test_legal_statute_header_detection_and_continuation_stack(self):
+        """Verify statutory citations and nested subsections are detected and preserved across split chunks."""
+        self.assertEqual(
+            detect_header_candidate("Cal. Civ. Code § 1950.5 Security Deposits"),
+            "Cal. Civ. Code § 1950.5 Security Deposits"
+        )
+        self.assertEqual(
+            detect_header_candidate("8.22.030(C) Notice of Rent Dispute"),
+            "8.22.030(C) Notice of Rent Dispute"
+        )
+        self.assertEqual(
+            detect_header_candidate("Clause 14.1(a)(2)(B) Indemnification Obligations"),
+            "Clause 14.1(a)(2)(B) Indemnification Obligations"
+        )
+
+        # Multi-sentence section that forces chunk splitting
+        long_para = (
+            "Section 8.22.030 Just Cause Tenant Protections\n\n"
+            + ("A landlord shall not endeavor to recover possession without cause. " * 30)
+        )
+        page = ParsedPage(page_number=3, text=long_para)
+        chunks = chunk_document_pages(
+            pages=[page],
+            filename="just_cause.pdf",
+            file_hash="hash_jc_123",
+            max_chars=400,
+            overlap_chars=50
+        )
+        self.assertGreater(len(chunks), 1, "Long section must split into multiple chunks")
+
+        # Every continuation chunk must preserve the section heading in header or heading_path
+        for c in chunks:
+            self.assertEqual(c.page_number, 3)
+            self.assertIn("Section 8.22.030 Just Cause Tenant Protections", f"{c.header} {' '.join(c.heading_path)}")
+
 
 if __name__ == "__main__":
     unittest.main()
