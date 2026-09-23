@@ -10,7 +10,7 @@ import os
 import json
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Tuple
 from pydantic import BaseModel, Field, model_validator
 
 from .exceptions import AirGapViolationError, ConfigurationError
@@ -54,20 +54,31 @@ class StructuredLocator(BaseModel):
     kind: Literal["page", "heading", "row_range"] = "page"
     page: Optional[int] = None
     path: List[str] = Field(default_factory=list)
+    char_span: Optional[Tuple[int, int]] = None
+    header: Optional[str] = None
     formatted: str = ""
 
     @classmethod
-    def from_raw(cls, page: Optional[int] = None, locator_str: Optional[str] = None, header: Optional[str] = None) -> "StructuredLocator":
+    def from_raw(
+        cls,
+        page: Optional[int] = None,
+        locator_str: Optional[str] = None,
+        header: Optional[str] = None,
+        char_span: Optional[Tuple[int, int]] = None
+    ) -> "StructuredLocator":
+        clean_hdr = header if (header and header != "General") else None
         if page is not None:
             path_items = [f"Page {page}"]
-            if header and header != "General":
-                path_items.append(header)
+            if clean_hdr:
+                path_items.append(clean_hdr)
             elif locator_str:
                 path_items.extend([p.strip() for p in locator_str.split(">") if p.strip()])
             return cls(
                 kind="page",
                 page=page,
                 path=path_items,
+                char_span=char_span,
+                header=clean_hdr,
                 formatted=f"Page {page}"
             )
         if locator_str and ("row" in locator_str.lower() or "rows" in locator_str.lower()):
@@ -75,16 +86,64 @@ class StructuredLocator(BaseModel):
                 kind="row_range",
                 page=None,
                 path=[locator_str],
+                char_span=char_span,
+                header=clean_hdr,
                 formatted=locator_str
             )
-        path_items = [p.strip() for p in (locator_str or header or "").split(">") if p.strip()]
-        fmt = " > ".join(path_items) if path_items else (header or locator_str or "General")
+        path_items = [p.strip() for p in (locator_str or clean_hdr or "").split(">") if p.strip()]
+        fmt = " > ".join(path_items) if path_items else (clean_hdr or locator_str or "General")
         return cls(
             kind="heading",
             page=None,
             path=path_items,
+            char_span=char_span,
+            header=clean_hdr,
             formatted=fmt
         )
+
+
+def format_citation(
+    filename: str,
+    page_number: Optional[int] = None,
+    locator: Optional[str] = None,
+    header: Optional[str] = None,
+    structured_locator: Optional[StructuredLocator] = None
+) -> str:
+    """
+    Produce a canonical, format-honest citation string:
+    - PDF / paged: '{filename} p.{page} § {header}'
+    - DOCX / HTML / MD (unpaged with heading): '{filename} § {path}'
+    - CSV / Tabular (unpaged rows): '{filename} Rows {range}'
+    - Fallback: '{filename}'
+    Never emits 'p. None'.
+    """
+    if isinstance(page_number, str):
+        if page_number.lower() in ("none", "null", ""):
+            page_number = None
+        else:
+            try:
+                page_number = int(page_number)
+            except ValueError:
+                page_number = None
+
+    sec_label = locator if (page_number is None and locator) else (header or locator)
+    clean_sec = ""
+    if sec_label and sec_label.strip():
+        s = sec_label.strip().lstrip("#").strip()
+        s_lower = s.lower()
+        if not s.startswith("§") and not s_lower.startswith("section") and not s_lower.startswith("row") and not s_lower.startswith("art"):
+            clean_sec = f"§ {s}"
+        else:
+            clean_sec = s
+
+    if page_number is not None:
+        if clean_sec:
+            return f"{filename} p.{page_number} {clean_sec}"
+        return f"{filename} p.{page_number}"
+    else:
+        if clean_sec:
+            return f"{filename} {clean_sec}"
+        return filename
 
 
 class Citation(BaseModel):
@@ -105,28 +164,13 @@ class Citation(BaseModel):
             )
 
     def formatted(self) -> str:
-        """
-        Produce a canonical citation string:
-        - PDF / paged: '{filename} p.{n} § {header}'
-        - DOCX / CSV / HTML (unpaged): '{filename} § {locator or header}'
-        """
-        sec_label = self.locator if (self.page_number is None and self.locator) else (self.header or self.locator)
-        clean_sec = ""
-        if sec_label and sec_label.strip():
-            s = sec_label.strip().lstrip("#").strip()
-            if not s.startswith("§") and not s.lower().startswith("section") and not s.lower().startswith("row") and not s.lower().startswith("art"):
-                clean_sec = f"§ {s}"
-            else:
-                clean_sec = s
-
-        if self.page_number is not None:
-            if clean_sec:
-                return f"{self.filename} p.{self.page_number} {clean_sec}"
-            return f"{self.filename} p.{self.page_number}"
-        else:
-            if clean_sec:
-                return f"{self.filename} {clean_sec}"
-            return self.filename
+        return format_citation(
+            filename=self.filename,
+            page_number=self.page_number,
+            locator=self.locator,
+            header=self.header,
+            structured_locator=self.structured_locator
+        )
 
     def __str__(self) -> str:
         return self.formatted()
@@ -307,12 +351,26 @@ class SearchHit(BaseModel):
         elif self.lexical_boost and not self.phrase_boost:
             self.phrase_boost = True
 
+        span = (self.char_start, self.char_end) if (self.char_start is not None and self.char_end is not None) else None
         if self.structured_locator is None:
             self.structured_locator = StructuredLocator.from_raw(
                 page=self.page_number,
                 locator_str=self.locator,
-                header=self.header
+                header=self.header,
+                char_span=span
             )
+        elif span and self.structured_locator.char_span is None:
+            self.structured_locator.char_span = span
+
+        if not self.citation:
+            self.citation = format_citation(
+                filename=self.filename or "",
+                page_number=self.page_number,
+                locator=self.locator,
+                header=self.header,
+                structured_locator=self.structured_locator
+            )
+
         if not self.heading_path and self.structured_locator and self.structured_locator.path:
             self.heading_path = list(self.structured_locator.path)
 

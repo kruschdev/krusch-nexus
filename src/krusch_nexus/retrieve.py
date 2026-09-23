@@ -14,9 +14,9 @@ import logging
 from collections import OrderedDict
 from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, or_
 
-from .models import SearchHit, Citation, StructuredLocator, NexusConfig
+from .models import SearchHit, Citation, StructuredLocator, NexusConfig, format_citation
 from .store import DocumentChunk, Workspace, SearchTrace, Document
 from .exceptions import WorkspaceRequiredError, ModelDimensionDriftError, NexusError
 
@@ -153,6 +153,9 @@ def retrieve(
     # Build SQL filter clauses
     sql_filter_clauses = []
     sql_params: Dict[str, Any] = {"ws_id": workspace_id}
+    include_superseded = resolved_filters.get("include_superseded", False)
+    if not include_superseded:
+        sql_filter_clauses.append("AND (is_superseded IS FALSE OR is_superseded IS NULL)")
     if active_doc_type:
         sql_filter_clauses.append("AND doc_type = :doc_type")
         sql_params["doc_type"] = active_doc_type
@@ -265,6 +268,8 @@ def retrieve(
         # SQLite lexical match fallback with SQL-level filtering
         toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
+        if not include_superseded:
+            q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded == None))
         if active_doc_type:
             q_base = q_base.filter(DocumentChunk.doc_type == active_doc_type)
         if filter_page is not None:
@@ -398,7 +403,9 @@ def retrieve(
     hits: List[SearchHit] = []
     for c_id in deduped_ids:
         c = obj_map[c_id]
-        cit = c.citation or Citation(filename=c.filename or "", page_number=c.page_number, locator=c.locator, header=c.header).formatted()
+        span = (c.char_start, c.char_end) if (c.char_start is not None and c.char_end is not None) else None
+        struct_loc = StructuredLocator.from_raw(page=c.page_number, locator_str=c.locator, header=c.header, char_span=span)
+        cit = c.citation or format_citation(filename=c.filename or "", page_number=c.page_number, locator=c.locator, header=c.header, structured_locator=struct_loc)
 
         reasons = []
         if c_id in v_ranks:
@@ -412,7 +419,6 @@ def retrieve(
         if phrase_boosted.get(c_id):
             reasons.append("quoted_phrase_match")
 
-        struct_loc = StructuredLocator.from_raw(page=c.page_number, locator_str=c.locator, header=c.header)
         h_path = []
         if getattr(c, "heading_path", None):
             try:

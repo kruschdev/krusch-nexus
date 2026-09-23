@@ -366,6 +366,43 @@ def nexus_delete_document(document_id: int, operator_confirmed: bool = False, op
         return json.dumps({"status": "error", "error": str(e)})
 
 
+@mcp.tool()
+def nexus_export_workspace(workspace: str, output_path: Optional[str] = None) -> str:
+    """
+    Export a complete workspace as a standalone .tar.gz archive.
+    
+    Args:
+        workspace: Name of the workspace to export.
+        output_path: Optional destination filepath.
+    """
+    try:
+        ws = _enforce_workspace(workspace)
+        archive_path = get_client().export_workspace(workspace=ws, output_path=output_path)
+        return json.dumps({
+            "status": "success",
+            "workspace": ws,
+            "archive_path": archive_path
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_import_workspace(tarball_path: str, target_workspace: Optional[str] = None) -> str:
+    """
+    Import a workspace archive (.tar.gz) into the local database and archival store.
+    
+    Args:
+        tarball_path: Absolute or relative path to the workspace .tar.gz archive.
+        target_workspace: Optional override name for the imported workspace.
+    """
+    try:
+        res = get_client().import_workspace(tarball_path=tarball_path, target_workspace=target_workspace)
+        return json.dumps(res, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
 def main():
     """Console script entrypoint for nexus-mcp."""
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()

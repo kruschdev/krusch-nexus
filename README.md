@@ -6,7 +6,7 @@
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-green.svg)](spec.md)
+[![Version: 0.2.3](https://img.shields.io/badge/version-0.2.3-green.svg)](spec.md)
 
 ---
 

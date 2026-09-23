@@ -1,6 +1,6 @@
 # KruschNexus — System Specification
 
-> **Version**: 0.2.0  
+> **Version**: 0.2.3  
 > **Status**: Production Core (Air-Gapped Corpus Factory)  
 > **Architecture**: Local-First / Air-Gapped Document Ingestion & Page-True Citation Spine  
 > **Author**: kruschdev  

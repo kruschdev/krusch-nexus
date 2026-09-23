@@ -7,9 +7,10 @@ A dedicated homelab corpus factory providing:
 `file → parse → chunk with provenance → embed locally → persist → hybrid search with citations`
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.3"
 
 from .client import NexusClient, Nexus
+from .workspace import export_workspace, import_workspace
 from .models import (
     NexusConfig,
     IngestRequest,
@@ -25,7 +26,8 @@ from .models import (
     ContentBlock,
     ParserResult,
     WorkspaceInfo,
-    DocumentInfo
+    DocumentInfo,
+    format_citation
 )
 from .exceptions import (
     NexusError,
@@ -57,6 +59,9 @@ __all__ = [
     "SearchFilter",
     "Citation",
     "StructuredLocator",
+    "format_citation",
+    "export_workspace",
+    "import_workspace",
     "DocType",
     "WarningCode",
     "IngestState",

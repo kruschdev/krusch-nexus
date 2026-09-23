@@ -288,6 +288,32 @@ class NexusClient:
         finally:
             db.close()
 
+    def export_workspace(self, workspace: str, output_path: Optional[str] = None) -> str:
+        """
+        Export a complete workspace as a standalone .tar.gz archive.
+        Ensures corpus portability without database lock-in.
+        """
+        from .workspace import export_workspace
+        return export_workspace(
+            workspace_name=workspace,
+            output_path=output_path,
+            config=self.config,
+            engine=self.engine
+        )
+
+    def import_workspace(self, tarball_path: str, target_workspace: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Import a workspace archive (.tar.gz) into the local database and archival store.
+        """
+        from .workspace import import_workspace
+        return import_workspace(
+            tarball_path=tarball_path,
+            target_workspace=target_workspace,
+            config=self.config,
+            engine=self.engine
+        )
+
 
 # Canonical thin alias for backwards-compatibility
 Nexus = NexusClient
+

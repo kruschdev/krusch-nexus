@@ -1,7 +1,7 @@
 # KruschNexus — Agent Guidelines & Architecture
 
 > **Status**: Production Core (Air-Gapped Corpus Factory)  
-> **Version**: 0.2.0  
+> **Version**: 0.2.3  
 > **Last updated**: 2026-09-22  
 
 ---

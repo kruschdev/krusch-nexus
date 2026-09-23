@@ -8,9 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.3] - 2026-09-22
 
 ### Summary
-OCR image preprocessing with DPI preservation, low-confidence OCR quarantine (< 0.50), auditor-replayable system binary provenance (`poppler` and `tesseract` versions in `IngestReport` and document metadata), FastMCP token workspace ACL scoping, and PostgreSQL Row Level Security (RLS) migration with session-level workspace binding.
+Ingestion modularization splitting monolithic `ingest.py` into `src/krusch_nexus/ingest/` (`sandbox.py`, `archival.py`, `persist.py`, `pipeline.py`, `__init__.py`), format-honest locators and unified `format_citation` engine eliminating `p. None`, document version lineage with superseded chunk filtering, database migration `f6a7b8c9d0e1`, self-contained workspace portability (`export_workspace` and `import_workspace` using `.tar.gz`), version drift eradication across all docs/configs to `0.2.3`, OCR image preprocessing with DPI preservation, low-confidence OCR quarantine (< 0.50), auditor-replayable system tool provenance, FastMCP token workspace ACL scoping, and PostgreSQL Row Level Security (RLS) migration.
 
 ### Added
+- **Modular Ingestion Engine (`src/krusch_nexus/ingest/`)**: Split 31 KB monolithic `ingest.py` into dedicated decoupled modules:
+  - `sandbox.py`: Path traversal guards, prohibited system root enforcement, and stale lock reaping.
+  - `archival.py`: Content-addressed `.ingested/` storage with manifest JSON and poison isolation to `.failed/` with redacted `.error.json` sidecars.
+  - `persist.py`: Single atomic database transactions, crash resumption hygiene, and document version lineage resolution.
+  - `pipeline.py`: Explicit closed-loop 8-state machine coordination.
+- **Format-Honest Locators & Canonical `format_citation`**: Standalone top-level citation engine enforcing exact formatting across SDK, CLI, and FastMCP:
+  - Paged documents (PDF): `{filename} p.{page} § {header}`
+  - Unpaged documents (DOCX/MD/HTML): `{filename} § {path}`
+  - Tabular documents (CSV): `{filename} Rows {range}`
+  - Strictly guarantees zero occurrences of `p. None`.
+- **Document Version Lineage**: Re-ingesting a document with a modified content hash increments version to `v2`, marks prior document record as `status = "superseded"`, and updates existing chunks with `is_superseded = True`. Retrieval queries exclude superseded chunks by default.
+- **Alembic Schema Migration `f6a7b8c9d0e1`**: Added `version` column on `documents` table and `is_superseded` boolean indexed column on `document_chunks`.
+- **Self-Contained Workspace Portability**:
+  - `export_workspace(workspace, output_path)`: Generates a standalone `.tar.gz` archive bundling `workspace.json`, `manifest.json`, `chunks.jsonl`, `reports/`, and content-addressed source documents.
+  - `import_workspace(tarball_path, target_workspace)`: Imports and reconstructs the entire workspace into target database with Tar Slip traversal protection.
+  - Exposed via Python SDK (`NexusClient.export_workspace`, `NexusClient.import_workspace`) and FastMCP tools (`nexus_export_workspace`, `nexus_import_workspace`).
+- **Version Drift Synchronization**: Aligned `0.2.3` across `pyproject.toml`, `src/krusch_nexus/__init__.py`, `src/krusch_nexus/api.py`, `spec.md`, `README.md`, and `AGENTS.md`.
 - **OCR Image Preprocessing with DPI Preservation**: Automatic grayscale conversion and dynamic range enhancement (`ImageEnhance.Contrast` + `ImageOps.autocontrast`) while preserving DPI tags, reducing OCR Character Error Rate (CER) to 5.42% and Word Error Rate (WER) to 17.86% on scanned legal exhibits.
 - **Low-Confidence OCR Quarantine**: Strict quality gate quarantining scanned pages with mean confidence below `confidence_floor` (0.50), logging warnings and emitting `WarningCode.LOW_OCR_CONFIDENCE` to prevent garbled OCR noise from polluting the retrieval corpus.
 - **Auditor-Replayable System Tool Provenance**: Cached system tool version detection extracting `poppler` (`pdftotext -v`) and `tesseract` (`tesseract --version`) runtimes, persisting them in `ParserResult`, `IngestReport.tool_versions`, and `Document.extra` JSON.

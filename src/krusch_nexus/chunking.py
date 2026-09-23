@@ -14,7 +14,7 @@ import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Set, Tuple
 
-from .models import PageData, DocType, Citation, StructuredLocator
+from .models import PageData, DocType, Citation, StructuredLocator, format_citation
 
 logger = logging.getLogger("krusch_nexus.chunking")
 
@@ -142,8 +142,7 @@ def format_chunk_citation(
     header: Optional[str] = None
 ) -> str:
     """Format canonical citation string."""
-    cit = Citation(filename=filename, page_number=page_number, locator=locator, header=header)
-    return cit.formatted()
+    return format_citation(filename=filename, page_number=page_number, locator=locator, header=header)
 
 
 def chunk_document_pages(

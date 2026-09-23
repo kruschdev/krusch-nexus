@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     Float,
     String,
+    Boolean,
     DateTime,
     Text,
     ForeignKey,
@@ -72,6 +73,7 @@ class Document(Base):
     chunker_version = Column(String(50), default="1.0")
     total_pages = Column(Integer, default=1)
     total_chunks = Column(Integer, default=0)
+    version = Column(Integer, default=1, server_default='1', index=True)
     ingest_report = Column(Text, nullable=True)  # JSON-encoded IngestReport
     ingested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     ocr_pages = Column(Text, nullable=True)  # JSON list of page numbers where OCR was applied
@@ -117,6 +119,7 @@ class DocumentChunk(Base):
     confidence = Column(Float, nullable=True)
     char_start = Column(Integer, nullable=True)
     char_end = Column(Integer, nullable=True)
+    is_superseded = Column(Boolean, default=False, server_default='false', index=True)
     tsv_content = Column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True) if TSVECTOR is not None else Column(Text, nullable=True)
     embedding = Column(Vector(1024), nullable=True) if Vector else Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

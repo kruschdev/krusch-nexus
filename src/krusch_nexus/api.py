@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 
+from . import __version__
 from .models import (
     NexusConfig,
     IngestReport,
@@ -66,7 +67,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="KruschNexus API",
-    version="0.2.0",
+    version=__version__,
     description="Air-Gapped Universal Document Ingestion Engine & Citation Spine",
     lifespan=lifespan
 )
@@ -223,7 +224,7 @@ def health_check():
         status_code=status_code,
         content={
             "status": overall_status,
-            "version": "0.2.0",
+            "version": __version__,
             "database": "connected" if db_ok else "disconnected",
             "pgvector_extension": "active" if vector_ok else "missing",
             "poppler": "available" if poppler_ok else "missing",
