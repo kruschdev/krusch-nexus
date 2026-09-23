@@ -130,23 +130,27 @@ class NexusClient:
                 else:
                     raise ParseError(f"Source file for document ID {document_id} not found at '{source_path}'.")
 
-            # Remove old chunks
-            db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete()
+            ws_name = doc.workspace.name if doc.workspace else "General"
+            doc_type_val = doc.doc_type
+            doc_filename = doc.filename
+
+            # Remove old document and cascaded chunks to force fresh reparse
+            db.delete(doc)
             db.commit()
 
             from .ingest import IngestPipeline
-            ws_obj = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
-            ws_name = ws_obj.name if ws_obj else "General"
-            pipeline = IngestPipeline(self.config)
+            pipeline = IngestPipeline(self.config, engine=self.engine)
             return pipeline.process_file(
                 filepath=source_path,
                 workspace_name=ws_name,
-                doc_type=doc.doc_type,
+                doc_type=doc_type_val,
                 archive_source=False,
-                filename=doc.filename
+                filename=doc_filename
             )
         finally:
             db.close()
+
+    reindex = reparse
 
     def delete_document(self, document_id: int, operator_token: Optional[str] = None) -> bool:
         """

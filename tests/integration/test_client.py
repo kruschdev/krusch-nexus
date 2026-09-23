@@ -121,6 +121,36 @@ class TestNexusClient(unittest.TestCase):
         success = self.nexus.delete_document(doc_id, operator_token="secret_op_xyz")
         self.assertTrue(success)
 
+    def test_reparse_and_reindex_flow(self):
+        """Verify reparse and reindex re-process existing document and recreate chunks."""
+        test_file = os.path.join(self.temp_dir, "reindex_sample.txt")
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.write(
+                "SECTION 10.1: INDEMNIFICATION\n"
+                "Each party shall defend, indemnify, and hold harmless the other party.\n"
+            )
+
+        report = self.nexus.ingest(
+            filepath=test_file,
+            workspace="Matter_Reindex",
+            doc_type=DocType.AUTHORITY
+        )
+        doc_id = report.document_id
+
+        # Calling reparse with valid token
+        reparse_report = self.nexus.reparse(doc_id, operator_token="secret_op_xyz")
+        self.assertEqual(reparse_report.status, "completed")
+        self.assertGreater(reparse_report.chunks, 0)
+
+        # Calling reindex alias
+        reindex_report = self.nexus.reindex(reparse_report.document_id, operator_token="secret_op_xyz")
+        self.assertEqual(reindex_report.status, "completed")
+
+        # Verify search returns valid hit after re-indexing
+        hits = self.nexus.search("indemnification Section 10.1", workspace="Matter_Reindex", limit=1)
+        self.assertEqual(len(hits), 1)
+        self.assertIn("SECTION 10.1", hits[0].citation)
+
 
 if __name__ == "__main__":
     unittest.main()
