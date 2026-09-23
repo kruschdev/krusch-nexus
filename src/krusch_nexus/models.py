@@ -201,6 +201,7 @@ class PageData(BaseModel):
     ocr_applied: bool = False
     confidence: Optional[float] = None  # Mean OCR confidence (0.0 - 1.0)
     char_count: int = 0
+    extra: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod

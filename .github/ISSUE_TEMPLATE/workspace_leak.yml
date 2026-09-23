@@ -1,0 +1,45 @@
+name: "SECURITY: Workspace / Tenant Isolation Leak"
+description: Report any leakage of chunks, citations, or metadata across workspace or API token boundaries.
+title: "[SECURITY - ISOLATION LEAK]: "
+labels: ["security", "critical", "isolation-leak"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **CRITICAL**: Zero cross-workspace leakage is an inviolable architectural guarantee of KruschNexus. If token A or workspace A ever retrieved or observed data from workspace B, this is a P0 security regression.
+  - type: input
+    id: affected_workspaces
+    attributes:
+      label: Affected Workspaces
+      description: The workspace names involved in the leakage.
+      placeholder: "TenantAlpha and TenantBeta"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface Area
+      description: Which API surface demonstrated leakage?
+      options:
+        - "REST API (/v1/search, /v1/documents)"
+        - "FastMCP Tool (nexus_search_corpus, nexus_get_document)"
+        - "Python Client (NexusClient.search)"
+        - "PostgreSQL RLS Bypass"
+        - "Workspace Export/Import Tarball"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Minimal Reproduction Steps
+      description: Step-by-step commands or scripts reproducing cross-workspace leakage.
+      placeholder: "1. Ingest doc into workspace A with token A\n2. Search with token B targeting workspace B\n3. Observe chunk from doc A in search hits"
+    validations:
+      required: true
+  - type: textarea
+    id: search_trace
+    attributes:
+      label: Search Trace / Query Diagnostic
+      description: Include any `SearchTrace` rows or `SearchHit.score_vector` diagnostics.
+    validations:
+      required: false

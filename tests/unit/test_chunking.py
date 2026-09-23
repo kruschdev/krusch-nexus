@@ -121,6 +121,35 @@ class TestChunking(unittest.TestCase):
             self.assertEqual(c.page_number, 3)
             self.assertIn("Section 8.22.030 Just Cause Tenant Protections", f"{c.header} {' '.join(c.heading_path)}")
 
+    def test_normalize_statute_citation(self):
+        """Verify normalization of various statutory citation formats into canonical tokens."""
+        from krusch_nexus.chunking import normalize_statute_citation
+
+        # 1. California Civil Code § 1950.5
+        c1 = normalize_statute_citation("Cal. Civ. Code § 1950.5")
+        self.assertTrue(c1["matched"])
+        self.assertEqual(c1["section_number"], "1950.5")
+        self.assertEqual(c1["canonical_token"], "§ 1950.5")
+
+        # 2. Section 1950.5
+        c2 = normalize_statute_citation("Section 1950.5")
+        self.assertTrue(c2["matched"])
+        self.assertEqual(c2["section_number"], "1950.5")
+
+        # 3. Subsection 1950.5(a)(2)
+        c3 = normalize_statute_citation("1950.5(a)(2)")
+        self.assertTrue(c3["matched"])
+        self.assertEqual(c3["section_number"], "1950.5")
+
+        # 4. Municipal code Section 8.22.030
+        c4 = normalize_statute_citation("OMC Section 8.22.030(C)")
+        self.assertTrue(c4["matched"])
+        self.assertEqual(c4["section_number"], "8.22.030")
+
+        # 5. Non-statute query
+        c5 = normalize_statute_citation("general contract terms for office lease")
+        self.assertFalse(c5["matched"])
+
 
 if __name__ == "__main__":
     unittest.main()

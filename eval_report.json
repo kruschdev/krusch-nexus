@@ -1,31 +1,37 @@
 {
   "schema_version": "1.0",
-  "generated_at": "2026-09-23T02:13:30.120457+00:00",
-  "commit": "931454bcf1374e8b0888e82b4e06d731c8bb0ab9",
+  "corpus_version": "0.2.3",
+  "generated_at": "2026-09-23T02:32:54.374344+00:00",
+  "commit": "6d8f8bdc9620230d06ebc1c7d072a1c8efe33d26",
   "release_gates": {
     "regression_recall_at_5": {
       "gate": 1.0,
       "actual": 1.0,
+      "ci_95": "[94.0%, 100.0%]",
       "status": "PASS"
     },
     "regression_citation_accuracy": {
       "gate": 0.8,
       "actual": 0.983,
+      "ci_95": "[91.1%, 99.7%]",
       "status": "PASS"
     },
     "heldout_recall_at_5": {
       "gate": 0.85,
       "actual": 1.0,
+      "ci_95": "[86.7%, 100.0%]",
       "status": "PASS"
     },
     "heldout_citation_accuracy": {
       "gate": 0.8,
       "actual": 0.96,
+      "ci_95": "[80.5%, 99.3%]",
       "status": "PASS"
     },
     "heldout_span_precision": {
       "gate": 0.8,
       "actual": 0.96,
+      "ci_95": "[80.5%, 99.3%]",
       "status": "PASS"
     },
     "adversarial_exception_rate": {
@@ -39,19 +45,52 @@
       "status": "PASS"
     }
   },
-  "suites": {
+  "parser_quality": {
+    "description": "Text extraction fidelity, character error rate, and page alignment",
+    "ocr_benchmarks": [
+      {
+        "file": "scanned_page.pdf",
+        "page": 1,
+        "confidence": 0.7191,
+        "cer": 0.0542,
+        "wer": 0.1786,
+        "max_cer_gate": 0.15,
+        "max_wer_gate": 0.45,
+        "status": "PASS"
+      },
+      {
+        "file": "adversarial_fax_stamp.pdf",
+        "page": 1,
+        "confidence": 0.6553,
+        "cer": 0.4033,
+        "wer": 0.65,
+        "max_cer_gate": 0.45,
+        "max_wer_gate": 0.65,
+        "status": "PASS"
+      }
+    ],
+    "page_alignment_accuracy": 1.0,
+    "status": "PASS"
+  },
+  "retriever_quality": {
+    "description": "Rank-ordering, exact citation accuracy, and character span fidelity",
     "eval_regression": {
       "total_queries": 60,
       "recall_at_5": 1.0,
+      "recall_at_5_ci_95": "[94.0%, 100.0%]",
       "citation_accuracy": 0.983,
+      "citation_accuracy_ci_95": "[91.1%, 99.7%]",
       "mrr": 0.989,
       "status": "PASS"
     },
     "eval_heldout": {
       "total_queries": 25,
       "recall_at_5": 1.0,
+      "recall_at_5_ci_95": "[86.7%, 100.0%]",
       "citation_accuracy": 0.96,
+      "citation_accuracy_ci_95": "[80.5%, 99.3%]",
       "span_precision": 0.96,
+      "span_precision_ci_95": "[80.5%, 99.3%]",
       "status": "PASS"
     },
     "eval_adversarial": {
@@ -59,10 +98,10 @@
       "scenarios": [
         "twocolumn_statute_pdf",
         "redline_contract_pdf",
+        "tracked_changes_docx",
         "fax_transmission_stamp_pdf",
         "blank_scan_empty_warning",
-        "encrypted_pdf_fail_closed",
-        "ocr_cer_wer_benchmark"
+        "encrypted_pdf_fail_closed"
       ],
       "status": "PASS"
     },
@@ -73,27 +112,5 @@
       "status": "PASS"
     }
   },
-  "ocr_benchmark": [
-    {
-      "file": "scanned_page.pdf",
-      "page": 1,
-      "confidence": 0.7191,
-      "cer": 0.0542,
-      "wer": 0.1786,
-      "max_cer_gate": 0.15,
-      "max_wer_gate": 0.45,
-      "status": "PASS"
-    },
-    {
-      "file": "adversarial_fax_stamp.pdf",
-      "page": 1,
-      "confidence": 0.6553,
-      "cer": 0.4033,
-      "wer": 0.65,
-      "max_cer_gate": 0.45,
-      "max_wer_gate": 0.65,
-      "status": "PASS"
-    }
-  ],
   "overall_status": "PASS"
 }

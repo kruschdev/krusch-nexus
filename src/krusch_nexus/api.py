@@ -112,15 +112,15 @@ async def auth_exception_handler(request: Request, exc: AuthenticationError):
 
 # ─── Constant-Time Bearer Token Security ─────────────────────────────────────
 
-def verify_api_token(authorization: Optional[str] = Header(None)):
+def verify_api_token(authorization: Optional[str] = Header(None)) -> str:
     """Enforce API token authentication using constant-time comparison when configured."""
     if config.environment != "dev" and not config.api_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="NEXUS_API_TOKEN must be configured and provided in non-dev environment"
         )
-    if not config.api_token:
-        return True
+    if not config.api_token and not config.token_workspaces:
+        return "dev-unrestricted"
     if not authorization:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization header")
     parts = authorization.split()
@@ -130,9 +130,27 @@ def verify_api_token(authorization: Optional[str] = Header(None)):
     if not token_val:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Empty bearer token")
 
-    if not secrets.compare_digest(token_val, config.api_token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
-    return True
+    if config.api_token and secrets.compare_digest(token_val, config.api_token):
+        return token_val
+    if config.token_workspaces and token_val in config.token_workspaces:
+        return token_val
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
+
+
+def verify_workspace_token(workspace: str, token_val: str):
+    """Enforce workspace-level ACL when token_workspaces is configured."""
+    if not config.token_workspaces:
+        return
+    if token_val in ("dev-unrestricted", config.api_token, config.operator_token):
+        return
+    allowed = config.token_workspaces.get(token_val, [])
+    if "*" not in allowed and workspace not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: token not authorized for workspace '{workspace}'"
+        )
+
 
 
 def verify_operator_token(
@@ -240,13 +258,14 @@ def health_check():
 
 # ─── Ingestion Endpoints ──────────────────────────────────────────────────────
 
-@app.post("/v1/ingest", response_model=IngestReport, dependencies=[Depends(verify_api_token)])
+@app.post("/v1/ingest", response_model=IngestReport)
 async def ingest_document(
     file: Optional[UploadFile] = File(None),
     filepath: Optional[str] = Form(None),
     workspace: str = Form(...),
     doc_type: str = Form("general"),
-    archive: bool = Form(False)
+    archive: bool = Form(False),
+    token: str = Depends(verify_api_token)
 ):
     """
     Ingest a document into a workspace via multipart file upload or local filepath.
@@ -254,6 +273,8 @@ async def ingest_document(
     """
     if not workspace or not workspace.strip():
         raise HTTPException(status_code=400, detail="A workspace name is required.")
+
+    verify_workspace_token(workspace.strip(), token)
 
     resolved_doc_type = DocType(doc_type.lower()) if doc_type.lower() in [e.value for e in DocType] else DocType.GENERAL
 
@@ -305,14 +326,16 @@ class SearchRequest(BaseModel):
     filters: Optional[SearchFilter] = None
 
 
-@app.post("/v1/search", response_model=List[SearchHit], dependencies=[Depends(verify_api_token)])
-def search_corpus(req: SearchRequest):
+@app.post("/v1/search", response_model=List[SearchHit])
+def search_corpus(req: SearchRequest, token: str = Depends(verify_api_token)):
     """
     Execute hybrid vector + full-text search across a workspace.
     Returns ranked SearchHit models with canonical citations and explainability metadata.
     """
     if not req.workspace or not req.workspace.strip():
         raise HTTPException(status_code=400, detail="Search requires a specific workspace.")
+
+    verify_workspace_token(req.workspace.strip(), token)
 
     hits = client.search(
         query=req.query,
@@ -326,10 +349,17 @@ def search_corpus(req: SearchRequest):
 
 # ─── Document Operations ──────────────────────────────────────────────────────
 
-@app.get("/v1/documents", response_model=List[DocumentInfo], dependencies=[Depends(verify_api_token)])
-def list_documents(workspace: Optional[str] = Query(None)):
+@app.get("/v1/documents", response_model=List[DocumentInfo])
+def list_documents(workspace: Optional[str] = Query(None), token: str = Depends(verify_api_token)):
     """List all ingested documents with optional workspace filtering."""
-    return client.list_documents(workspace=workspace)
+    if workspace:
+        verify_workspace_token(workspace.strip(), token)
+    docs = client.list_documents(workspace=workspace)
+    if config.token_workspaces and token not in ("dev-unrestricted", config.api_token, config.operator_token):
+        allowed = config.token_workspaces.get(token, [])
+        if "*" not in allowed:
+            docs = [d for d in docs if d.workspace_name in allowed]
+    return docs
 
 
 @app.get("/v1/documents/{doc_id_or_hash}/report", response_model=IngestReport, dependencies=[Depends(verify_api_token)])
@@ -367,10 +397,15 @@ def delete_document(
 
 # ─── Workspace Endpoints ──────────────────────────────────────────────────────
 
-@app.get("/v1/workspaces", response_model=List[WorkspaceInfo], dependencies=[Depends(verify_api_token)])
-def list_workspaces():
+@app.get("/v1/workspaces", response_model=List[WorkspaceInfo])
+def list_workspaces(token: str = Depends(verify_api_token)):
     """List all workspaces and their indexed document counts."""
-    return client.list_workspaces()
+    workspaces = client.list_workspaces()
+    if config.token_workspaces and token not in ("dev-unrestricted", config.api_token, config.operator_token):
+        allowed = config.token_workspaces.get(token, [])
+        if "*" not in allowed:
+            workspaces = [w for w in workspaces if w.name in allowed]
+    return workspaces
 
 
 class CreateWorkspaceRequest(BaseModel):

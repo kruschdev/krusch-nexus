@@ -226,3 +226,57 @@ class TestRetrievalContract(unittest.TestCase):
             self.assertIsNotNone(results[0].score_vector)
         finally:
             shutil.rmtree(dummy_dir, ignore_errors=True)
+
+    def test_retrieval_ablation_switch(self):
+        """Verify that mode parameter controls scoring: vector_only, fts_only, rrf_only, hybrid."""
+        q = "thirty days notice"
+        ws = "RetrievalTest"
+
+        # 1. vector_only
+        v_hits = self.nexus.search(q, workspace=ws, mode="vector_only", limit=5)
+        self.assertGreater(len(v_hits), 0)
+
+        # 2. fts_only
+        f_hits = self.nexus.search(q, workspace=ws, mode="fts_only", limit=5)
+        self.assertGreater(len(f_hits), 0)
+
+        # 3. rrf_only
+        r_hits = self.nexus.search(q, workspace=ws, mode="rrf_only", limit=5)
+        self.assertGreater(len(r_hits), 0)
+
+        # 4. hybrid (default)
+        h_hits = self.nexus.search(q, workspace=ws, mode="hybrid", limit=5)
+        self.assertGreater(len(h_hits), 0)
+
+    def test_explain_scorecard_diagnostics(self):
+        """Verify client.explain returns structured scorecard with rank diagnostics."""
+        expl = self.nexus.explain("thirty days notice", workspace="RetrievalTest", limit=3)
+        self.assertEqual(expl["query"], "thirty days notice")
+        self.assertEqual(expl["workspace"], "RetrievalTest")
+        self.assertEqual(expl["mode"], "hybrid")
+        self.assertIn("latency_ms", expl)
+        self.assertGreater(expl["hits_count"], 0)
+
+        top_hit = expl["hits"][0]
+        self.assertEqual(top_hit["rank"], 1)
+        self.assertIn("score", top_hit)
+        self.assertIn("citation", top_hit)
+        self.assertIn("match_reasons", top_hit)
+
+    def test_header_regex_fuzzing_and_re_dos_protection(self):
+        """Verify header_regex filter handles adversarial inputs, syntax errors, and excessive length safely."""
+        from krusch_nexus.exceptions import NexusError
+
+        # 1. Invalid regex syntax: must raise NexusError (safe rejection, not unhandled crash)
+        with self.assertRaises(NexusError):
+            self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": "[invalid(regex"})
+
+        # 2. Overly long regex pattern (>120 characters): rejected with NexusError
+        huge_regex = "a" * 1000
+        with self.assertRaises(NexusError):
+            self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": huge_regex})
+
+        # 3. Valid complex regex pattern: executes safely without ReDoS
+        res = self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": r"(?:Section|Article)\s+\d+"})
+        self.assertIsInstance(res, list)
+

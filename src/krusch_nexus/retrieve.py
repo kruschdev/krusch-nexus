@@ -97,6 +97,7 @@ def retrieve(
     section_boost_header: Optional[float] = None,
     section_boost_content: Optional[float] = None,
     phrase_boost: Optional[float] = None,
+    mode: str = "hybrid",
     filters: Optional[Dict[str, Any]] = None,
     config: Optional[NexusConfig] = None
 ) -> List[SearchHit]:
@@ -174,7 +175,7 @@ def retrieve(
     # 1. Embed Query (cached by hash)
     query_vector = None
     q_h = hash_query(q_str)
-    if embed_fn:
+    if embed_fn and mode != "fts_only":
         if q_h in _QUERY_EMBED_CACHE:
             query_vector = _QUERY_EMBED_CACHE[q_h]
         else:
@@ -201,35 +202,68 @@ def retrieve(
 
     # 2. Vector ANN in workspace (parameterized :qvec::vector without string interpolation)
     dense_results: List[Tuple[DocumentChunk, float]] = []
-    if query_vector and is_postgres:
-        vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
-        try:
-            db.execute(text(f"SET LOCAL hnsw.ef_search = {conf.hnsw_ef_search};"))
-        except Exception:
-            pass
+    min_sim_threshold: float = 0.40
+    if query_vector and mode != "fts_only":
+        if is_postgres:
+            vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
+            try:
+                db.execute(text(f"SET LOCAL hnsw.ef_search = {conf.hnsw_ef_search};"))
+            except Exception:
+                pass
 
-        sql = f"""
-            SELECT id, 1 - (embedding <=> CAST(:qvec AS vector)) as sim
-            FROM document_chunks
-            WHERE workspace_id = :ws_id AND embedding IS NOT NULL {sql_filter_str}
-            ORDER BY embedding <=> CAST(:qvec AS vector) ASC LIMIT :d_lim;
-        """
-        params = dict(sql_params)
-        params["d_lim"] = dense_limit
-        params["qvec"] = vec_literal
-        try:
-            rows = db.execute(text(sql), params).fetchall()
-            ids = [r[0] for r in rows]
-            chunk_map = {c.id: c for c in db.query(DocumentChunk).filter(DocumentChunk.id.in_(ids)).all()} if ids else {}
-            for r in rows:
-                if r[0] in chunk_map:
-                    dense_results.append((chunk_map[r[0]], float(r[1])))
-        except Exception as e:
-            logger.debug(f"Dense search error: {e}")
+            sql = f"""
+                SELECT id, 1 - (embedding <=> CAST(:qvec AS vector)) as sim
+                FROM document_chunks
+                WHERE workspace_id = :ws_id AND embedding IS NOT NULL {sql_filter_str}
+                  AND 1 - (embedding <=> CAST(:qvec AS vector)) >= :min_sim
+                ORDER BY embedding <=> CAST(:qvec AS vector) ASC LIMIT :d_lim;
+            """
+            params = dict(sql_params)
+            params["d_lim"] = dense_limit
+            params["qvec"] = vec_literal
+            params["min_sim"] = min_sim_threshold
+            try:
+                rows = db.execute(text(sql), params).fetchall()
+                ids = [r[0] for r in rows]
+                chunk_map = {c.id: c for c in db.query(DocumentChunk).filter(DocumentChunk.id.in_(ids)).all()} if ids else {}
+                for r in rows:
+                    if r[0] in chunk_map:
+                        dense_results.append((chunk_map[r[0]], float(r[1])))
+            except Exception as e:
+                logger.debug(f"Dense search error: {e}")
+        else:
+            # SQLite fallback: in-memory dot-product cosine similarity
+            q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
+            if not include_superseded:
+                q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded == None))
+            if active_doc_type:
+                q_base = q_base.filter(DocumentChunk.doc_type == active_doc_type)
+            if filter_page is not None:
+                q_base = q_base.filter(DocumentChunk.page_number == filter_page)
+            if filter_doc_id is not None:
+                q_base = q_base.filter(DocumentChunk.document_id == filter_doc_id)
+            if filter_filename is not None:
+                q_base = q_base.filter(DocumentChunk.filename == filter_filename)
+
+            scored_dense = []
+            for c in q_base.all():
+                if c.embedding is not None:
+                    emb = c.embedding
+                    if isinstance(emb, str):
+                        try:
+                            emb = json.loads(emb)
+                        except Exception:
+                            continue
+                    if isinstance(emb, (list, tuple)) and len(emb) == len(query_vector):
+                        sim = sum(a * b for a, b in zip(query_vector, emb))
+                        if sim >= min_sim_threshold:
+                            scored_dense.append((c, float(sim)))
+            scored_dense.sort(key=lambda x: x[1], reverse=True)
+            dense_results = scored_dense[:dense_limit]
 
     # 3. FTS in workspace (utilizing stored tsv_content GIN index on PostgreSQL)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
-    if is_postgres:
+    if is_postgres and mode != "vector_only":
         clean_fts_q = re.sub(r'["\'§]', ' ', q_str).strip()
         sql = f"""
             SELECT id, ts_rank_cd(tsv_content, plainto_tsquery('english', :q)) as r_score
@@ -264,7 +298,7 @@ def retrieve(
                         sparse_results.append((chunk_map[r[0]], float(r[1])))
             except Exception as fe:
                 logger.debug(f"Sparse FTS fallback error: {fe}")
-    else:
+    elif mode != "vector_only":
         # SQLite lexical match fallback with SQL-level filtering
         toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
@@ -288,7 +322,7 @@ def retrieve(
         scored.sort(key=lambda x: x[1], reverse=True)
         sparse_results = scored[:sparse_limit]
 
-    # 4. Reciprocal Rank Fusion (k=60)
+    # 4. Scoring / RRF
     rrf: Dict[int, float] = {}
     obj_map: Dict[int, DocumentChunk] = {}
     d_scores: Dict[int, float] = {}
@@ -300,17 +334,30 @@ def retrieve(
     phrase_boosted: Dict[int, bool] = {}
     boost_accumulated: Dict[int, float] = {}
 
-    for rank, (c, sim) in enumerate(dense_results, 1):
-        obj_map[c.id] = c
-        d_scores[c.id] = sim
-        v_ranks[c.id] = rank
-        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
+    if mode == "vector_only":
+        for rank, (c, sim) in enumerate(dense_results, 1):
+            obj_map[c.id] = c
+            d_scores[c.id] = sim
+            v_ranks[c.id] = rank
+            rrf[c.id] = sim
+    elif mode == "fts_only":
+        for rank, (c, scr) in enumerate(sparse_results, 1):
+            obj_map[c.id] = c
+            s_scores[c.id] = scr
+            f_ranks[c.id] = rank
+            rrf[c.id] = scr
+    else:
+        for rank, (c, sim) in enumerate(dense_results, 1):
+            obj_map[c.id] = c
+            d_scores[c.id] = sim
+            v_ranks[c.id] = rank
+            rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
-    for rank, (c, scr) in enumerate(sparse_results, 1):
-        obj_map[c.id] = c
-        s_scores[c.id] = scr
-        f_ranks[c.id] = rank
-        rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
+        for rank, (c, scr) in enumerate(sparse_results, 1):
+            obj_map[c.id] = c
+            s_scores[c.id] = scr
+            f_ranks[c.id] = rank
+            rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
     # Return empty result if neither vector nor FTS matched (kill confident hallucinations)
     if not rrf:
@@ -318,49 +365,50 @@ def retrieve(
 
     # 5. Exact Quoted Phrase Boosting ("liquidated damages")
     MAX_TOTAL_BOOST = 0.12  # Capped boosts so section mention cannot drown better semantic hit
-    if quoted_phrases:
-        for c_id, chunk in obj_map.items():
-            content_low = chunk.content.lower()
-            header_low = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
-            for qp in quoted_phrases:
-                if qp in content_low or qp in header_low:
-                    add_b = min(boost_phrase, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+    if mode in ("hybrid", "rrf_boosts"):
+        if quoted_phrases:
+            for c_id, chunk in obj_map.items():
+                content_low = chunk.content.lower()
+                header_low = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
+                for qp in quoted_phrases:
+                    if qp in content_low or qp in header_low:
+                        add_b = min(boost_phrase, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+                        if add_b > 0:
+                            rrf[c_id] += add_b
+                            boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
+                        phrase_boosted[c_id] = True
+
+        # 6. Normalized Section Boost (§ 1950.5, Section 8.22.030, Art. IV)
+        if norm_target_token:
+            for c_id, chunk in obj_map.items():
+                # Extract heading tokens from heading_path or header
+                h_tokens = []
+                if chunk.heading_path:
+                    try:
+                        h_list = json.loads(chunk.heading_path) if isinstance(chunk.heading_path, str) else chunk.heading_path
+                        for h in h_list:
+                            h_tokens.append(normalize_citation_token(h))
+                            h_tokens.append(h.lower())
+                    except Exception:
+                        pass
+
+                h_text = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
+                h_norm = normalize_citation_token(h_text)
+                c_text = chunk.content.lower()
+
+                matched_header = (norm_target_token in h_tokens) or (norm_target_token in h_norm) or (norm_target_token in h_text)
+                if matched_header:
+                    add_b = min(boost_hdr, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
                     if add_b > 0:
                         rrf[c_id] += add_b
                         boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
-                    phrase_boosted[c_id] = True
-
-    # 6. Normalized Section Boost (§ 1950.5, Section 8.22.030, Art. IV)
-    if norm_target_token:
-        for c_id, chunk in obj_map.items():
-            # Extract heading tokens from heading_path or header
-            h_tokens = []
-            if chunk.heading_path:
-                try:
-                    h_list = json.loads(chunk.heading_path) if isinstance(chunk.heading_path, str) else chunk.heading_path
-                    for h in h_list:
-                        h_tokens.append(normalize_citation_token(h))
-                        h_tokens.append(h.lower())
-                except Exception:
-                    pass
-
-            h_text = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
-            h_norm = normalize_citation_token(h_text)
-            c_text = chunk.content.lower()
-
-            matched_header = (norm_target_token in h_tokens) or (norm_target_token in h_norm) or (norm_target_token in h_text)
-            if matched_header:
-                add_b = min(boost_hdr, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
-                if add_b > 0:
-                    rrf[c_id] += add_b
-                    boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
-                sec_boosted[c_id] = True
-            elif norm_target_token in c_text:
-                add_b = min(boost_cnt, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
-                if add_b > 0:
-                    rrf[c_id] += add_b
-                    boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
-                lex_boosted[c_id] = True
+                    sec_boosted[c_id] = True
+                elif norm_target_token in c_text:
+                    add_b = min(boost_cnt, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+                    if add_b > 0:
+                        rrf[c_id] += add_b
+                        boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
+                    lex_boosted[c_id] = True
 
     # 7. Post-filter for header_regex (if specified)
     if compiled_header_regex:

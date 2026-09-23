@@ -43,11 +43,30 @@ def parse_docx(
             if body is not None:
                 document_elements: List[str] = []
 
+                redline_changes: List[dict] = []
                 for child in body:
                     tag = child.tag
 
                     # Case 1: Paragraph / Heading (<w:p>)
                     if tag == f"{{{ns['w']}}}p":
+                        # Track revisions (<w:del> and <w:ins>)
+                        for d in child.iter(f"{{{ns['w']}}}del"):
+                            del_str = "".join(t.text for t in d.iter(f"{{{ns['w']}}}delText") if t.text)
+                            if del_str:
+                                redline_changes.append({
+                                    "type": "deletion",
+                                    "text": del_str,
+                                    "author": d.attrib.get(f"{{{ns['w']}}}author")
+                                })
+                        for ins in child.iter(f"{{{ns['w']}}}ins"):
+                            ins_str = "".join(t.text for t in ins.iter(f"{{{ns['w']}}}t") if t.text)
+                            if ins_str:
+                                redline_changes.append({
+                                    "type": "insertion",
+                                    "text": ins_str,
+                                    "author": ins.attrib.get(f"{{{ns['w']}}}author")
+                                })
+
                         p_style = child.find(f".//{{{ns['w']}}}pStyle", ns)
                         is_heading = False
                         heading_level = 1
@@ -93,13 +112,17 @@ def parse_docx(
                 full_body = "\n\n".join(document_elements).strip()
                 loc = " > ".join(heading_stack) if heading_stack else "General"
                 struct_loc = StructuredLocator(kind="heading", page=None, path=list(heading_stack), formatted=loc)
+                page_extra = {}
+                if redline_changes:
+                    page_extra["redline_changes"] = redline_changes
                 pages_data.append(PageData(
                     index=None,  # No fake page numbers!
                     locator=loc,
                     structured_locator=struct_loc,
                     text=full_body,
                     digital_text=full_body,
-                    char_count=len(full_body)
+                    char_count=len(full_body),
+                    extra=page_extra
                 ))
 
     except Exception as e:

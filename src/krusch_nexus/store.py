@@ -186,6 +186,19 @@ class SearchTrace(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class OperatorAudit(Base):
+    """Audit ledger for sensitive/destructive operator actions (delete, reparse)."""
+    __tablename__ = "operator_audits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String(50), nullable=False, index=True)  # "delete", "reparse"
+    document_id = Column(Integer, nullable=True, index=True)
+    workspace_id = Column(Integer, nullable=True, index=True)
+    confirmation_token = Column(String(100), nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    details = Column(Text, nullable=True)  # JSON-encoded details
+
+
 # ─── Database Engine & Session Management ─────────────────────────────────────
 
 _ENGINES: Dict[str, Any] = {}

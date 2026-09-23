@@ -43,7 +43,7 @@ def probe_socket(host: str, port: int, timeout_sec: float = 0.5) -> bool:
         return False
 
 
-def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
+def run_doctor_checks(config: Optional[NexusConfig] = None, profile: str = "dev") -> Dict[str, Any]:
     """
     Execute exhaustive diagnostic checks verifying:
     1. Poppler utilities (pdftotext, pdftoppm, pdfinfo)
@@ -164,7 +164,10 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
 
     # 6. Localhost bind check
     is_local_bind = conf.api_host in ("127.0.0.1", "localhost", "::1")
-    bind_status = "PASS" if is_local_bind else ("FAIL" if conf.environment != "dev" else "WARN")
+    if profile == "prod" and not is_local_bind:
+        bind_status = "FAIL"
+    else:
+        bind_status = "PASS" if is_local_bind else ("FAIL" if conf.environment != "dev" else "WARN")
     results["localhost_bind"] = {
         "status": bind_status,
         "host": conf.api_host,
@@ -174,9 +177,12 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
     if bind_status == "FAIL":
         passed = False
 
-    # 7. API Token configuration in non-dev
+    # 7. API Token configuration in non-dev / prod
     token_present = bool(conf.api_token and conf.api_token != "dev-token-insecure")
-    token_status = "PASS" if (token_present or conf.environment == "dev") else "FAIL"
+    if profile == "prod" and not token_present:
+        token_status = "FAIL"
+    else:
+        token_status = "PASS" if (token_present or conf.environment == "dev") else "FAIL"
     results["api_token"] = {
         "status": token_status,
         "configured": bool(conf.api_token),
@@ -247,7 +253,8 @@ def cmd_doctor(args):
     print("  KruschNexus Doctor — Environment & Infrastructure Audit")
     print("=" * 60)
 
-    results = run_doctor_checks()
+    profile = getattr(args, "profile", "dev")
+    results = run_doctor_checks(profile=profile)
 
     # Pretty print status
     def _status_fmt(st: str) -> str:
@@ -302,6 +309,79 @@ def cmd_search(args):
         snippet = h.text.replace('\n', ' ')[:250]
         print(f"    Content:  {snippet}...")
     print("\n" + "=" * 60)
+    return 0
+
+
+def cmd_explain(args):
+    """Execute search explainability diagnostics across a workspace."""
+    client = NexusClient.from_env()
+    scorecard = client.explain(
+        query=args.query,
+        workspace=args.workspace,
+        limit=args.limit,
+        mode=getattr(args, "mode", "hybrid")
+    )
+
+    if args.json:
+        print(json.dumps(scorecard, indent=2))
+        return 0
+
+    print("=" * 70)
+    print(f"  KruschNexus Retrieval Scorecard — Diagnostics & Explainability")
+    print("=" * 70)
+    print(f"Query:       {scorecard['query']}")
+    print(f"Workspace:   {scorecard['workspace']}")
+    print(f"Mode:        {scorecard['mode']}")
+    print(f"Latency:     {scorecard['latency_ms']} ms")
+    print(f"Hits:        {scorecard['hits_count']}")
+    print("=" * 70)
+
+    for h in scorecard.get("hits", []):
+        print(f"\n[Rank {h['rank']}] Score: {h['score']} | {h['citation']}")
+        print(f"  Dense Sim:     {h['dense_score']} (Vector Rank: #{h['vector_rank'] or '-'})")
+        print(f"  Sparse Score:  {h['sparse_score']} (FTS Rank: #{h['fts_rank'] or '-'})")
+        print(f"  Section Boost: {h['section_boost']} | Phrase Boost: {h['phrase_boost']}")
+        if h['match_reasons']:
+            print(f"  Match Reasons: {', '.join(h['match_reasons'])}")
+        print(f"  Snippet:       {h['snippet']}")
+
+    print("\n" + "=" * 70)
+    return 0
+
+
+def cmd_parse(args):
+    """Parse and chunk a local file in library mode (zero database or daemon required)."""
+    client = NexusClient.from_env()
+    resolved_doc_type = DocType(args.doc_type.lower()) if args.doc_type else DocType.GENERAL
+    try:
+        parser_result, chunks = client.parse_and_chunk(
+            filepath=args.file,
+            doc_type=resolved_doc_type
+        )
+    except Exception as e:
+        print(f"Error parsing '{args.file}': {e}", file=sys.stderr)
+        return 1
+
+    if args.jsonl:
+        for c in chunks:
+            print(json.dumps(c))
+    else:
+        print("=" * 60)
+        print(f"  Nexus Library Mode — Standalone Document Analysis")
+        print("=" * 60)
+        print(f"File:        {parser_result.filename}")
+        print(f"Format/MIME: {parser_result.mime}")
+        print(f"Total Pages: {parser_result.total_pages}")
+        print(f"Total Chunks:{len(chunks)}")
+        print("=" * 60)
+        for i, c in enumerate(chunks[:5], start=1):
+            print(f"\n[{i}] Citation: {c.get('citation')}")
+            print(f"    Locator:  {c.get('locator')}")
+            snippet = c.get('text', '').replace('\n', ' ')[:160]
+            print(f"    Snippet:  {snippet}...")
+        if len(chunks) > 5:
+            print(f"\n... and {len(chunks) - 5} more chunks (use --jsonl to view all).")
+        print("\n" + "=" * 60)
     return 0
 
 
@@ -362,6 +442,7 @@ def main():
     # 1. Doctor
     p_doctor = subparsers.add_parser("doctor", help="Check local environment dependencies and node connectivity")
     p_doctor.add_argument("--json", action="store_true", help="Output diagnostic report in JSON format")
+    p_doctor.add_argument("--profile", choices=["dev", "prod"], default="dev", help="Diagnostic profile ('dev' or 'prod')")
     p_doctor.set_defaults(func=cmd_doctor)
 
     # 2. Search
@@ -372,7 +453,23 @@ def main():
     p_search.add_argument("--doc-type", "-t", type=str, default=None, help="Filter by document type")
     p_search.set_defaults(func=cmd_search)
 
-    # 3. Ingest
+    # 3. Explain
+    p_explain = subparsers.add_parser("explain", help="Run retrieval diagnostics and print scoring scorecard")
+    p_explain.add_argument("query", type=str, help="Search query or legal statutory token")
+    p_explain.add_argument("--workspace", "-w", type=str, required=True, help="Target workspace (required)")
+    p_explain.add_argument("--limit", "-n", type=int, default=5, help="Number of results (default 5)")
+    p_explain.add_argument("--mode", "-m", choices=["hybrid", "vector_only", "fts_only", "rrf_only", "rrf_boosts"], default="hybrid", help="Scoring ablation mode")
+    p_explain.add_argument("--json", action="store_true", help="Output scorecard in JSON format")
+    p_explain.set_defaults(func=cmd_explain)
+
+    # 4. Parse (Library mode)
+    p_parse = subparsers.add_parser("parse", help="Parse and chunk a local file in library mode (zero DB/daemons)")
+    p_parse.add_argument("file", type=str, help="Path to local file (PDF, DOCX, EML, etc.)")
+    p_parse.add_argument("--doc-type", "-t", type=str, default="general", help="Document classification")
+    p_parse.add_argument("--jsonl", action="store_true", help="Output chunks as raw JSONL")
+    p_parse.set_defaults(func=cmd_parse)
+
+    # 5. Ingest
     p_ingest = subparsers.add_parser("ingest", help="Ingest a file into a workspace")
     p_ingest.add_argument("file", type=str, help="Path to local file (PDF, DOCX, EML, etc.)")
     p_ingest.add_argument("--workspace", "-w", type=str, required=True, help="Target workspace (required)")
@@ -380,23 +477,24 @@ def main():
     p_ingest.add_argument("--archive", "-a", action="store_true", help="Move source file to .ingested/ upon success")
     p_ingest.set_defaults(func=cmd_ingest)
 
-    # 4. Reindex
+    # 6. Reindex
     p_reindex = subparsers.add_parser("reindex", help="Re-index an existing document in the corpus")
     p_reindex.add_argument("--document-id", "-d", type=int, required=True, help="Specific document ID to re-index")
     p_reindex.set_defaults(func=cmd_reindex)
 
-    # 5. Daemon
+    # 7. Daemon
     p_daemon = subparsers.add_parser("daemon", help="Run the automated folder-watching daemon")
     p_daemon.add_argument("--watch-dir", type=str, default=None, help="Root folder to watch")
     p_daemon.set_defaults(func=cmd_daemon)
 
-    # 6. MCP
+    # 8. MCP
     p_mcp = subparsers.add_parser("mcp", help="Run the FastMCP server for AI agents")
     p_mcp.set_defaults(func=cmd_mcp)
 
-    # 7. Verify alias
+    # 9. Verify alias
     p_verify = subparsers.add_parser("verify", help="Alias for nexus doctor")
     p_verify.add_argument("--json", action="store_true", help="Output diagnostic report in JSON format")
+    p_verify.add_argument("--profile", choices=["dev", "prod"], default="dev", help="Diagnostic profile ('dev' or 'prod')")
     p_verify.set_defaults(func=cmd_doctor)
 
     parsed = parser.parse_args()

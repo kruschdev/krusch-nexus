@@ -32,6 +32,19 @@ class OCRPolicy:
     max_pixels: int = 100_000_000  # Cap on decompressed image pixels (100 MP)
 
 
+class OCRResult(tuple):
+    """3-tuple return value for OCR with optional page image pointer for audit."""
+    def __new__(cls, text: Optional[str], conf: Optional[float], blocks: List[ContentBlock], image_path: Optional[str] = None):
+        return super().__new__(cls, (text, conf, blocks))
+
+    def __init__(self, text: Optional[str], conf: Optional[float], blocks: List[ContentBlock], image_path: Optional[str] = None):
+        self.text = text
+        self.conf = conf
+        self.blocks = blocks
+        self.image_path = image_path
+
+
+
 import functools
 import re
 
@@ -190,13 +203,20 @@ def try_tesseract_ocr(
                     extracted = "\n\n".join(b.text for b in blocks) if blocks else " ".join(words)
                     printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
                     if len(printable) >= 10:
-                        return extracted, mean_conf, blocks
+                        return OCRResult(extracted, mean_conf, blocks)
             except Exception as e:
                 logger.debug(f"Tesseract TSV psm={psm_val} failed for page {page_num}: {e}")
 
         # If TSV returned low-confidence result below floor, strictly quarantine without running fallback
         if low_confidence_encountered:
-            return None, lowest_conf, []
+            quarantine_dir = os.path.expanduser("~/.cache/krusch_nexus/quarantine")
+            os.makedirs(quarantine_dir, exist_ok=True)
+            quarantine_img = os.path.join(quarantine_dir, f"quarantine_p{page_num}_{os.path.basename(pdf_path)}.png")
+            try:
+                shutil.copy2(img_file, quarantine_img)
+            except Exception:
+                quarantine_img = None
+            return OCRResult(None, lowest_conf, [], image_path=quarantine_img)
 
         # Plain text fallback (only if TSV was completely empty or failed)
         ocr_cmd = [tess_path, img_file, "stdout", "--oem", "1", "--psm", str(policy.psm_prose), "-l", policy.language]
@@ -206,8 +226,8 @@ def try_tesseract_ocr(
                 extracted = ocr_res.stdout.strip()
                 printable = "".join(c for c in extracted if c.isalnum() or c in " .,;:!?-\n")
                 if len(printable) >= 10:
-                    return extracted, policy.confidence_floor + 0.1, [ContentBlock(text=extracted, block_type="paragraph")]
+                    return OCRResult(extracted, policy.confidence_floor + 0.1, [ContentBlock(text=extracted, block_type="paragraph")])
         except Exception as e:
             logger.warning(f"Tesseract fallback failed for page {page_num}: {e}")
 
-    return None, None, []
+    return OCRResult(None, None, [])

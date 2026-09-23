@@ -33,6 +33,51 @@ OPERATIVE_PATTERN = re.compile(
 MARKDOWN_HEADING_PATTERN = re.compile(r'^(#{1,6}\s+[^\n]+)', re.MULTILINE)
 
 
+def normalize_statute_citation(query: str) -> Dict[str, Any]:
+    """
+    Formalized citation query normalization function.
+    Parses statutory section references (e.g. 'Cal. Civ. Code § 1950.5', 'Section 8.22.030(C)', 'Art. IV').
+    Returns a structured dictionary with normalized token, canonical representation, and match status.
+    """
+    m = SECTION_PATTERN.search(query)
+    standalone = None
+    if not m:
+        standalone = re.search(r'\b([0-9]{1,4}(?:\.[0-9]+)*(?:\([0-9A-Za-z]+\))+|\b[0-9]{1,4}\.[0-9]+)\b', query)
+        if not standalone:
+            return {
+                "matched": False,
+                "raw_query": query,
+                "canonical_token": "",
+                "normalized_token": "",
+                "section_number": ""
+            }
+
+    target = m.group(0).strip() if m else standalone.group(0).strip()
+    num_match = re.search(
+        r'(?:§+|Section|Sec\.|Article|Art\.|Clause|Exhibit)\s*([0-9A-Za-z\.\-:]+(?:\([0-9A-Za-z]+\))*)'
+        r'|\b([0-9]+(?:\.[0-9]+)*(?:\([0-9A-Za-z]+\))+)'
+        r'|\b([0-9]+(?:\.[0-9]+)+)',
+        target,
+        re.IGNORECASE
+    )
+    if num_match:
+        raw_num = num_match.group(1) or num_match.group(2) or num_match.group(3)
+        clean_sec = re.sub(r'\(.*?\)', '', raw_num).strip()
+    else:
+        clean_sec = target
+
+    canonical = f"§ {clean_sec}" if not target.lower().startswith("art") else target
+    clean_norm = re.sub(r'[^a-z0-9]', '', clean_sec.lower())
+
+    return {
+        "matched": True,
+        "raw_query": query,
+        "canonical_token": canonical,
+        "normalized_token": clean_norm,
+        "section_number": clean_sec
+    }
+
+
 class Chunk:
     """Represents a structurally aware document chunk with strict provenance."""
     def __init__(

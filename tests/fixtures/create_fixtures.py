@@ -351,6 +351,64 @@ def create_adversarial_fixtures(target_dir: str):
     r_draw.text((500, 390), "[ADDED: $1,250,000]", fill="blue")
     rl_img.save(os.path.join(target_dir, "adversarial_redline.pdf"), "PDF", resolution=300.0)
 
+    # 4. Real Tracked-Changes Redline DOCX (<w:del> and <w:ins>)
+    create_adversarial_redline_docx(os.path.join(target_dir, "adversarial_redline.docx"))
+
+
+def create_adversarial_redline_docx(output_path: str):
+    """Generate a DOCX file containing native Word tracked revisions (<w:del> and <w:ins>)."""
+    xml_data = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:body>
+        <w:p>
+          <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+          <w:r><w:t>Article 5: Executive Severance Provisions</w:t></w:r>
+        </w:p>
+        <w:p>
+          <w:r><w:t>Section 5.1 Lump Sum Severance.</w:t></w:r>
+          <w:r><w:t> Upon termination without Cause, the Executive shall receive a cash lump sum equal to </w:t></w:r>
+          <w:del w:id="1" w:author="Outside Counsel" w:date="2026-09-22T10:00:00Z">
+            <w:r><w:delText>six (6) months</w:delText></w:r>
+          </w:del>
+          <w:ins w:id="2" w:author="Compensation Committee" w:date="2026-09-22T10:05:00Z">
+            <w:r><w:t>twelve (12) months</w:t></w:r>
+          </w:ins>
+          <w:r><w:t> of the Executive's then-current Base Salary.</w:t></w:r>
+        </w:p>
+      </w:body>
+    </w:document>
+    """
+    with zipfile.ZipFile(output_path, "w") as zf:
+        zf.writestr("word/document.xml", xml_data)
+
+
+def generate_fixtures_manifest(target_dir: str):
+    """Hash all fixture files and produce a versioned fixtures_manifest.json."""
+    import hashlib
+    import json
+    from datetime import datetime, timezone
+
+    manifest = {
+        "schema_version": "1.0",
+        "corpus_version": "0.2.3",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "fixtures": {}
+    }
+    for fname in sorted(os.listdir(target_dir)):
+        if fname.endswith((".pdf", ".docx", ".txt", ".csv", ".eml", ".html", ".exe")):
+            fpath = os.path.join(target_dir, fname)
+            with open(fpath, "rb") as f:
+                content = f.read()
+                h = hashlib.sha256(content).hexdigest()
+                manifest["fixtures"][fname] = {
+                    "sha256": h,
+                    "bytes": len(content)
+                }
+    manifest_path = os.path.join(target_dir, "fixtures_manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Generated {manifest_path} ({len(manifest['fixtures'])} fixtures tracked)")
+
 
 def main():
     target_dir = os.path.dirname(__file__)
@@ -365,6 +423,7 @@ def main():
     create_negative_fixtures(target_dir)
     create_heldout_fixtures(target_dir)
     create_adversarial_fixtures(target_dir)
+    generate_fixtures_manifest(target_dir)
     print("All fixtures generated successfully in tests/fixtures/")
 
 

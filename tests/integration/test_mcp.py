@@ -120,6 +120,15 @@ class TestMCPIntegration(unittest.TestCase):
         self.assertEqual(del_success["status"], "deleted")
         self.assertEqual(del_success["document_id"], doc_id)
 
+        # 7. Verify OperatorAudit ledger recorded the destructive delete
+        from krusch_nexus.store import OperatorAudit
+        db = self.nexus._get_db()
+        audit_rows = db.query(OperatorAudit).filter(OperatorAudit.document_id == doc_id).all()
+        self.assertGreaterEqual(len(audit_rows), 1)
+        self.assertEqual(audit_rows[-1].action, "delete")
+        self.assertEqual(audit_rows[-1].confirmation_token, f"CONFIRM_DELETE_{doc_id}")
+        db.close()
+
     def test_mcp_search_with_sql_filters(self):
         """Verify MCP search passes SQL filters (filename, page, doc_id)."""
         test_file = os.path.join(self.temp_dir, "statute_filtered.txt")

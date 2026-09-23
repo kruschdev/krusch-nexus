@@ -203,12 +203,18 @@ def parse_pdf(
         # If page already has rich digital text (>= min_printable_chars), we preserve digital text and avoid unnecessary OCR!
         should_ocr = len(digital_text) < policy.min_printable_chars or (has_image_streams and len(digital_text) < 100)
 
+        page_extra: Dict[str, Any] = {}
         if should_ocr:
-            candidate_ocr, conf, blocks = try_tesseract_ocr(
+            ocr_res = try_tesseract_ocr(
                 file_path,
                 page_num,
                 policy=policy
             )
+            candidate_ocr, conf, blocks = ocr_res
+            quarantine_ptr = getattr(ocr_res, "image_path", None)
+            if quarantine_ptr:
+                page_extra["page_image_path"] = quarantine_ptr
+
             if candidate_ocr and len(candidate_ocr) > max(len(digital_text), 15):
                 ocr_applied = True
                 ocr_text = candidate_ocr
@@ -245,7 +251,8 @@ def parse_pdf(
             has_images=has_image_streams,
             ocr_applied=ocr_applied,
             confidence=ocr_confidence,
-            char_count=len(chosen_text)
+            char_count=len(chosen_text),
+            extra=page_extra
         ))
 
     # Suppress repeating running headers and footers across pages

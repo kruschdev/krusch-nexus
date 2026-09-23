@@ -108,6 +108,28 @@ services:
     command: ["python", "-m", "krusch_nexus.mcp"]
     restart: unless-stopped
 
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - demo
+    networks:
+      - nexus_net
+    environment:
+      - DATABASE_URL=sqlite:////tmp/nexus_demo.db
+      - NEXUS_EMBED_BACKEND=dummy
+      - NEXUS_ENV=dev
+    command: >
+      bash -c "
+      echo '=== KruschNexus Demo: Standalone Citation Pipeline ===' &&
+      nexus parse /app/tests/fixtures/sample_contract.pdf &&
+      echo '=== Ingesting into Demo Workspace ===' &&
+      nexus ingest /app/tests/fixtures/sample_contract.pdf --workspace DemoWorkspace &&
+      echo '=== 3 Page-Faithful Cited Hits ===' &&
+      nexus search 'security deposit' --workspace DemoWorkspace --limit 3
+      "
+
 volumes:
   pgdata:
 

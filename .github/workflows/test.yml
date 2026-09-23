@@ -13,6 +13,21 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
 
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nexus_ci_user
+          POSTGRES_PASSWORD: nexus_ci_password_42
+          POSTGRES_DB: nexus_ci_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
     - uses: actions/checkout@v4
 
@@ -39,8 +54,8 @@ jobs:
 
     - name: Homelab Path & Secret Hygiene Guard
       run: |
-        echo "Verifying no absolute homelab machine paths exist in source or tests..."
-        ! grep -rn --exclude-dir=__pycache__ "/home/krusch" src/
+        echo "Verifying no absolute homelab machine paths exist in source, docs, tests, or markdown..."
+        ! grep -rn --exclude-dir=__pycache__ --exclude-dir=.git "/home/krusch" src/ docs/ tests/ *.md
 
     - name: Air-Gap Vendor Independence Guard
       run: |
@@ -51,25 +66,32 @@ jobs:
       run: |
         python tests/fixtures/create_fixtures.py
 
-    - name: Quickstart Smoke Test (README 3-line sample)
+    - name: Run Database Migrations on PostgreSQL 16
       env:
-        DATABASE_URL: "sqlite:///:memory:"
-        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
       run: |
-        python -c "from krusch_nexus import NexusClient; client = NexusClient(); report = client.ingest('tests/fixtures/sample_contract.pdf', workspace='CIQuickstart'); hits = client.search('termination for breach', workspace='CIQuickstart'); assert len(hits) > 0, 'Quickstart returned 0 hits'; print(f'CI Quickstart OK: {hits[0].citation}')"
+        alembic upgrade head
 
-    - name: Run Layered Test Suite & Citation Benchmark
+    - name: Run Unit Test Suite (SQLite In-Memory)
       env:
         DATABASE_URL: "sqlite:///:memory:"
-        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+        NEXUS_EMBED_BACKEND: "dummy"
       run: |
-        python -m pytest tests/ -v
+        python -m pytest tests/unit/ -v
 
-    - name: Generate Machine-Readable Evaluation Report
+    - name: Run Integration Tests on PostgreSQL 16 Container (HNSW, GIN, RLS)
       env:
-        DATABASE_URL: "sqlite:///:memory:"
-        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
+        NEXUS_EMBED_BACKEND: "dummy"
       run: |
+        python -m pytest tests/integration/ -v
+
+    - name: Run Evaluation Benchmark Suites
+      env:
+        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
+        NEXUS_EMBED_BACKEND: "dummy"
+      run: |
+        python -m pytest tests/eval/ -v
         python -m krusch_nexus.eval_report eval_report.json
         cat eval_report.json
 

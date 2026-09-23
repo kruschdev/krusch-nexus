@@ -341,7 +341,11 @@ def nexus_reparse(
         })
 
     try:
-        report = get_client().reparse(document_id, operator_token=operator_token)
+        report = get_client().reparse(
+            document_id,
+            operator_token=operator_token,
+            confirmation_token=confirmation_token
+        )
         return json.dumps(report.model_dump(), indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
@@ -372,7 +376,11 @@ def nexus_delete_document(
         })
 
     try:
-        success = get_client().delete_document(document_id, operator_token=operator_token)
+        success = get_client().delete_document(
+            document_id,
+            operator_token=operator_token,
+            confirmation_token=confirmation_token
+        )
         if success:
             return json.dumps({"status": "deleted", "document_id": document_id})
         return json.dumps({"status": "not_found", "message": f"Document ID {document_id} not found"})

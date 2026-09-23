@@ -9,6 +9,10 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+try:
+    import pgvector.sqlalchemy.vector
+except ImportError:
+    pass
 
 
 # revision identifiers, used by Alembic.

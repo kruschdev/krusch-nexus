@@ -1,0 +1,40 @@
+name: "Citation Wrong Page / Locator Drift"
+description: Report a chunk or citation whose page number or locator does not match physical document ground truth.
+title: "[Citation]: "
+labels: ["citation-drift", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        KruschNexus guarantees format-honest citations (page-faithful locators). If a citation points to the wrong physical page or heading, please submit this report with reproducible details.
+  - type: input
+    id: filename
+    attributes:
+      label: Document Filename & Format
+      description: The file name and extension (e.g., `contract.pdf`, `filing.docx`).
+      placeholder: "e.g., commercial_lease_v2.pdf"
+    validations:
+      required: true
+  - type: input
+    id: reported_locator
+    attributes:
+      label: Reported Locator vs Physical Ground Truth
+      description: What locator did KruschNexus report vs where does the text physically appear?
+      placeholder: "Reported: p. 14, Section 8. Actual Ground Truth: p. 15, Section 8"
+    validations:
+      required: true
+  - type: textarea
+    id: chunk_text
+    attributes:
+      label: Chunk Snippet
+      description: Provide the chunk text or citation string emitted by SearchHit.
+      placeholder: "paste snippet here..."
+    validations:
+      required: true
+  - type: textarea
+    id: parser_version
+    attributes:
+      label: Ingest Report & Versions
+      description: Paste the IngestReport JSON or `nexus --version` and parser used (pdfplumber, pypdf, docx).
+    validations:
+      required: false

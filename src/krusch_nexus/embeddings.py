@@ -48,6 +48,23 @@ def generate_deterministic_vector(text: str, dim: int = 1024) -> List[float]:
 
 
 
+_RECORDED_VECTORS: Optional[Dict[str, List[float]]] = None
+
+
+def _get_recorded_vectors() -> Dict[str, List[float]]:
+    global _RECORDED_VECTORS
+    if _RECORDED_VECTORS is None:
+        _RECORDED_VECTORS = {}
+        candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tests", "fixtures", "fixture_embeddings.json")
+        if os.path.exists(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    _RECORDED_VECTORS = json.load(f)
+            except Exception:
+                pass
+    return _RECORDED_VECTORS
+
+
 def _get_disk_cache_conn() -> Optional[sqlite3.Connection]:
     """Get connection to persistent local SQLite embedding cache."""
     try:
@@ -225,11 +242,15 @@ def get_embeddings_batch(
 
     # 2.5 If dumb/test backend configured, synthesize deterministic vectors for missing texts
     backend = getattr(conf, "embed_backend", None) or os.getenv("NEXUS_EMBED_BACKEND", "").lower()
-    if backend == "dummy" or getattr(conf, "embedding_provider", "") == "dummy":
+    if backend in ("dummy", "precomputed", "mock") or getattr(conf, "embedding_provider", "") in ("dummy", "precomputed"):
         dim = conf.embedding_dim or 1024
+        rec_vectors = _get_recorded_vectors()
         new_cached_records: List[tuple] = []
         for orig_i, h, txt in zip(missing_indices, missing_hashes, missing_texts):
-            vec = generate_deterministic_vector(txt, dim=dim)
+            if h in rec_vectors:
+                vec = rec_vectors[h]
+            else:
+                vec = generate_deterministic_vector(txt, dim=dim)
             results[orig_i] = vec
             if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
                 _MEM_CACHE[h] = vec

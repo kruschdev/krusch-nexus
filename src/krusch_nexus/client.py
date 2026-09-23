@@ -10,7 +10,7 @@ import os
 import json
 import logging
 import secrets
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .models import (
     NexusConfig,
@@ -30,7 +30,8 @@ from .store import (
     Workspace,
     Document,
     DocumentChunk,
-    IngestRun
+    IngestRun,
+    OperatorAudit
 )
 from .embeddings import get_embedding
 from .retrieve import retrieve
@@ -105,7 +106,60 @@ class NexusClient:
 
     ingest_file = ingest
 
-    def reparse(self, document_id: int, operator_token: Optional[str] = None) -> IngestReport:
+    def parse_and_chunk(
+        self,
+        filepath: str,
+        doc_type: DocType = DocType.GENERAL,
+        max_chars: Optional[int] = None,
+        overlap_chars: Optional[int] = None,
+    ) -> Tuple[Any, List[Dict[str, Any]]]:
+        """
+        Library mode: Parse and chunk a local file without database or embedding dependencies.
+        Returns a tuple of (ParserResult, list of chunk dictionaries with locators).
+        """
+        from .parsers import parse_document
+        from .parsers.registry import compute_file_hash
+        from .chunking import chunk_document_pages
+        from .ingest.sandbox import validate_safe_path, sanitize_filename
+
+        safe_path = validate_safe_path(
+            filepath,
+            allowed_roots=self.config.allowed_ingest_roots,
+            allow_temp_dirs=True
+        )
+        filepath_str = str(safe_path)
+        orig_filename = sanitize_filename(os.path.basename(filepath_str))
+        file_hash = compute_file_hash(filepath_str)
+
+        parser_result = parse_document(
+            file_path=filepath_str,
+            filename=orig_filename,
+            ocr_threshold=self.config.ocr_threshold_chars,
+            ocr_dpi=self.config.ocr_dpi,
+            ocr_lang=self.config.ocr_lang,
+            timeout=self.config.subprocess_timeout
+        )
+
+        chunks = chunk_document_pages(
+            pages=parser_result.pages,
+            filename=orig_filename,
+            file_hash=file_hash,
+            max_chars=max_chars or self.config.max_chars_per_chunk,
+            overlap_chars=overlap_chars or self.config.overlap_chars,
+            doc_type=doc_type,
+            base_metadata={"library_mode": True},
+            chunker_version="1.0",
+            embed_model=self.config.embed_model or "none"
+        )
+
+        return parser_result, [c.to_dict() for c in chunks]
+
+    def reparse(
+        self,
+        document_id: int,
+        operator_token: Optional[str] = None,
+        confirmation_token: Optional[str] = None
+    ) -> IngestReport:
         """
         Re-run the parser and chunker for an existing document in the corpus.
         Operators can use this after parser logic upgrades without manual file transfers.
@@ -133,9 +187,25 @@ class NexusClient:
             ws_name = doc.workspace.name if doc.workspace else "General"
             doc_type_val = doc.doc_type
             doc_filename = doc.filename
+            doc_file_hash = doc.file_hash
+            ws_id = doc.workspace_id
 
             # Remove old document and cascaded chunks to force fresh reparse
             db.delete(doc)
+
+            # Record operator audit entry
+            try:
+                audit = OperatorAudit(
+                    action="reparse",
+                    document_id=document_id,
+                    workspace_id=ws_id,
+                    confirmation_token=confirmation_token or operator_token or "unspecified",
+                    details=json.dumps({"filename": doc_filename, "file_hash": doc_file_hash})
+                )
+                db.add(audit)
+            except Exception as ae:
+                logger.warning(f"Could not queue OperatorAudit record: {ae}")
+
             db.commit()
 
             from .ingest import IngestPipeline
@@ -152,7 +222,12 @@ class NexusClient:
 
     reindex = reparse
 
-    def delete_document(self, document_id: int, operator_token: Optional[str] = None) -> bool:
+    def delete_document(
+        self,
+        document_id: int,
+        operator_token: Optional[str] = None,
+        confirmation_token: Optional[str] = None
+    ) -> bool:
         """
         Delete a document and all its chunks from the database.
         Destructive operator operation.
@@ -166,7 +241,26 @@ class NexusClient:
             doc = db.query(Document).filter(Document.id == document_id).first()
             if not doc:
                 return False
+
+            ws_id = doc.workspace_id
+            doc_filename = doc.filename
+            doc_file_hash = doc.file_hash
+
             db.delete(doc)
+
+            # Record operator audit entry
+            try:
+                audit = OperatorAudit(
+                    action="delete",
+                    document_id=document_id,
+                    workspace_id=ws_id,
+                    confirmation_token=confirmation_token or operator_token or "unspecified",
+                    details=json.dumps({"filename": doc_filename, "file_hash": doc_file_hash})
+                )
+                db.add(audit)
+            except Exception as ae:
+                logger.warning(f"Could not queue OperatorAudit record: {ae}")
+
             db.commit()
             return True
         finally:
@@ -194,7 +288,8 @@ class NexusClient:
         workspace: str,
         doc_type: Optional[str] = None,
         limit: int = 5,
-        filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None
+        filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
+        mode: str = "hybrid"
     ) -> List[SearchHit]:
         """
         Execute hybrid vector + full-text search across a workspace.
@@ -227,10 +322,64 @@ class NexusClient:
                 doc_type=doc_type,
                 limit=limit,
                 filters=resolved_filters,
-                config=self.config
+                config=self.config,
+                mode=mode
             )
         finally:
             db.close()
+
+    def explain(
+        self,
+        query: str,
+        workspace: str,
+        doc_type: Optional[str] = None,
+        limit: int = 5,
+        filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
+        mode: str = "hybrid"
+    ) -> Dict[str, Any]:
+        """
+        Run hybrid retrieval diagnostics and return a detailed scoring scorecard.
+        """
+        import time
+        start_time = time.time()
+        hits = self.search(
+            query=query,
+            workspace=workspace,
+            doc_type=doc_type,
+            limit=limit,
+            filters=filters,
+            mode=mode
+        )
+        elapsed_ms = round((time.time() - start_time) * 1000, 2)
+
+        scorecard = {
+            "query": query,
+            "workspace": workspace,
+            "mode": mode,
+            "latency_ms": elapsed_ms,
+            "hits_count": len(hits),
+            "hits": [
+                {
+                    "rank": idx + 1,
+                    "chunk_id": h.chunk_id,
+                    "document_id": h.document_id,
+                    "filename": h.filename,
+                    "locator": h.locator,
+                    "citation": h.citation,
+                    "score": round(h.score, 6),
+                    "dense_score": round(h.dense_score, 4) if h.dense_score is not None else None,
+                    "sparse_score": round(h.sparse_score, 4) if h.sparse_score is not None else None,
+                    "vector_rank": h.vector_rank,
+                    "fts_rank": h.fts_rank,
+                    "section_boost": h.section_boost,
+                    "phrase_boost": h.phrase_boost,
+                    "match_reasons": h.match_reasons,
+                    "snippet": (h.text[:140] + "...") if len(h.text) > 140 else h.text
+                }
+                for idx, h in enumerate(hits)
+            ]
+        }
+        return scorecard
 
     def list_workspaces(self) -> List[WorkspaceInfo]:
         """List all workspaces and their indexed document counts."""

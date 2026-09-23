@@ -1,0 +1,40 @@
+name: "OCR Quarantine / Scanning Failure"
+description: Report an OCR failure, low-confidence quarantine, or garbled text from scanned exhibits.
+title: "[OCR Quarantine]: "
+labels: ["ocr", "quarantine"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        KruschNexus quarantines scanned pages whose OCR mean confidence falls below the configured floor (default 0.60) or when CER/WER exceeds quality limits.
+  - type: input
+    id: filename
+    attributes:
+      label: Filename & Page Number
+      description: The file name and affected page numbers.
+      placeholder: "e.g., exhibit_b_scan.pdf, pages 4-6"
+    validations:
+      required: true
+  - type: input
+    id: confidence_score
+    attributes:
+      label: OCR Confidence Score
+      description: What confidence was recorded in `PageData.extra['page_image_path']` or IngestReport?
+      placeholder: "e.g., 0.42 (quarantined to ~/.cache/krusch_nexus/quarantine/...)"
+    validations:
+      required: false
+  - type: textarea
+    id: observed_behavior
+    attributes:
+      label: Observed Behavior
+      description: Describe whether the page was incorrectly quarantined, passed through with garbled text, or caused a timeout.
+      placeholder: "Page was marked unreadable despite being high-contrast 300 DPI text..."
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: OCR Environment
+      description: Tesseract version (`tesseract --version`), Poppler/pdftoppm version, OS distribution.
+    validations:
+      required: false
