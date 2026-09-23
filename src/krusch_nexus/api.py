@@ -265,11 +265,14 @@ async def ingest_document(
     workspace: str = Form(...),
     doc_type: str = Form("general"),
     archive: bool = Form(False),
+    on_duplicate: str = Form("skip"),
     token: str = Depends(verify_api_token)
 ):
     """
     Ingest a document into a workspace via multipart file upload or local filepath.
-    Enforces upload size budget (50MB) and workspace isolation.
+    Enforces upload size budget (50MB), workspace isolation, and explicit deduplication semantics:
+    - on_duplicate="skip" (default): Returns HTTP 200 with status="skipped_duplicate"
+    - on_duplicate="conflict": Raises HTTP 409 Conflict when content hash already exists
     """
     if not workspace or not workspace.strip():
         raise HTTPException(status_code=400, detail="A workspace name is required.")
@@ -299,6 +302,11 @@ async def ingest_document(
                 doc_type=resolved_doc_type,
                 archive=False
             )
+            if report.status == "skipped_duplicate" and on_duplicate.lower() == "conflict":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Document with identical content hash {report.file_hash} already exists in workspace '{workspace.strip()}' (document_id={report.document_id})"
+                )
             return report
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -306,12 +314,18 @@ async def ingest_document(
     elif filepath:
         if not os.path.exists(filepath):
             raise HTTPException(status_code=404, detail=f"File '{filepath}' not found on server")
-        return client.ingest(
+        report = client.ingest(
             filepath=filepath,
             workspace=workspace.strip(),
             doc_type=resolved_doc_type,
             archive=archive
         )
+        if report.status == "skipped_duplicate" and on_duplicate.lower() == "conflict":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Document with identical content hash {report.file_hash} already exists in workspace '{workspace.strip()}' (document_id={report.document_id})"
+            )
+        return report
 
     raise HTTPException(status_code=400, detail="Either a multipart 'file' or a local 'filepath' must be provided")
 

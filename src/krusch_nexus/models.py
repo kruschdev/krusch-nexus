@@ -483,8 +483,12 @@ class NexusConfig(BaseModel):
     max_file_size_bytes: int = 52_428_800  # 50 MB
     max_page_count: int = 500              # Cap on multi-page processing
     max_embed_queue_depth: int = 500       # Max pending embeddings
-    watch_dir: Optional[str] = None
-    allowed_ingest_roots: List[str] = Field(default_factory=list)
+    watch_dir: Optional[str] = Field(
+        default_factory=lambda: os.getenv("WATCH_DIR")
+    )
+    allowed_ingest_roots: List[str] = Field(
+        default_factory=lambda: [r.strip() for r in os.getenv("ALLOWED_INGEST_ROOTS", "").split(":") if r.strip()]
+    )
     max_ocr_workers: int = 2
     max_embed_workers: int = 4
     stale_lock_timeout_seconds: float = 600.0

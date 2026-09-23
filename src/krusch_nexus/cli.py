@@ -432,6 +432,40 @@ def cmd_reindex(args):
         return 1
 
 
+def cmd_poison(args):
+    """Inspect or replay poison files quarantined in .failed/."""
+    client = NexusClient.from_env()
+    if args.action == "list":
+        items = client.list_poison_files(workspace=args.workspace)
+        if args.json:
+            print(json.dumps(items, indent=2))
+        else:
+            if not items:
+                print("No quarantined poison files found in .failed/")
+                return 0
+            print(f"Quarantined Poison Files ({len(items)}):")
+            print("-" * 75)
+            for it in items:
+                print(f"[{it['workspace']}] {it['filename']} ({it['file_size']} bytes)")
+                print(f"  Error: {it['error_class']}: {it['error_message']}")
+                print(f"  Failed at: {it['failed_at']}")
+                print("-" * 75)
+        return 0
+    elif args.action == "replay":
+        if not args.workspace:
+            print("Error: --workspace is required to replay a poison file", file=sys.stderr)
+            return 1
+        if not args.filename:
+            print("Error: Specify filename to replay", file=sys.stderr)
+            return 1
+        print(f"Replaying poison file '{args.filename}' in workspace '{args.workspace}'...", file=sys.stderr)
+        doc_type = DocType(args.doc_type.lower()) if args.doc_type.lower() in [e.value for e in DocType] else DocType.GENERAL
+        report = client.replay_poison_file(filename=args.filename, workspace=args.workspace, doc_type=doc_type)
+        print(json.dumps(report.model_dump(), indent=2))
+        return 0 if report.status in ("completed", "skipped_duplicate") else 1
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nexus",
@@ -496,6 +530,21 @@ def main():
     p_verify.add_argument("--json", action="store_true", help="Output diagnostic report in JSON format")
     p_verify.add_argument("--profile", choices=["dev", "prod"], default="dev", help="Diagnostic profile ('dev' or 'prod')")
     p_verify.set_defaults(func=cmd_doctor)
+
+    # 10. Poison Queue
+    p_poison = subparsers.add_parser("poison", help="Inspect and replay poisoned files from .failed/ queue")
+    poison_sub = p_poison.add_subparsers(dest="action", required=True)
+
+    p_poison_list = poison_sub.add_parser("list", help="List all quarantined poison files")
+    p_poison_list.add_argument("--workspace", "-w", type=str, default=None, help="Filter by workspace")
+    p_poison_list.add_argument("--json", action="store_true", help="Output list in JSON format")
+
+    p_poison_replay = poison_sub.add_parser("replay", help="Replay a poison file after resolving issue")
+    p_poison_replay.add_argument("filename", type=str, help="Filename to replay")
+    p_poison_replay.add_argument("--workspace", "-w", type=str, required=True, help="Target workspace")
+    p_poison_replay.add_argument("--doc-type", "-t", type=str, default="general", help="Document classification")
+
+    p_poison.set_defaults(func=cmd_poison)
 
     parsed = parser.parse_args()
     sys.exit(parsed.func(parsed))

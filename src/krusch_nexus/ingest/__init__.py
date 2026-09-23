@@ -17,7 +17,9 @@ from .sandbox import (
 )
 from .archival import (
     archive_success,
-    handle_failure
+    handle_failure,
+    list_poison_files,
+    replay_poison_file
 )
 from .persist import (
     cleanup_uncommitted_chunks,
@@ -35,6 +37,8 @@ __all__ = [
     "DENIED_SYSTEM_ROOTS",
     "archive_success",
     "handle_failure",
+    "list_poison_files",
+    "replay_poison_file",
     "cleanup_uncommitted_chunks",
     "resolve_document_lineage",
     "commit_document"

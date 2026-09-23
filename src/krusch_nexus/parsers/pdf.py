@@ -94,6 +94,10 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
 
     page_num_regex = re.compile(r'^(?:page\s+\d+(?:\s+of\s+\d+)?|\d+\s*/\s*\d+|-\s*\d+\s*-|\d+)$', re.IGNORECASE)
     confidential_regex = re.compile(r'^(?:confidential|privileged|all rights reserved|attorney-client privilege)\b', re.IGNORECASE)
+    pacer_docket_regex = re.compile(
+        r'^(?:Case\s+[0-9]+:[0-9]{2}-[a-z]{2,4}-[0-9]+|Doc(?:ument)?\.?\s+\d+.*Filed|Page\s+\d+\s+of\s+\d+.*PageID)\b',
+        re.IGNORECASE
+    )
 
     top_candidates: List[str] = []
     bottom_candidates: List[str] = []
@@ -114,7 +118,7 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
     bottom_counts = Counter(bottom_candidates)
     threshold = max(2, len(pages) // 2)
 
-    suppress_top = {line for line, cnt in top_counts.items() if cnt >= threshold or confidential_regex.search(line)}
+    suppress_top = {line for line, cnt in top_counts.items() if cnt >= threshold or confidential_regex.search(line) or pacer_docket_regex.search(line)}
     suppress_bottom = {line for line, cnt in bottom_counts.items() if cnt >= threshold or page_num_regex.search(line)}
 
     for i, p in enumerate(pages):
@@ -125,7 +129,7 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
 
         for idx, line in enumerate(lines):
             l_low = line.lower()
-            is_top = (idx < 2) and (l_low in suppress_top or confidential_regex.search(l_low))
+            is_top = (idx < 2) and (l_low in suppress_top or confidential_regex.search(l_low) or pacer_docket_regex.search(line))
             is_bottom = (idx >= len(lines) - 2) and (l_low in suppress_bottom or page_num_regex.search(l_low))
 
             if is_top or is_bottom:
@@ -238,7 +242,14 @@ def parse_pdf(
 
         if not ocr_applied and digital_text:
             for para in [p.strip() for p in digital_text.split('\n\n') if p.strip()]:
-                page_blocks.append(ContentBlock(text=para, block_type="paragraph"))
+                para_lines = [l.strip() for l in para.splitlines() if l.strip()]
+                is_table = (
+                    len(para_lines) >= 2
+                    and all(re.search(r'\s{2,}|\t|\|', l) for l in para_lines)
+                    and any(re.search(r'\d', l) for l in para_lines)
+                )
+                block_type = "table" if is_table else "paragraph"
+                page_blocks.append(ContentBlock(text=para, block_type=block_type))
 
         pages_data.append(PageData(
             index=page_num,

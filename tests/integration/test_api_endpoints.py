@@ -147,6 +147,27 @@ class TestApiEndpoints(unittest.TestCase):
         )
         self.assertEqual(del_ok.status_code, 200)
 
+    def test_ingest_idempotency_semantics(self):
+        """Verify explicit on_duplicate HTTP semantics: 200 with skipped_duplicate vs 409 Conflict."""
+        file_content = b"Section 9.9 Confidentiality\nAll trade secrets must be protected indefinitely."
+        files = {"file": ("nda_idempotent.txt", file_content, "text/plain")}
+        data = {"workspace": "IPMatters", "doc_type": "general"}
+
+        # 1. First ingest -> completed (200)
+        resp1 = self.client.post("/v1/ingest", files=files, data=data)
+        self.assertEqual(resp1.status_code, 200)
+        self.assertEqual(resp1.json()["status"], "completed")
+
+        # 2. Second ingest with default / on_duplicate="skip" -> skipped_duplicate (200)
+        resp2 = self.client.post("/v1/ingest", files=files, data={**data, "on_duplicate": "skip"})
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["status"], "skipped_duplicate")
+
+        # 3. Third ingest with on_duplicate="conflict" -> 409 Conflict
+        resp3 = self.client.post("/v1/ingest", files=files, data={**data, "on_duplicate": "conflict"})
+        self.assertEqual(resp3.status_code, 409)
+        self.assertIn("already exists", resp3.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

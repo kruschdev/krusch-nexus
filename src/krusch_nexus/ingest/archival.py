@@ -11,7 +11,7 @@ import shutil
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from ..models import IngestState
 from ..store import IngestRun, get_db_session
@@ -136,3 +136,114 @@ def handle_failure(
         logger.info(f"Isolated poison file '{filename}' ({type(error).__name__}) to {failed_dir}")
     except Exception as e:
         logger.error(f"Error isolating failed file '{filename}': {e}")
+
+
+def list_poison_files(
+    watch_dir: Optional[str] = None,
+    workspace: Optional[str] = None,
+    allowed_roots: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    List all failed/poison files across workspaces in .failed/ with error sidecar metadata.
+    """
+    candidate_bases = []
+    if watch_dir:
+        candidate_bases.append(Path(watch_dir).resolve() / ".failed")
+        candidate_bases.append(Path(watch_dir).parent.resolve() / ".failed")
+    if allowed_roots:
+        for r in allowed_roots:
+            candidate_bases.append(Path(r).resolve() / ".failed")
+    candidate_bases.append(Path("./ingest_watch").resolve() / ".failed")
+    candidate_bases.append(Path(".failed").resolve())
+
+    found_bases = [b for b in candidate_bases if b.exists() and b.is_dir()]
+    if not found_bases:
+        return []
+
+    results = []
+    seen_paths = set()
+    for failed_base in found_bases:
+        target_dirs = [failed_base / workspace] if workspace else [d for d in failed_base.iterdir() if d.is_dir()]
+        for ws_dir in target_dirs:
+            if not ws_dir.exists() or not ws_dir.is_dir():
+                continue
+            ws_name = ws_dir.name
+            for item in ws_dir.iterdir():
+                if item.is_file() and not item.name.endswith(".error.json"):
+                    if str(item) in seen_paths:
+                        continue
+                    seen_paths.add(str(item))
+                    sidecar = ws_dir / f"{item.name}.error.json"
+                    sidecar_data = {}
+                    if sidecar.exists():
+                        try:
+                            with open(sidecar, "r", encoding="utf-8") as f:
+                                sidecar_data = json.load(f)
+                        except Exception:
+                            pass
+                    results.append({
+                        "filename": item.name,
+                        "workspace": ws_name,
+                        "filepath": str(item),
+                        "file_size": item.stat().st_size,
+                        "mtime": datetime.fromtimestamp(item.stat().st_mtime, timezone.utc).isoformat(),
+                        "error_class": sidecar_data.get("error_class", "UnknownError"),
+                        "error_message": sidecar_data.get("error_message", ""),
+                        "duration_ms": sidecar_data.get("duration_ms", 0.0),
+                        "failed_at": sidecar_data.get("timestamp", "")
+                    })
+    return sorted(results, key=lambda x: x.get("failed_at", ""), reverse=True)
+
+
+def replay_poison_file(
+    filename: str,
+    workspace_name: str,
+    pipeline,
+    watch_dir: Optional[str] = None,
+    allowed_roots: Optional[List[str]] = None,
+    doc_type: Any = None
+) -> Any:
+    """
+    Replay a poisoned file from .failed/<workspace>/<filename>.
+    If ingestion succeeds, remove the file and its .error.json sidecar from .failed/.
+    """
+    from ..models import DocType
+    resolved_doc_type = doc_type or DocType.GENERAL
+
+    candidate_bases = []
+    if watch_dir:
+        candidate_bases.append(Path(watch_dir).resolve() / ".failed")
+        candidate_bases.append(Path(watch_dir).parent.resolve() / ".failed")
+    if allowed_roots:
+        for r in allowed_roots:
+            candidate_bases.append(Path(r).resolve() / ".failed")
+    candidate_bases.append(Path("./ingest_watch").resolve() / ".failed")
+    candidate_bases.append(Path(".failed").resolve())
+
+    target_path = None
+    for b in candidate_bases:
+        candidate = b / workspace_name / filename
+        if candidate.exists():
+            target_path = candidate
+            break
+
+    if not target_path or not target_path.exists():
+        raise FileNotFoundError(f"Poison file '{filename}' not found in workspace '{workspace_name}'")
+
+    report = pipeline.process_file(
+        filepath=str(target_path),
+        workspace_name=workspace_name,
+        doc_type=resolved_doc_type,
+        archive_source=False
+    )
+
+    if report.status in ("completed", "skipped_duplicate"):
+        try:
+            target_path.unlink(missing_ok=True)
+            sidecar = target_path.parent / f"{filename}.error.json"
+            sidecar.unlink(missing_ok=True)
+            logger.info(f"Successfully replayed and cleared poison file '{filename}' from .failed/{workspace_name}")
+        except Exception as e:
+            logger.warning(f"Could not remove replayed poison file from .failed: {e}")
+
+    return report

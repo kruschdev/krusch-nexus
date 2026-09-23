@@ -80,6 +80,10 @@ class NexusClient:
     def _get_search_db(self):
         return self._search_sessionmaker()
 
+    def _get_pipeline(self):
+        from .ingest import IngestPipeline
+        return IngestPipeline(self.config, engine=self.engine)
+
     def ingest(
         self,
         filepath: str,
@@ -94,8 +98,7 @@ class NexusClient:
         if not workspace or not workspace.strip():
             raise WorkspaceRequiredError("A workspace name is required to ingest documents.")
 
-        from .ingest import IngestPipeline
-        pipeline = IngestPipeline(self.config, engine=self.engine)
+        pipeline = self._get_pipeline()
         return pipeline.process_file(
             filepath=filepath,
             workspace_name=workspace.strip(),
@@ -460,6 +463,38 @@ class NexusClient:
             target_workspace=target_workspace,
             config=self.config,
             engine=self.engine
+        )
+
+    def list_poison_files(self, workspace: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        List all failed/poison files across workspaces in .failed/ with error sidecar metadata.
+        """
+        from .ingest import list_poison_files
+        return list_poison_files(
+            watch_dir=self.config.watch_dir,
+            workspace=workspace,
+            allowed_roots=self.config.allowed_ingest_roots
+        )
+
+    def replay_poison_file(
+        self,
+        filename: str,
+        workspace: str,
+        doc_type: DocType = DocType.GENERAL
+    ) -> IngestReport:
+        """
+        Replay a poisoned file from .failed/<workspace>/<filename>.
+        If ingestion succeeds, remove the file from .failed/ and return IngestReport.
+        """
+        from .ingest import replay_poison_file
+        pipeline = self._get_pipeline()
+        return replay_poison_file(
+            filename=filename,
+            workspace_name=workspace,
+            pipeline=pipeline,
+            watch_dir=self.config.watch_dir,
+            allowed_roots=self.config.allowed_ingest_roots,
+            doc_type=doc_type
         )
 
 
