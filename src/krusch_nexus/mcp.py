@@ -10,7 +10,24 @@ import os
 import json
 import logging
 from typing import Optional, List
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ImportError:
+    class FastMCP:  # type: ignore
+        """Fallback FastMCP stub when mcp library is absent from environment."""
+        def __init__(self, name: str = "KruschNexusMCP", *args, **kwargs):
+            self.name = name
+
+        def tool(self, *args, **kwargs):
+            def decorator(f):
+                return f
+            return decorator
+
+        def run(self, *args, **kwargs):
+            raise RuntimeError(
+                "The 'mcp' package is required to run the FastMCP server. "
+                "Install it with `pip install mcp` or run within mcp_env."
+            )
 
 from .client import NexusClient
 from .models import DocType, NexusConfig
