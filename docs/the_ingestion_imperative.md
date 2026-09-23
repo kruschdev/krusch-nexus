@@ -416,9 +416,9 @@ Replace manual demo evaluation with a three-gate automated regression test in co
 *For engineering teams implementing this architecture, the technical components referenced in this essay correspond to the following open-source and homelab specifications:*
 
 - **Ingestion & Layout Engine**: `krusch-nexus` ([github.com/kruschdev/krusch-nexus](https://github.com/kruschdev/krusch-nexus)). Layout extraction via Poppler (`pdftotext -layout`), OCR via Tesseract 5.3.4, and bit-for-bit span offset tracking.
-- **Sovereign Statutory Intelligence**: `krusch-law` ([github.com/kruschdev/krusch-law](https://github.com/kruschdev/krusch-law)). Versioned statutory graph, authority weighting, assertion-level proposition grounding, and confidential matter isolation.
-- **Context & Memory Harness**: `krusch-context-mcp` ([github.com/kruschdev/krusch-context-mcp](https://github.com/kruschdev/krusch-context-mcp)). Persistent working memory, Lakebase SQLite compute caching, trajectory auditing, and L2 neural semantic routing.
+- **Sovereign Statutory Intelligence**: `krusch-law` ([github.com/kruschdev/krusch-law](https://github.com/kruschdev/krusch-law)). Versioned statutory graph, deterministic jurisdiction machine, two-pass assertion grounding with granular refusal, and confidential matter isolation.
+- **Context & Memory Harness**: `krusch-context-mcp` ([github.com/kruschdev/krusch-context-mcp](https://github.com/kruschdev/krusch-context-mcp)). Persistent working memory, Lakebase SQLite compute caching, stale statutory memory review queues, and L2 neural semantic routing.
 - **Relational Contract Graph**: `krusch-biz` ([github.com/kruschdev/krusch-biz](https://github.com/kruschdev/krusch-biz)). Relational schema tracking `agreements`, `clauses`, and `agreement_relations` with automated controlling clause resolution.
 - **Storage Substrate**: PostgreSQL 16 with `pgvector` extension and GIN indexes on `to_tsvector('english', content)`.
 - **Local Embedding Vector Space**: BAAI `bge-large-en-v1.5` (1,024 dimensions, normalized Euclidean distance / cosine similarity).
-- **Evaluation Harness**: Three-gate regression gate (`test_golden_eval_gate.py`) reporting Wilson-score confidence intervals and calibration confusion matrices across held-out corpora.
+- **Evaluation Harness**: Multi-gate regression harness (`test_golden_eval_gate.py` and `test_conflict_pairs.py`) reporting Wilson-score confidence intervals, conflict-pair deterministic invariants, and calibration confusion matrices across held-out corpora.

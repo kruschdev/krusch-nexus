@@ -45,12 +45,14 @@ To maintain technical integrity, we explicitly distinguish between active code r
 | :--- | :---: | :--- |
 | **Span-True Ingestion** | ✅ **Implemented** | Poppler layout extraction, Tesseract OCR fallback, bit-for-bit span offset tracking (`krusch-nexus`). |
 | **Hybrid RRF Search** | ✅ **Implemented** | Reciprocal Rank Fusion ($k=60$) combining `pgvector` HNSW cosine distance and `tsvector` cover density (`krusch-nexus`, `krusch-law`). |
-| **Grounding Failure Taxonomy** | ✅ **Implemented** | 4-class classifier: `supported`, `invented_citation`, `stale_law`, `wrong_proposition` (`krusch-law`). |
+| **Grounding Failure Taxonomy** | ✅ **Implemented** | 5-class granular classifier: `entailed`, `contradicted`, `exception_applies`, `insufficient_context`, `not_in_corpus` (`krusch-law`). |
 | **Episodic Working Memory** | ✅ **Implemented** | Lakebase architecture: SQLite compute cache (`.agent/memory.db`) synced to PostgreSQL with explicit superseding and invalidation (`krusch-context-mcp`). |
 | **Lean Tool Routing** | ✅ **Implemented** | 13-tool core profile (~900 tokens) with dynamic L2 neural centroid dispatching (`krusch-context-mcp`). |
-| **Deterministic Preemption Engine** | 🟡 *In Progress* | Transitioning from authority multipliers (1.25x/1.15x) to a graph-based preemption filter (`applies_if`, `preempted_by`). |
-| **Claim-Level Entailment Split** | 🟡 *In Progress* | Separating Pass A (mechanical syntax/date) from Pass B (isolated natural language entailment). |
-| **Code-to-Statute CI Traceability** | ⚪ *Planned* | Curated `statute_id → symbol_id` table for regulatory compliance verification. |
+| **Deterministic Jurisdiction Machine** | ✅ **Implemented** | Deprecated scalar multipliers (1.0x). Evaluates temporal status, spatial `applies_if` gates, and preemption graph edges (`krusch-law`). |
+| **Two-Pass Claim Verifier** | ✅ **Implemented** | Pass A (mechanical syntax/date) + Pass B (propositional entailment, numbers, duty inversions, statutory exceptions) with inline refusal (`krusch-law`). |
+| **Statutory Amendment Pipeline** | ✅ **Implemented** | Computes legislative diffs, transitions nodes to `amended`, and routes affected memories to `STALE_PENDING_REVIEW` queue (`krusch-law`, `krusch-context-mcp`). |
+| **Code-to-Statute Traceability Table** | ✅ **Implemented** | Curated `StatuteCodeTraceability` table binding California housing statutes to symbols with attorney review attestations (`krusch-law`). |
+| **Unified Runtime API Bridge** | ✅ **Implemented** | Native `/api/laws/search`, `/api/laws/section`, `/api/verify/assertions`, and `/api/cases/brief` endpoints unifying context and law (`krusch-law`). |
 
 ---
 
