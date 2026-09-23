@@ -228,6 +228,7 @@ python -m krusch_nexus.eval_report
 
 ## 10. Architecture & Documentation
 
+- [Why We Built KruschNexus](docs/why_we_built_krusch_nexus.md) — Architecture manifesto: why citations die in local RAG and how KruschNexus preserves span truth.
 - [Compatibility Promise (v0.2.3 through 0.3.0)](docs/compatibility_promise.md) — 1-page SemVer and frozen schema contract.
 - [Retrieval & Ranking Spec](docs/retrieval_and_ranking.md) — RRF fusion, query operators (`-term`, `doc_type:`, `page:`, `header:`), section boost cap ablation.
 - [Security & Threat Model](docs/security_and_threat_model.md) — Attack/defense matrix, path sandbox, and explicit operational non-goals.
