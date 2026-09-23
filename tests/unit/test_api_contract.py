@@ -80,7 +80,8 @@ def test_search_hit_schema_contract():
         "match_reasons",
         "vector_rank",
         "fts_rank",
-        "doc_type"
+        "doc_type",
+        "score_vector"
     ]
 
     for field in required_contract_fields:
@@ -102,6 +103,7 @@ def test_search_hit_schema_contract():
     assert hit.lexical_boost is True  # synchronized alias
     assert hit.structured_locator is not None
     assert hit.structured_locator.page == 2
+    assert isinstance(hit.score_vector, dict)
 
 
 def test_ingest_report_schema_contract():
