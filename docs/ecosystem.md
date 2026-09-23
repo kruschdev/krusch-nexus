@@ -14,10 +14,11 @@ KruschNexus serves as the shared, air-gapped document ingestion engine and citat
 
 Domain applications consume KruschNexus strictly via its public client or MCP surface:
 
-1. **PocketLawyer / KruschLaw**:
-   - Legal research, municipal code exploration, and statutory compliance.
+1. **KruschLaw (`krusch-law`)** (formerly PocketLawyer):
+   - Sovereign legal intelligence, municipal code exploration, and statutory compliance.
+   - Consumes KruschNexus as its primary document ingestion spine (`parse_document` and `chunk_document_pages`).
    - Requires page-true citations (`contract.pdf p.3 Section 8.22 Permitted Use`) to prevent legal hallucinations.
-   - Enforces matter isolation (`workspace_id`) across distinct client matters.
+   - Enforces matter isolation (`county="Matter #..."`) across distinct client matters.
 
 2. **KruschBiz / Operational Tools**:
    - Vendor matrix analysis, policy manuals, corporate records retention schedules.
