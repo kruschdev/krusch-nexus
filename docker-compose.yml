@@ -21,7 +21,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     networks:
       - nexus_net
     volumes:
@@ -54,7 +54,7 @@ services:
   ingest-worker:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     networks:
       - nexus_net
     volumes:
@@ -83,7 +83,7 @@ services:
   mcp-server:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     networks:
       - nexus_net
     volumes:
