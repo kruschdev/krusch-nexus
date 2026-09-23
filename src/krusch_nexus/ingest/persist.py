@@ -98,31 +98,60 @@ def commit_document(
     mean_ocr_conf = (sum(ocr_conf_dict.values()) / len(ocr_conf_dict)) if ocr_conf_dict else None
     resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
 
-    new_doc = Document(
-        filename=orig_filename,
-        workspace_id=workspace.id,
-        file_hash=file_hash,
-        mime=parser_result.mime,
-        detected_mime=parser_result.detected_mime,
-        parser_name=parser_result.parser_name,
-        parser_version=parser_result.parser_version,
-        chunker_version="1.0",
-        total_pages=total_pages,
-        total_chunks=len(chunks),
-        version=version,
-        doc_type=resolved_doc_type,
-        ocr_pages=json.dumps(ocr_pages),
-        ocr_confidence=json.dumps(ocr_conf_dict),
-        status=IngestState.COMMITTED.value,
-        original_path=filepath_str,
-        mtime=mtime,
-        embedding_model=config.embed_model,
-        embedding_dim=len(embeddings[0]) if (embeddings and embeddings[0]) else 1024,
-        extra=json.dumps({"tool_versions": getattr(parser_result, "tool_versions", {})}),
-        ingested_at=datetime.now(timezone.utc)
-    )
-    db.add(new_doc)
-    db.flush()
+    existing_doc = db.query(Document).filter(
+        Document.workspace_id == workspace.id,
+        Document.file_hash == file_hash
+    ).first()
+
+    if existing_doc:
+        db.query(DocumentChunk).filter(DocumentChunk.document_id == existing_doc.id).delete(synchronize_session=False)
+        existing_doc.filename = orig_filename
+        existing_doc.mime = parser_result.mime
+        existing_doc.detected_mime = parser_result.detected_mime
+        existing_doc.parser_name = parser_result.parser_name
+        existing_doc.parser_version = parser_result.parser_version
+        existing_doc.chunker_version = "1.0"
+        existing_doc.total_pages = total_pages
+        existing_doc.total_chunks = len(chunks)
+        existing_doc.version = version
+        existing_doc.doc_type = resolved_doc_type
+        existing_doc.ocr_pages = json.dumps(ocr_pages)
+        existing_doc.ocr_confidence = json.dumps(ocr_conf_dict)
+        existing_doc.status = IngestState.COMMITTED.value
+        existing_doc.original_path = filepath_str
+        existing_doc.mtime = mtime
+        existing_doc.embedding_model = config.embed_model
+        existing_doc.embedding_dim = len(embeddings[0]) if (embeddings and embeddings[0]) else 1024
+        existing_doc.extra = json.dumps({"tool_versions": getattr(parser_result, "tool_versions", {})})
+        existing_doc.ingested_at = datetime.now(timezone.utc)
+        new_doc = existing_doc
+        db.flush()
+    else:
+        new_doc = Document(
+            filename=orig_filename,
+            workspace_id=workspace.id,
+            file_hash=file_hash,
+            mime=parser_result.mime,
+            detected_mime=parser_result.detected_mime,
+            parser_name=parser_result.parser_name,
+            parser_version=parser_result.parser_version,
+            chunker_version="1.0",
+            total_pages=total_pages,
+            total_chunks=len(chunks),
+            version=version,
+            doc_type=resolved_doc_type,
+            ocr_pages=json.dumps(ocr_pages),
+            ocr_confidence=json.dumps(ocr_conf_dict),
+            status=IngestState.COMMITTED.value,
+            original_path=filepath_str,
+            mtime=mtime,
+            embedding_model=config.embed_model,
+            embedding_dim=len(embeddings[0]) if (embeddings and embeddings[0]) else 1024,
+            extra=json.dumps({"tool_versions": getattr(parser_result, "tool_versions", {})}),
+            ingested_at=datetime.now(timezone.utc)
+        )
+        db.add(new_doc)
+        db.flush()
 
     for c, emb in zip(chunks, embeddings):
         chunk_rec = DocumentChunk(
@@ -144,6 +173,7 @@ def commit_document(
             confidence=c.confidence,
             char_start=c.char_start,
             char_end=c.char_end,
+            bbox=json.dumps(getattr(c, "bbox", None)) if getattr(c, "bbox", None) else None,
             is_superseded=False,
             embedding=emb if emb else None
         )

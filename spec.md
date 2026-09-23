@@ -59,19 +59,20 @@ KruschNexus operates strictly as an air-gapped **corpus factory**, not an agenti
 
 ```text
 src/krusch_nexus/
-  ├── parsers.py         # Multi-format parsers (PDF, DOCX, EML, CSV, HTML, TXT) with MIME detection
+  ├── parsers/           # Multi-format parsers (pdf, docx, eml, tabular, html, ocr, registry)
   ├── chunking.py        # Structure-aware sliding window chunking with provenance and breadcrumb isolation
-  ├── embeddings.py     # Local Ollama embedding client with persistent disk/DB SHA-256 caching
+  ├── embeddings.py      # Local Ollama embedding client with persistent disk/DB SHA-256 caching
   ├── store.py           # SQLAlchemy relational models (workspaces, documents, chunks, ingest_runs, embed_cache)
-  ├── retrieve.py        # 150-line hybrid search (ANN + FTS + RRF k=60 + section boost + phrase boost)
-  ├── ingest.py          # 8-state single-file pipeline with atomic DB commit and path sandboxing
+  ├── retrieve.py        # Deterministic hybrid search (ANN + FTS + RRF k=60 + section boost + phrase boost)
+  ├── ingest/            # Hardened 8-state pipeline (sandbox, archival, persist, pipeline)
   ├── daemon.py          # Watchdog folder daemon with bounded OCR/embed & standalone stale-lock reaper
   ├── api.py             # FastAPI REST endpoints (/v1/ingest, /v1/search, /v1/documents, /health)
-  ├── mcp.py             # FastMCP server exposing 6 user tools and operator-gated destructive tools
-  ├── client.py          # Typed Python SDK (NexusClient)
+  ├── mcp.py             # FastMCP server exposing user tools and operator-gated destructive tools
+  ├── client.py          # Typed Python SDK (NexusClient, Nexus)
+  ├── workspace.py       # Bit-for-bit workspace portability (export_workspace, import_workspace)
   ├── models.py          # Frozen Pydantic schemas (DocType, Citation, StructuredLocator, SearchHit, IngestReport, NexusConfig)
   ├── exceptions.py      # Typed error hierarchy
-  └── cli.py             # Unified CLI (nexus search, ingest, doctor, daemon, mcp)
+  └── cli.py             # Unified CLI (nexus search, ingest, doctor, daemon, mcp, workspace)
 ```
 
 ---

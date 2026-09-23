@@ -121,14 +121,12 @@ def retrieve(
     q_str = query.strip()
     is_postgres = db.bind.dialect.name == "postgresql" if db.bind else False
 
-    # Extract legal citations (e.g. § 1950.5, Section 8.22.030, Art. IV)
-    sec_match = SECTION_PATTERN.search(q_str)
-    target_section = sec_match.group(0).strip() if sec_match else None
-    section_number = sec_match.group(1).strip() if sec_match else None
-    norm_target_token = normalize_citation_token(section_number or target_section or "")
-
-    # Extract exact phrase quotes (e.g. "liquidated damages")
-    quoted_phrases = [p.strip().lower() for p in QUOTE_PATTERN.findall(q_str) if len(p.strip()) >= 3]
+    # Normalize debug search modes
+    norm_mode = mode.lower().strip()
+    if norm_mode in ("lexical", "lexical_only", "fts"):
+        mode = "fts_only"
+    elif norm_mode in ("vector", "vector_only", "dense"):
+        mode = "vector_only"
 
     # Filters (SQL-level predicates)
     resolved_filters = dict(filters or {})
@@ -137,6 +135,40 @@ def retrieve(
     filter_doc_id = resolved_filters.get("doc_id")
     filter_filename = resolved_filters.get("filename")
     filter_header_regex = resolved_filters.get("header_regex")
+
+    # Extract inline query operators: -term, doc_type:, page:, header:
+    negative_terms: List[str] = []
+    clean_q = q_str
+
+    for m in re.finditer(r'\bdoc_type:(\w+)', clean_q, re.IGNORECASE):
+        active_doc_type = m.group(1).lower()
+    clean_q = re.sub(r'\bdoc_type:\w+', ' ', clean_q, flags=re.IGNORECASE)
+
+    for m in re.finditer(r'\bpage:(\d+)', clean_q, re.IGNORECASE):
+        filter_page = int(m.group(1))
+    clean_q = re.sub(r'\bpage:\d+', ' ', clean_q, flags=re.IGNORECASE)
+
+    for m in re.finditer(r'\bheader:(?:"([^"]+)"|\'([^\']+)\'|(\S+))', clean_q, re.IGNORECASE):
+        filter_header_regex = m.group(1) or m.group(2) or m.group(3)
+    clean_q = re.sub(r'\bheader:(?:"[^"]+"|\'[^\']+\'|\S+)', ' ', clean_q, flags=re.IGNORECASE)
+
+    for m in re.finditer(r'(?:^|\s)-([a-zA-Z0-9_\.\-]+)', clean_q):
+        neg_val = m.group(1).strip().lower()
+        if neg_val:
+            negative_terms.append(neg_val)
+    clean_q = re.sub(r'(?:^|\s)-[a-zA-Z0-9_\.\-]+', ' ', clean_q)
+    clean_q = re.sub(r'\s+', ' ', clean_q).strip()
+
+    effective_query = clean_q or q_str
+
+    # Extract legal citations (e.g. § 1950.5, Section 8.22.030, Art. IV)
+    sec_match = SECTION_PATTERN.search(effective_query)
+    target_section = sec_match.group(0).strip() if sec_match else None
+    section_number = sec_match.group(1).strip() if sec_match else None
+    norm_target_token = normalize_citation_token(section_number or target_section or "")
+
+    # Extract exact phrase quotes (e.g. "liquidated damages")
+    quoted_phrases = [p.strip().lower() for p in QUOTE_PATTERN.findall(effective_query) if len(p.strip()) >= 3]
 
     # Safe validation of header_regex filter
     compiled_header_regex = None
@@ -174,13 +206,13 @@ def retrieve(
 
     # 1. Embed Query (cached by hash)
     query_vector = None
-    q_h = hash_query(q_str)
+    q_h = hash_query(effective_query)
     if embed_fn and mode != "fts_only":
         if q_h in _QUERY_EMBED_CACHE:
             query_vector = _QUERY_EMBED_CACHE[q_h]
         else:
             try:
-                query_vector = embed_fn(q_str)
+                query_vector = embed_fn(effective_query)
             except Exception as e:
                 logger.warning(f"Query embed failed: {e}")
 
@@ -202,7 +234,7 @@ def retrieve(
 
     # 2. Vector ANN in workspace (parameterized :qvec::vector without string interpolation)
     dense_results: List[Tuple[DocumentChunk, float]] = []
-    min_sim_threshold: float = 0.40
+    min_sim_threshold: float = 0.45
     if query_vector and mode != "fts_only":
         if is_postgres:
             vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
@@ -264,7 +296,7 @@ def retrieve(
     # 3. FTS in workspace (utilizing stored tsv_content GIN index on PostgreSQL)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
     if is_postgres and mode != "vector_only":
-        clean_fts_q = re.sub(r'["\'§]', ' ', q_str).strip()
+        clean_fts_q = re.sub(r'["\'§]', ' ', effective_query).strip()
         sql = f"""
             SELECT id, ts_rank_cd(tsv_content, plainto_tsquery('english', :q)) as r_score
             FROM document_chunks
@@ -300,7 +332,7 @@ def retrieve(
                 logger.debug(f"Sparse FTS fallback error: {fe}")
     elif mode != "vector_only":
         # SQLite lexical match fallback with SQL-level filtering
-        toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
+        toks = [t.lower() for t in re.findall(r'\w+', effective_query) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if not include_superseded:
             q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded == None))
@@ -321,6 +353,17 @@ def retrieve(
                 scored.append((c, float(m)))
         scored.sort(key=lambda x: x[1], reverse=True)
         sparse_results = scored[:sparse_limit]
+
+    # Filter out chunks matching negative terms (-term)
+    if negative_terms:
+        dense_results = [
+            (c, s) for c, s in dense_results
+            if not any(neg in (c.content + " " + (c.header or "")).lower() for neg in negative_terms)
+        ]
+        sparse_results = [
+            (c, s) for c, s in sparse_results
+            if not any(neg in (c.content + " " + (c.header or "")).lower() for neg in negative_terms)
+        ]
 
     # 4. Scoring / RRF
     rrf: Dict[int, float] = {}
@@ -511,6 +554,7 @@ def retrieve(
             match_reasons=reasons,
             char_start=getattr(c, "char_start", None),
             char_end=getattr(c, "char_end", None),
+            bbox=json.loads(c.bbox) if (getattr(c, "bbox", None) and isinstance(c.bbox, str)) else getattr(c, "bbox", None),
             confidence=getattr(c, "confidence", None),
             source_hash=c.source_hash,
             file_hash=c.doc_hash,

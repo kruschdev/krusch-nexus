@@ -156,8 +156,35 @@ def try_tesseract_ocr(
                     confs = []
                     blocks: List[ContentBlock] = []
                     current_line_words: List[str] = []
+                    current_line_boxes: List[Tuple[float, float, float, float]] = []
+                    current_line_confs: List[float] = []
                     current_line_num: Optional[int] = None
                     current_block_num: Optional[int] = None
+
+                    def _flush_line():
+                        if not current_line_words:
+                            return
+                        l_text = " ".join(current_line_words)
+                        l_bbox = None
+                        if current_line_boxes:
+                            min_l = min(b[0] for b in current_line_boxes)
+                            min_t = min(b[1] for b in current_line_boxes)
+                            max_r = max(b[0] + b[2] for b in current_line_boxes)
+                            max_b = max(b[1] + b[3] for b in current_line_boxes)
+                            scale = 72.0 / float(policy.dpi)
+                            l_bbox = [
+                                round(min_l * scale, 2),
+                                round(min_t * scale, 2),
+                                round((max_r - min_l) * scale, 2),
+                                round((max_b - min_t) * scale, 2)
+                            ]
+                        l_conf = (sum(current_line_confs) / (100.0 * len(current_line_confs))) if current_line_confs else None
+                        blocks.append(ContentBlock(
+                            text=l_text,
+                            block_type="paragraph",
+                            bbox=l_bbox,
+                            confidence=l_conf
+                        ))
 
                     for row in lines[1:]:
                         parts = row.split('\t')
@@ -165,6 +192,10 @@ def try_tesseract_ocr(
                             try:
                                 block_num = int(parts[2])
                                 line_num = int(parts[4])
+                                left = float(parts[6])
+                                top = float(parts[7])
+                                width = float(parts[8])
+                                height = float(parts[9])
                                 conf = float(parts[10])
                                 w_text = parts[11].strip()
 
@@ -172,23 +203,19 @@ def try_tesseract_ocr(
                                     confs.append(conf)
                                     words.append(w_text)
                                     if current_line_num is not None and (line_num != current_line_num or (current_block_num is not None and block_num != current_block_num)):
-                                        if current_line_words:
-                                            blocks.append(ContentBlock(
-                                                text=" ".join(current_line_words),
-                                                block_type="paragraph"
-                                            ))
-                                            current_line_words = []
+                                        _flush_line()
+                                        current_line_words = []
+                                        current_line_boxes = []
+                                        current_line_confs = []
                                     current_line_num = line_num
                                     current_block_num = block_num
                                     current_line_words.append(w_text)
+                                    current_line_boxes.append((left, top, width, height))
+                                    current_line_confs.append(conf)
                             except (ValueError, IndexError):
                                 continue
 
-                    if current_line_words:
-                        blocks.append(ContentBlock(
-                            text=" ".join(current_line_words),
-                            block_type="paragraph"
-                        ))
+                    _flush_line()
 
                     mean_conf = (sum(confs) / (100.0 * len(confs))) if confs else None
                     if mean_conf is not None and mean_conf < policy.confidence_floor:

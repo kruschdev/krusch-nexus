@@ -34,6 +34,7 @@ class WarningCode(str, Enum):
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
     POISON_QUARANTINED = "POISON_QUARANTINED"
     MAX_PAGES_EXCEEDED = "MAX_PAGES_EXCEEDED"
+    MIME_EXTENSION_MISMATCH = "MIME_EXTENSION_MISMATCH"
 
 
 class IngestState(str, Enum):
@@ -55,6 +56,7 @@ class StructuredLocator(BaseModel):
     page: Optional[int] = None
     path: List[str] = Field(default_factory=list)
     char_span: Optional[Tuple[int, int]] = None
+    bbox: Optional[List[float]] = None  # [left, top, width, height] in PDF points
     header: Optional[str] = None
     formatted: str = ""
 
@@ -64,7 +66,8 @@ class StructuredLocator(BaseModel):
         page: Optional[int] = None,
         locator_str: Optional[str] = None,
         header: Optional[str] = None,
-        char_span: Optional[Tuple[int, int]] = None
+        char_span: Optional[Tuple[int, int]] = None,
+        bbox: Optional[List[float]] = None
     ) -> "StructuredLocator":
         clean_hdr = header if (header and header != "General") else None
         if page is not None:
@@ -78,6 +81,7 @@ class StructuredLocator(BaseModel):
                 page=page,
                 path=path_items,
                 char_span=char_span,
+                bbox=bbox,
                 header=clean_hdr,
                 formatted=f"Page {page}"
             )
@@ -87,6 +91,7 @@ class StructuredLocator(BaseModel):
                 page=None,
                 path=[locator_str],
                 char_span=char_span,
+                bbox=bbox,
                 header=clean_hdr,
                 formatted=locator_str
             )
@@ -97,6 +102,7 @@ class StructuredLocator(BaseModel):
             page=None,
             path=path_items,
             char_span=char_span,
+            bbox=bbox,
             header=clean_hdr,
             formatted=fmt
         )
@@ -341,7 +347,10 @@ class SearchHit(BaseModel):
     match_reasons: List[str] = Field(default_factory=list)
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+    bbox: Optional[List[float]] = None  # [left, top, width, height] in PDF points
     confidence: Optional[float] = None
+    ocr_mean_confidence: Optional[float] = None
+    used_ocr: bool = False
     source_hash: Optional[str] = None
     file_hash: Optional[str] = None
     doc_type: Optional[str] = None
@@ -353,16 +362,25 @@ class SearchHit(BaseModel):
         elif self.lexical_boost and not self.phrase_boost:
             self.phrase_boost = True
 
+        if self.ocr_mean_confidence is None and self.confidence is not None:
+            self.ocr_mean_confidence = self.confidence
+        if self.confidence is not None and not self.used_ocr:
+            self.used_ocr = True
+
         span = (self.char_start, self.char_end) if (self.char_start is not None and self.char_end is not None) else None
         if self.structured_locator is None:
             self.structured_locator = StructuredLocator.from_raw(
                 page=self.page_number,
                 locator_str=self.locator,
                 header=self.header,
-                char_span=span
+                char_span=span,
+                bbox=self.bbox
             )
-        elif span and self.structured_locator.char_span is None:
-            self.structured_locator.char_span = span
+        else:
+            if span and self.structured_locator.char_span is None:
+                self.structured_locator.char_span = span
+            if self.bbox and self.structured_locator.bbox is None:
+                self.structured_locator.bbox = self.bbox
 
         if not self.citation:
             self.citation = format_citation(
@@ -482,6 +500,9 @@ class NexusConfig(BaseModel):
     overlap_chars: int = 150
     max_file_size_bytes: int = 52_428_800  # 50 MB
     max_page_count: int = 500              # Cap on multi-page processing
+    max_pixels_per_page: int = 25_000_000  # Cap on OCR image pixels (e.g. 5000x5000)
+    max_embed_batch_time: float = 60.0     # Maximum seconds per embed batch
+    workspace_disk_quota_bytes: int = 1_073_741_824  # 1.0 GB per-workspace quota
     max_embed_queue_depth: int = 500       # Max pending embeddings
     watch_dir: Optional[str] = Field(
         default_factory=lambda: os.getenv("WATCH_DIR")

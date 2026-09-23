@@ -34,6 +34,7 @@ from ..exceptions import (
 from ..store import (
     Workspace,
     Document,
+    DocumentChunk,
     IngestRun,
     get_engine,
     get_session_factory
@@ -69,7 +70,8 @@ class IngestPipeline:
         doc_type: DocType = DocType.GENERAL,
         archive_source: bool = True,
         filename: Optional[str] = None,
-        simulate_crash_after_state: Optional[IngestState] = None
+        simulate_crash_after_state: Optional[IngestState] = None,
+        simulate_crash_at: Optional[str] = None
     ) -> IngestReport:
         """
         Execute the single-file ingestion pipeline.
@@ -159,16 +161,31 @@ class IngestPipeline:
                 db.commit()
                 db.refresh(workspace)
 
-            # 2. Stage: HASHED (Content deduplication check)
+            # 2. Stage: HASHED (Idempotency key: workspace, file_hash, parser_version, embed_model, embed_dim)
             file_hash = compute_file_hash(filepath_str)
             current_state = IngestState.HASHED
+
+            from ..parsers.registry import detect_file_mime, PARSER_REGISTRY
+            sniffed_mime = detect_file_mime(filepath_str, orig_filename)
+            expected_parser_info = PARSER_REGISTRY.get(sniffed_mime, PARSER_REGISTRY.get("text/plain", {}))
+            expected_parser_version = expected_parser_info.get("version", "1.0")
+            expected_embed_model = self.config.embed_model
+            expected_embed_dim = self.config.embedding_dim or 1024
 
             existing_doc = db.query(Document).filter(
                 Document.workspace_id == workspace.id,
                 Document.file_hash == file_hash
             ).first()
 
-            if existing_doc and existing_doc.status == IngestState.COMMITTED.value:
+            is_idempotent_noop = (
+                existing_doc is not None and
+                existing_doc.status == IngestState.COMMITTED.value and
+                (existing_doc.parser_version or "1.0") == expected_parser_version and
+                (existing_doc.embedding_model or "bge-large") == expected_embed_model and
+                (existing_doc.embedding_dim or 1024) == expected_embed_dim
+            )
+
+            if is_idempotent_noop:
                 if archive_source:
                     archive_success(filepath_str, orig_filename, workspace_name, file_hash)
 
@@ -205,6 +222,25 @@ class IngestPipeline:
                     duration_ms=elapsed_ms
                 )
 
+            # Check per-workspace disk quota
+            from sqlalchemy import func
+            ws_chunks_size = db.query(func.coalesce(func.sum(func.length(DocumentChunk.content)), 0)).filter(
+                DocumentChunk.workspace_id == workspace.id
+            ).scalar() or 0
+            if ws_chunks_size + file_size > self.config.workspace_disk_quota_bytes:
+                err = TooLargeError(
+                    f"Workspace '{workspace_name}' disk quota exceeded: "
+                    f"current usage {ws_chunks_size}B + file {file_size}B exceeds quota of {self.config.workspace_disk_quota_bytes}B"
+                )
+                handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash=file_hash, archive=archive_source, engine=self.engine)
+                return IngestReport(
+                    status="failed",
+                    filename=orig_filename,
+                    workspace=workspace_name,
+                    file_hash=file_hash,
+                    error=f"{err.__class__.__name__}: {str(err)}"
+                )
+
             # Crash resumption hygiene
             cleanup_uncommitted_chunks(db, workspace.id, file_hash)
 
@@ -227,6 +263,8 @@ class IngestPipeline:
             db.commit()
             if simulate_crash_after_state == IngestState.PARSED:
                 raise SystemExit("Worker killed after PARSED")
+            if simulate_crash_at == "during_ocr":
+                raise SystemExit("Chaos crash: killed during OCR")
 
             parser_result: ParserResult = parse_document(
                 file_path=filepath_str,
@@ -298,6 +336,8 @@ class IngestPipeline:
                             f"dimension {self.config.embedding_dim} for model '{self.config.embed_model}'."
                         )
                 embeddings.extend(b_vecs)
+                if simulate_crash_at == "during_embed_batch":
+                    raise SystemExit("Chaos crash: killed during embed batch")
 
             if simulate_crash_after_state == IngestState.EMBEDDED:
                 raise SystemExit("Worker killed after EMBEDDED")
@@ -342,6 +382,8 @@ class IngestPipeline:
                     "embed_model": self.config.embed_model,
                     "ingested_at": datetime.now(timezone.utc).isoformat()
                 }
+                if simulate_crash_at == "during_archive_rename":
+                    raise SystemExit("Chaos crash: killed during archive rename")
                 archive_success(filepath_str, orig_filename, workspace_name, file_hash, manifest=manifest_data)
                 try:
                     run_rec.state = IngestState.ARCHIVED.value

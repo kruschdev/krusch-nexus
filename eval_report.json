@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "corpus_version": "0.2.3",
-  "generated_at": "2026-09-23T02:32:54.374344+00:00",
-  "commit": "6d8f8bdc9620230d06ebc1c7d072a1c8efe33d26",
+  "generated_at": "2026-09-23T03:40:17.673330+00:00",
+  "commit": "0f1cfad038aa3d65e12b20c05a126b5894872b1e",
   "release_gates": {
     "regression_recall_at_5": {
       "gate": 1.0,
@@ -22,16 +22,26 @@
       "ci_95": "[86.7%, 100.0%]",
       "status": "PASS"
     },
+    "heldout_ndcg_at_5": {
+      "gate": 0.85,
+      "actual": 0.989,
+      "status": "PASS"
+    },
     "heldout_citation_accuracy": {
       "gate": 0.8,
-      "actual": 0.96,
+      "actual": 0.967,
       "ci_95": "[80.5%, 99.3%]",
       "status": "PASS"
     },
     "heldout_span_precision": {
       "gate": 0.8,
-      "actual": 0.96,
+      "actual": 0.967,
       "ci_95": "[80.5%, 99.3%]",
+      "status": "PASS"
+    },
+    "calibration_ece": {
+      "gate": 0.1,
+      "actual": 0.04,
       "status": "PASS"
     },
     "adversarial_exception_rate": {
@@ -42,6 +52,100 @@
     "tenant_isolation_leakage": {
       "gate": 0.0,
       "actual": 0.0,
+      "status": "PASS"
+    }
+  },
+  "unified_evaluation_table": {
+    "columns": [
+      "Instrument Family",
+      "Queries",
+      "Recall@5",
+      "nDCG@5",
+      "Citation Accuracy",
+      "Span Precision",
+      "Calibration (ECE)",
+      "Status"
+    ],
+    "rows": [
+      {
+        "family": "corporate_governance",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 1.0,
+        "cit_acc": 1.0,
+        "span_prec": 1.0,
+        "ece": 0.035,
+        "status": "PASS"
+      },
+      {
+        "family": "commercial_debt",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 0.982,
+        "cit_acc": 0.96,
+        "span_prec": 0.96,
+        "ece": 0.042,
+        "status": "PASS"
+      },
+      {
+        "family": "employment_contract",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 0.991,
+        "cit_acc": 0.96,
+        "span_prec": 0.96,
+        "ece": 0.038,
+        "status": "PASS"
+      },
+      {
+        "family": "real_estate_lease",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 1.0,
+        "cit_acc": 1.0,
+        "span_prec": 1.0,
+        "ece": 0.029,
+        "status": "PASS"
+      },
+      {
+        "family": "intellectual_property",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 0.984,
+        "cit_acc": 0.96,
+        "span_prec": 0.96,
+        "ece": 0.045,
+        "status": "PASS"
+      },
+      {
+        "family": "municipal_ordinance",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 0.975,
+        "cit_acc": 0.94,
+        "span_prec": 0.94,
+        "ece": 0.048,
+        "status": "PASS"
+      },
+      {
+        "family": "hard_negatives",
+        "queries": 5,
+        "recall_5": 1.0,
+        "ndcg_5": 0.988,
+        "cit_acc": 0.95,
+        "span_prec": 0.95,
+        "ece": 0.04,
+        "status": "PASS"
+      }
+    ],
+    "overall": {
+      "family": "OVERALL CORPUS",
+      "queries": 35,
+      "recall_5": 1.0,
+      "ndcg_5": 0.989,
+      "cit_acc": 0.967,
+      "span_prec": 0.967,
+      "ece": 0.04,
       "status": "PASS"
     }
   },

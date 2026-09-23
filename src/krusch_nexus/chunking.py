@@ -97,6 +97,7 @@ class Chunk:
         char_start: Optional[int] = None,
         char_end: Optional[int] = None,
         confidence: Optional[float] = None,
+        bbox: Optional[List[float]] = None,
         chunker_version: str = "1.0",
         embed_model: str = "bge-large"
     ):
@@ -110,8 +111,9 @@ class Chunk:
         self.source_hash = source_hash
         self.doc_hash = doc_hash
         self.filename = filename
+        self.bbox = bbox
         self.structured_locator = structured_locator or StructuredLocator.from_raw(
-            page=page_number, locator_str=locator, header=header
+            page=page_number, locator_str=locator, header=header, bbox=bbox
         )
         self.heading_path = list(self.structured_locator.path) if (self.structured_locator and self.structured_locator.path) else []
         self.metadata = metadata or {}
@@ -138,6 +140,7 @@ class Chunk:
             "metadata": self.metadata,
             "char_start": self.char_start,
             "char_end": self.char_end,
+            "bbox": self.bbox,
             "confidence": self.confidence,
             "chunker_version": self.chunker_version,
             "embed_model": self.embed_model
@@ -190,6 +193,18 @@ def format_chunk_citation(
     return format_citation(filename=filename, page_number=page_number, locator=locator, header=header)
 
 
+def union_bboxes(bboxes: List[List[float]]) -> Optional[List[float]]:
+    """Compute the bounding box union [left, top, width, height] for multiple boxes."""
+    valid = [b for b in bboxes if b and len(b) == 4]
+    if not valid:
+        return None
+    min_x = min(b[0] for b in valid)
+    min_y = min(b[1] for b in valid)
+    max_r = max(b[0] + b[2] for b in valid)
+    max_b = max(b[1] + b[3] for b in valid)
+    return [round(min_x, 2), round(min_y, 2), round(max_r - min_x, 2), round(max_b - min_y, 2)]
+
+
 def chunk_document_pages(
     pages: List[PageData],
     filename: str,
@@ -207,7 +222,7 @@ def chunk_document_pages(
     - source_hash is calculated strictly on raw_text.
     - Heading stacks are tracked across the document.
     - Overlap flows structurally across boundaries.
-    - Tracks char_start / char_end spatial offsets.
+    - Tracks char_start / char_end spatial offsets and PDF bounding boxes.
     """
     chunks: List[Chunk] = []
     global_chunk_idx = 0
@@ -217,43 +232,51 @@ def chunk_document_pages(
     resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
     base_meta["doc_type"] = resolved_doc_type
 
-    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header)
-    elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool]] = []
+    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header, bbox)
+    elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]]]] = []
     for p in pages:
         p_text = p.text
         if not p_text.strip():
             continue
         page_idx = p.index if p.index is not None else getattr(p, "page_number", None)
         p_conf = getattr(p, "confidence", None)
+        block_map = {b.text.strip(): b.bbox for b in p.blocks if b.bbox and b.text.strip()}
 
         curr_lines: List[str] = []
         c_start: Optional[int] = None
         c_end: Optional[int] = None
+        curr_bboxes: List[List[float]] = []
 
         for match in re.finditer(r'[^\r\n]+', p_text):
             line = match.group(0).strip()
             if not line:
                 continue
+            line_bbox = block_map.get(line)
             hdr = detect_header_candidate(line)
             if hdr:
                 if curr_lines:
-                    elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False))
+                    comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
+                    elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox))
                     curr_lines = []
+                    curr_bboxes = []
                     c_start = None
-                elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True))
+                elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox))
             else:
                 if not curr_lines:
                     c_start = match.start()
                 curr_lines.append(line)
+                if line_bbox:
+                    curr_bboxes.append(line_bbox)
                 c_end = match.end()
 
         if curr_lines:
-            elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False))
+            comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
+            elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox))
 
     if not elements:
         return []
 
-    current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool]] = []
+    current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]]]] = []
     current_len = 0
     current_header = "General"
     overlap_item_count = 0
@@ -282,6 +305,10 @@ def chunk_document_pages(
         item_confs = [x[3] for x in current_items if x[3] is not None]
         chunk_conf = sum(item_confs) / len(item_confs) if item_confs else None
 
+        # Bounding box union
+        item_bboxes = [x[7] for x in current_items if len(x) > 7 and x[7] is not None]
+        chunk_bbox = union_bboxes(item_bboxes)
+
         chunk_meta = {**base_meta, "doc_type": resolved_doc_type}
         chunks.append(Chunk(
             text=raw_chunk,          # Embed raw text only!
@@ -294,11 +321,12 @@ def chunk_document_pages(
             source_hash=c_hash,      # Hashed on raw text only!
             doc_hash=file_hash,
             filename=filename,
-            structured_locator=StructuredLocator.from_raw(page=first_page, locator_str=loc, header=current_header),
+            structured_locator=StructuredLocator.from_raw(page=first_page, locator_str=loc, header=current_header, bbox=chunk_bbox),
             metadata=chunk_meta,
             char_start=c_start,
             char_end=c_end,
             confidence=chunk_conf,
+            bbox=chunk_bbox,
             chunker_version=chunker_version,
             embed_model=embed_model
         ))
@@ -329,7 +357,7 @@ def chunk_document_pages(
         has_operative_in_chunk = any(x[6] and bool(OPERATIVE_PATTERN.search(x[2]) or x[2].startswith('#')) for x in current_items)
 
     for item in elements:
-        page_num, loc, para, conf, c_start, c_end, is_hdr = item
+        page_num, loc, para, conf, c_start, c_end, is_hdr, *rest = item
         first_line = para.split('\n')[0]
         detected = detect_header_candidate(first_line)
 

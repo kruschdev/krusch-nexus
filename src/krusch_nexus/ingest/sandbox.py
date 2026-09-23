@@ -45,6 +45,9 @@ def validate_safe_path(
     Resolve and validate that a target file path is within safe ingest bounds.
     Guards against path traversal, symlink escapes, and system file ingestion.
     """
+    raw_p = Path(file_path)
+    is_link = os.path.islink(file_path) or raw_p.is_symlink()
+
     try:
         resolved = Path(file_path).resolve()
     except Exception as e:
@@ -55,13 +58,13 @@ def validate_safe_path(
         try:
             if resolved == denied or resolved.is_relative_to(denied):
                 raise PathSandboxError(
-                    f"Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
+                    f"Path sandbox violation: Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
                 )
         except AttributeError:
             try:
                 resolved.relative_to(denied)
                 raise PathSandboxError(
-                    f"Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
+                    f"Path sandbox violation: Access denied: Path '{resolved}' falls within prohibited system directory '{denied}'"
                 )
             except ValueError:
                 pass
@@ -98,8 +101,14 @@ def validate_safe_path(
         if not is_safe:
             roots_str = ", ".join(str(r) for r in valid_roots)
             raise PathSandboxError(
-                f"Path sandbox violation: '{resolved}' is not within any approved ingest root: [{roots_str}]"
+                f"Path sandbox violation: Access denied: Path '{resolved}' escapes allowed ingestion roots [{roots_str}]"
             )
+
+    # 3. Strictly reject symlinks (no symlink follow)
+    if is_link:
+        raise PathSandboxError(
+            f"Path sandbox violation: Symlinks are disallowed (no symlink follow): '{file_path}' is a symbolic link."
+        )
 
     return resolved
 

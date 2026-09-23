@@ -243,18 +243,33 @@ def run_doctor_checks(config: Optional[NexusConfig] = None, profile: str = "dev"
         "gpu_name": gpu_name or "None (CPU inference)"
     }
 
+    # 11. Blast radius limits
+    results["limits"] = {
+        "status": "PASS",
+        "max_file_size_mb": round(conf.max_file_size_bytes / (1024 * 1024), 1),
+        "max_page_count": conf.max_page_count,
+        "max_pixels_per_page": getattr(conf, "max_pixels_per_page", 25_000_000),
+        "max_embed_batch_time_sec": getattr(conf, "max_embed_batch_time", 60.0),
+        "workspace_disk_quota_gb": round(getattr(conf, "workspace_disk_quota_bytes", 1073741824) / (1024**3), 2)
+    }
+
     results["healthy"] = passed
     return results
 
 
 def cmd_doctor(args):
     """Execute 'nexus doctor' environment and dependency diagnostics."""
+    profile = getattr(args, "profile", "dev")
+    results = run_doctor_checks(profile=profile)
+
+    if getattr(args, "json", False):
+        # Pure machine-readable JSON to stdout for CI consumption
+        sys.stdout.write(json.dumps(results, indent=2) + "\n")
+        return 0 if results["healthy"] else 1
+
     print("=" * 60)
     print("  KruschNexus Doctor — Environment & Infrastructure Audit")
     print("=" * 60)
-
-    profile = getattr(args, "profile", "dev")
-    results = run_doctor_checks(profile=profile)
 
     # Pretty print status
     def _status_fmt(st: str) -> str:
@@ -270,15 +285,12 @@ def cmd_doctor(args):
     print(f"{_status_fmt(results['ollama']['status'])} Ollama host & model ('{results['ollama']['target_model']}')")
     print(f"{_status_fmt(results['disk']['status'])} Local disk space ({results['disk']['free_gb']} GB free of {results['disk']['total_gb']} GB)")
     print(f"{_status_fmt(results['hardware']['status'])} Compute hardware ({results['hardware']['cpu_count']} CPUs, GPU: {results['hardware']['gpu_name']})")
+    print(f"{_status_fmt(results['limits']['status'])} Blast radius limits (Max {results['limits']['max_page_count']} pages, {results['limits']['max_file_size_mb']} MB, {results['limits']['workspace_disk_quota_gb']} GB quota)")
     print(f"{_status_fmt(results['localhost_bind']['status'])} Localhost interface binding ('{results['localhost_bind']['host']}')")
     print(f"{_status_fmt(results['api_token']['status'])} API token configured (env: {results['api_token']['environment']})")
     print(f"{_status_fmt(results['air_gap_policy']['status'])} Air-gap policy (zero cloud embed endpoints)")
-    print(f"{_status_fmt(results['air_gap']['status'])} Air-gap internet probe status")
     print(f"{_status_fmt(results['air_gap']['status'])} Air-gap boundary (zero cloud egress)")
     print("=" * 60)
-
-    if args.json:
-        print(json.dumps(results, indent=2))
 
     if not results["healthy"]:
         print("\nDoctor detected missing requirements or unhealthy components.", file=sys.stderr)
@@ -295,7 +307,9 @@ def cmd_search(args):
         query=args.query,
         workspace=args.workspace,
         doc_type=args.doc_type,
-        limit=args.limit
+        limit=args.limit,
+        mode=getattr(args, "mode", "hybrid"),
+        filters={"include_superseded": getattr(args, "include_superseded", False)}
     )
 
     if not hits:
@@ -306,6 +320,8 @@ def cmd_search(args):
     for i, h in enumerate(hits, start=1):
         print(f"\n[{i}] Citation: {h.citation} (Score: {h.score})")
         print(f"    Header:   {h.header or 'General'}")
+        reasons_str = ", ".join(h.match_reasons) if h.match_reasons else "standard_rrf"
+        print(f"    Match:    {reasons_str}")
         snippet = h.text.replace('\n', ' ')[:250]
         print(f"    Content:  {snippet}...")
     print("\n" + "=" * 60)
@@ -466,6 +482,141 @@ def cmd_poison(args):
     return 1
 
 
+def cmd_retry(args):
+    """Retry failed documents from .failed/ poison queue without re-parsing successes."""
+    client = NexusClient.from_env()
+    ws = getattr(args, "workspace", None)
+    files = client.list_poison_files(workspace=ws)
+    if not files:
+        print("No failed files found in poison queue.")
+        return 0
+
+    success_count = 0
+    for f in files:
+        fname = f["filename"]
+        f_ws = f["workspace"]
+        print(f"Retrying '{fname}' in workspace '{f_ws}'...")
+        try:
+            rep = client.replay_poison_file(filename=fname, workspace=f_ws)
+            if rep.status in ("completed", "skipped_duplicate"):
+                print(f"  [OK] Recovered: {rep.chunks} chunks")
+                success_count += 1
+            else:
+                print(f"  [FAIL] Replay failed: {rep.error}")
+        except Exception as e:
+            print(f"  [ERROR] {e}")
+
+    print(f"\nRetry completed: {success_count}/{len(files)} files recovered.")
+    return 0 if success_count == len(files) else 1
+
+
+def cmd_lineage(args):
+    """Display document version history and section header diffs."""
+    client = NexusClient.from_env()
+    lineage = client.get_document_lineage(filename=args.filename, workspace=args.workspace)
+    if getattr(args, "json", False):
+        print(json.dumps(lineage, indent=2))
+        return 0
+
+    print("=" * 60)
+    print(f"  Document Lineage: {args.filename} (Workspace: {args.workspace})")
+    print("=" * 60)
+    if not lineage.get("versions"):
+        print("No versions found.")
+        return 0
+
+    for v in lineage["versions"]:
+        print(f"\nVersion {v['version']} [{v['status']}] (Chunks: {v['total_chunks']}, Headers: {v['header_count']})")
+        print(f"  File Hash: {v['file_hash'][:12]}...")
+        print(f"  Ingested:  {v['ingested_at']}")
+        diff = v.get("diff_from_prior")
+        if diff:
+            print(f"  Diff from v{diff['prior_version']}:")
+            if diff["added_headers"]:
+                print(f"    + Added Headers:   {', '.join(diff['added_headers'])}")
+            if diff["removed_headers"]:
+                print(f"    - Removed Headers: {', '.join(diff['removed_headers'])}")
+            if diff["retained_headers"]:
+                print(f"    = Retained:        {len(diff['retained_headers'])} header(s)")
+    print("=" * 60)
+    return 0
+
+
+def cmd_workspace(args):
+    """Manage workspaces as first-class product objects."""
+    client = NexusClient.from_env()
+    action = args.ws_action
+
+    if action == "list":
+        workspaces = client.list_workspaces()
+        if getattr(args, "json", False):
+            print(json.dumps([w.model_dump() for w in workspaces], indent=2))
+            return 0
+        print(f"Workspaces ({len(workspaces)}):")
+        print("-" * 60)
+        for w in workspaces:
+            print(f"• {w.name} (Docs: {w.document_count}, Created: {w.created_at})")
+        return 0
+
+    elif action == "create":
+        from .store import Workspace, get_db_session
+        with get_db_session(client.engine) as sess:
+            existing = sess.query(Workspace).filter(Workspace.name == args.name.strip()).first()
+            if existing:
+                print(f"Workspace '{args.name}' already exists.")
+                return 0
+            ws = Workspace(name=args.name.strip(), description=getattr(args, "description", None))
+            sess.add(ws)
+            sess.commit()
+            print(f"Created workspace '{args.name}'.")
+            return 0
+
+    elif action == "export":
+        out = client.export_workspace(workspace=args.name, output_path=getattr(args, "output", None))
+        print(f"Exported workspace '{args.name}' to: {out}")
+        return 0
+
+    elif action == "import":
+        res = client.import_workspace(tarball_path=args.tarball, target_workspace=getattr(args, "target", None))
+        print(json.dumps(res, indent=2))
+        return 0
+
+    elif action == "delete":
+        if not getattr(args, "confirm", False):
+            print(f"Error: Deleting workspace '{args.name}' is destructive. Pass --confirm to proceed.", file=sys.stderr)
+            return 1
+        from .store import Workspace, get_db_session
+        with get_db_session(client.engine) as sess:
+            ws = sess.query(Workspace).filter(Workspace.name == args.name.strip()).first()
+            if not ws:
+                print(f"Workspace '{args.name}' not found.", file=sys.stderr)
+                return 1
+            sess.delete(ws)
+            sess.commit()
+            print(f"Deleted workspace '{args.name}' and all associated documents.")
+            return 0
+
+    elif action == "quota":
+        from sqlalchemy import func
+        from .store import Workspace, DocumentChunk, get_db_session
+        with get_db_session(client.engine) as sess:
+            ws = sess.query(Workspace).filter(Workspace.name == args.name.strip()).first()
+            if not ws:
+                print(f"Workspace '{args.name}' not found.", file=sys.stderr)
+                return 1
+            size_bytes = sess.query(func.coalesce(func.sum(func.length(DocumentChunk.content)), 0)).filter(
+                DocumentChunk.workspace_id == ws.id
+            ).scalar() or 0
+            quota_bytes = client.config.workspace_disk_quota_bytes
+            pct = (size_bytes / quota_bytes) * 100 if quota_bytes > 0 else 0
+            print(f"Workspace '{args.name}' Quota:")
+            print(f"  Used:  {size_bytes / (1024**2):.2f} MB ({size_bytes} bytes)")
+            print(f"  Limit: {quota_bytes / (1024**2):.2f} MB ({quota_bytes} bytes)")
+            print(f"  Usage: {pct:.1f}%")
+            return 0
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nexus",
@@ -485,6 +636,8 @@ def main():
     p_search.add_argument("--workspace", "-w", type=str, required=True, help="Target workspace (required)")
     p_search.add_argument("--limit", "-n", type=int, default=5, help="Number of results (default 5)")
     p_search.add_argument("--doc-type", "-t", type=str, default=None, help="Filter by document type")
+    p_search.add_argument("--mode", "-m", choices=["hybrid", "vector_only", "fts_only"], default="hybrid", help="Search mode")
+    p_search.add_argument("--include-superseded", action="store_true", help="Include superseded document versions")
     p_search.set_defaults(func=cmd_search)
 
     # 3. Explain
@@ -545,6 +698,47 @@ def main():
     p_poison_replay.add_argument("--doc-type", "-t", type=str, default="general", help="Document classification")
 
     p_poison.set_defaults(func=cmd_poison)
+
+    # 11. Retry from failed
+    p_retry = subparsers.add_parser("retry", help="Retry failed documents from .failed/ without re-parsing successes")
+    p_retry.add_argument("--from-failed", action="store_true", default=True, help="Retry from .failed/ poison queue")
+    p_retry.add_argument("--workspace", "-w", type=str, default=None, help="Filter by workspace")
+    p_retry.set_defaults(func=cmd_retry)
+
+    # 12. Lineage
+    p_lineage = subparsers.add_parser("lineage", help="Inspect version history and section header diffs")
+    p_lineage.add_argument("filename", type=str, help="Filename to trace lineage")
+    p_lineage.add_argument("--workspace", "-w", type=str, required=True, help="Target workspace")
+    p_lineage.add_argument("--json", action="store_true", help="Output lineage in JSON format")
+    p_lineage.set_defaults(func=cmd_lineage)
+
+    # 13. Workspace Management
+    p_workspace = subparsers.add_parser("workspace", help="First-class workspace operations (create, list, export, import, delete, quota)")
+    ws_sub = p_workspace.add_subparsers(dest="ws_action", required=True)
+
+    ws_list = ws_sub.add_parser("list", help="List all workspaces")
+    ws_list.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    ws_create = ws_sub.add_parser("create", help="Create a new workspace")
+    ws_create.add_argument("name", type=str, help="Workspace name")
+    ws_create.add_argument("--description", "-d", type=str, default=None, help="Optional description")
+
+    ws_export = ws_sub.add_parser("export", help="Export a workspace archive (.tar.gz)")
+    ws_export.add_argument("name", type=str, help="Workspace name")
+    ws_export.add_argument("--output", "-o", type=str, default=None, help="Destination archive path")
+
+    ws_import = ws_sub.add_parser("import", help="Import a workspace archive (.tar.gz)")
+    ws_import.add_argument("tarball", type=str, help="Path to workspace .tar.gz archive")
+    ws_import.add_argument("--target", "-t", type=str, default=None, help="Optional override workspace name")
+
+    ws_delete = ws_sub.add_parser("delete", help="Delete a workspace and its documents")
+    ws_delete.add_argument("name", type=str, help="Workspace name")
+    ws_delete.add_argument("--confirm", action="store_true", help="Confirm deletion")
+
+    ws_quota = ws_sub.add_parser("quota", help="Check workspace disk quota utilization")
+    ws_quota.add_argument("name", type=str, help="Workspace name")
+
+    p_workspace.set_defaults(func=cmd_workspace)
 
     parsed = parser.parse_args()
     sys.exit(parsed.func(parsed))

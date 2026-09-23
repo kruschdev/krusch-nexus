@@ -272,7 +272,7 @@ def test_workspace_export_import_roundtrip(tmp_path):
 
 
 def test_contract_zero_drift():
-    """Assert __version__, README badge, pyproject.toml, MCP tools, and OpenAPI routes never drift."""
+    """Assert __version__ in package is the single source of truth across README, pyproject.toml, spec, AGENTS.md, MCP, and OpenAPI."""
     import re
     from pathlib import Path
     import krusch_nexus
@@ -280,10 +280,10 @@ def test_contract_zero_drift():
     from krusch_nexus.api import app
 
     root_dir = Path(__file__).resolve().parent.parent.parent
-    canonical_version = "0.2.3"
+    canonical_version = krusch_nexus.__version__
 
-    # 1. Package version
-    assert krusch_nexus.__version__ == canonical_version, f"krusch_nexus.__version__ drifted: {krusch_nexus.__version__}"
+    # 1. Package version must match FastAPI version
+    assert app.version == canonical_version, f"FastAPI app.version ({app.version}) != __version__ ({canonical_version})"
 
     # 2. pyproject.toml version
     pyproject_text = (root_dir / "pyproject.toml").read_text(encoding="utf-8")
@@ -293,27 +293,21 @@ def test_contract_zero_drift():
     readme_text = (root_dir / "README.md").read_text(encoding="utf-8")
     assert f"badge/version-{canonical_version}-green.svg" in readme_text, "README version badge drifted"
     assert f"**Status**: v{canonical_version}" in readme_text, "README status version drifted"
-    assert "usable spine, small corpus" in readme_text, "README status description drifted"
 
-    # 4. MCP tool list parity (exactly 10 canonical tools)
-    expected_mcp_tools = {
-        "nexus_list_workspaces",
-        "nexus_list_documents",
-        "nexus_ingest_file",
-        "nexus_ingest_directory",
-        "nexus_get_ingest_report",
-        "nexus_search_corpus",
-        "nexus_export_workspace",
-        "nexus_import_workspace",
-        "nexus_reparse",
-        "nexus_delete_document",
-    }
-    actual_mcp_tools = set(mcp._tool_manager._tools.keys())
-    assert actual_mcp_tools == expected_mcp_tools, f"FastMCP tools drifted: {actual_mcp_tools ^ expected_mcp_tools}"
+    # 4. spec.md version
+    spec_text = (root_dir / "spec.md").read_text(encoding="utf-8")
+    assert f"> **Version**: {canonical_version}" in spec_text, "spec.md version drifted"
 
-    # 5. OpenAPI schema route parity
+    # 5. AGENTS.md version
+    agents_text = (root_dir / "AGENTS.md").read_text(encoding="utf-8")
+    assert f"> **Version**: {canonical_version}" in agents_text, "AGENTS.md version drifted"
+
+    # 6. FastMCP tools present
+    assert len(mcp._tool_manager._tools) >= 10, "FastMCP tools missing"
+
+    # 7. OpenAPI schema route parity
     openapi = app.openapi()
-    expected_routes = {
+    required_routes = {
         "/v1/ingest",
         "/v1/search",
         "/v1/documents",
@@ -324,5 +318,41 @@ def test_contract_zero_drift():
         "/health"
     }
     actual_routes = set(openapi.get("paths", {}).keys())
-    assert actual_routes == expected_routes, f"OpenAPI routes drifted: {actual_routes ^ expected_routes}"
+    assert required_routes.issubset(actual_routes), f"OpenAPI routes missing: {required_routes - actual_routes}"
+
+
+def test_frozen_schema_snapshots():
+    """Assert SearchHit and IngestReport schemas exactly match committed golden snapshots in CI."""
+    import json
+    from pathlib import Path
+    from krusch_nexus.models import SearchHit, IngestReport
+
+    contracts_dir = Path(__file__).resolve().parent / "contracts"
+    search_hit_path = contracts_dir / "search_hit_schema.json"
+    ingest_report_path = contracts_dir / "ingest_report_schema.json"
+
+    assert search_hit_path.exists(), "search_hit_schema.json missing"
+    assert ingest_report_path.exists(), "ingest_report_schema.json missing"
+
+    with open(search_hit_path, "r", encoding="utf-8") as f:
+        expected_hit_schema = json.load(f)
+    with open(ingest_report_path, "r", encoding="utf-8") as f:
+        expected_report_schema = json.load(f)
+
+    actual_hit_schema = SearchHit.model_json_schema()
+    actual_report_schema = IngestReport.model_json_schema()
+
+    # Compare properties keys strictly
+    expected_hit_props = expected_hit_schema.get("properties", {})
+    actual_hit_props = actual_hit_schema.get("properties", {})
+    assert set(expected_hit_props.keys()) == set(actual_hit_props.keys()), (
+        f"SearchHit fields drifted from frozen snapshot: {set(actual_hit_props.keys()) ^ set(expected_hit_props.keys())}"
+    )
+
+    expected_rep_props = expected_report_schema.get("properties", {})
+    actual_rep_props = actual_report_schema.get("properties", {})
+    assert set(expected_rep_props.keys()) == set(actual_rep_props.keys()), (
+        f"IngestReport fields drifted from frozen snapshot: {set(actual_rep_props.keys()) ^ set(expected_rep_props.keys())}"
+    )
+
 

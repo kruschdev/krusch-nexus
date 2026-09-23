@@ -389,16 +389,21 @@ def nexus_delete_document(
 
 
 @mcp.tool()
-def nexus_export_workspace(workspace: str, output_path: Optional[str] = None) -> str:
+def nexus_export_workspace(workspace: str, output_path: Optional[str] = None, token: Optional[str] = None) -> str:
     """
     Export a complete workspace as a standalone .tar.gz archive.
     
     Args:
         workspace: Name of the workspace to export.
         output_path: Optional destination filepath.
+        token: Optional API token for workspace authorization.
     """
+    ws = _enforce_workspace(workspace)
+    err = verify_workspace_access(ws, token)
+    if err:
+        return json.dumps({"status": "error", "error": err})
+
     try:
-        ws = _enforce_workspace(workspace)
         archive_path = get_client().export_workspace(workspace=ws, output_path=output_path)
         return json.dumps({
             "status": "success",
@@ -410,14 +415,20 @@ def nexus_export_workspace(workspace: str, output_path: Optional[str] = None) ->
 
 
 @mcp.tool()
-def nexus_import_workspace(tarball_path: str, target_workspace: Optional[str] = None) -> str:
+def nexus_import_workspace(tarball_path: str, target_workspace: Optional[str] = None, token: Optional[str] = None) -> str:
     """
     Import a workspace archive (.tar.gz) into the local database and archival store.
     
     Args:
         tarball_path: Absolute or relative path to the workspace .tar.gz archive.
         target_workspace: Optional override name for the imported workspace.
+        token: Optional API token for workspace authorization.
     """
+    if target_workspace:
+        err = verify_workspace_access(target_workspace, token)
+        if err:
+            return json.dumps({"status": "error", "error": err})
+
     try:
         res = get_client().import_workspace(tarball_path=tarball_path, target_workspace=target_workspace)
         return json.dumps(res, indent=2)

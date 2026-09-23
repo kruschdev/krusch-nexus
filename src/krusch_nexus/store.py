@@ -119,6 +119,7 @@ class DocumentChunk(Base):
     confidence = Column(Float, nullable=True)
     char_start = Column(Integer, nullable=True)
     char_end = Column(Integer, nullable=True)
+    bbox = Column(Text, nullable=True)  # JSON-encoded [left, top, width, height]
     is_superseded = Column(Boolean, default=False, server_default='false', index=True)
     tsv_content = Column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True) if TSVECTOR is not None else Column(Text, nullable=True)
     embedding = Column(Vector(1024), nullable=True) if Vector else Column(Text, nullable=True)

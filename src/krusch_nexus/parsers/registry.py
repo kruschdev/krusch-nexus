@@ -236,4 +236,31 @@ def parse_document(
 
     res.file_hash = file_hash
     res.detected_mime = detected_mime
+
+    # Check for MIME sniff vs extension conflict
+    ext = os.path.splitext(filename)[1].lower()
+    ext_map = {
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".doc": "application/msword",
+        ".eml": "message/rfc822",
+        ".msg": "application/vnd.ms-outlook",
+        ".html": "text/html",
+        ".htm": "text/html",
+        ".csv": "text/csv",
+        ".json": "application/json",
+        ".md": "text/markdown",
+        ".txt": "text/plain",
+    }
+    expected_mime = ext_map.get(ext)
+    if expected_mime and detected_mime != expected_mime:
+        from ..models import WarningCode
+        warn_msg = (
+            f"{WarningCode.MIME_EXTENSION_MISMATCH.value}: "
+            f"Extension '{ext}' suggests '{expected_mime}' but content magic bytes detected '{detected_mime}'."
+        )
+        logger.warning(warn_msg)
+        if warn_msg not in res.warnings:
+            res.warnings.append(warn_msg)
+
     return res

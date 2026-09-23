@@ -68,13 +68,35 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
     # Launch background stale-lock reaper task
     reaper_task = asyncio.create_task(_run_periodic_reaper(staging_dir, timeout_seconds=conf.stale_lock_timeout_seconds))
 
+    daemon_status_path = Path(target_watch_dir) / ".daemon_status.json"
+    daemon_state = {
+        "watch_dir": str(target_watch_dir),
+        "queue_depth": 0,
+        "current_file": None,
+        "last_processed_file": None,
+        "last_failure": None,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+    def _sync_status():
+        try:
+            daemon_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+            with open(daemon_status_path, "w", encoding="utf-8") as f:
+                json.dump(daemon_state, f, indent=2)
+        except Exception:
+            pass
+
     async def _safe_process(source_path: str, ws_name: str, fname: str):
         file_key = f"{ws_name}/{fname}"
+        daemon_state["current_file"] = file_key
+        _sync_status()
         attempts = _RETRY_TRACKER.get(file_key, 0) + 1
         _RETRY_TRACKER[file_key] = attempts
 
         if attempts > 3:
             logger.error(f"File '{fname}' in '{ws_name}' exceeded max attempts (3). Quarantining.")
+            daemon_state["last_failure"] = {"file": file_key, "error": "MaxRetriesExceeded", "time": datetime.now(timezone.utc).isoformat()}
+            _sync_status()
             failed_dir = Path(staging_dir).parent / ".failed" / ws_name
             failed_dir.mkdir(parents=True, exist_ok=True)
             dest = failed_dir / f"quarantined_{fname}"
@@ -111,10 +133,18 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
             )
             if report.status == "completed":
                 _RETRY_TRACKER.pop(file_key, None)
+                daemon_state["last_processed_file"] = file_key
+                daemon_state["current_file"] = None
+                _sync_status()
+            elif report.status == "failed":
+                daemon_state["last_failure"] = {"file": file_key, "error": report.error, "time": datetime.now(timezone.utc).isoformat()}
+                daemon_state["current_file"] = None
+                _sync_status()
 
     try:
         while True:
             try:
+                pending_files = []
                 for item in sorted(os.listdir(target_watch_dir)):
                     if item.startswith('.') or item in [".ingested", ".failed", "staging"]:
                         continue
@@ -128,9 +158,15 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
                                 continue
                             f_path = os.path.join(item_path, fname)
                             if os.path.isfile(f_path) and fname.lower().endswith(ALLOWED_EXT):
-                                asyncio.create_task(_safe_process(f_path, ws_name, fname))
+                                pending_files.append((f_path, ws_name, fname))
                     elif os.path.isfile(item_path) and item.lower().endswith(ALLOWED_EXT):
-                        asyncio.create_task(_safe_process(item_path, "General", item))
+                        pending_files.append((item_path, "General", item))
+
+                daemon_state["queue_depth"] = len(pending_files)
+                _sync_status()
+
+                for f_path, ws_name, fname in pending_files:
+                    asyncio.create_task(_safe_process(f_path, ws_name, fname))
 
             except Exception as e:
                 logger.error(f"Watch daemon sweep error: {e}")

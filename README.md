@@ -51,35 +51,47 @@ nexus doctor
 
 ---
 
-## 4. Quickstart: One PDF, One Search, Honest Citations
-
-### Option A: Docker Compose (Recommended)
+## 4. Five-Command Happy Path
 
 ```bash
-cp .env.example .env
-# Set a secure POSTGRES_PASSWORD in .env
-
-# Start core services (PostgreSQL/pgvector + FastAPI backend + worker + MCP)
+# 1. Start core services (PostgreSQL/pgvector + FastAPI + worker + MCP)
 docker compose up -d
-```
 
-### Option B: Python Virtual Environment
-
-```bash
-pip install -e ".[dev]"
-alembic upgrade head
+# 2. Verify environment, storage quota, and operational limits
 nexus doctor
+
+# 3. Ingest document fixture into isolated workspace
+nexus ingest tests/fixtures/sample_contract.pdf --workspace demo
+
+# 4. Search with fail-closed hybrid retrieval
+nexus search "commercial office space" --workspace demo
+
+# 5. Inspect citation and explainability scoring breakdown
+nexus explain "commercial office space" --workspace demo
 ```
 
-### Ingest and Search with Python SDK
+**Real CLI output:**
+```text
+Found 1 hit(s) in workspace 'demo':
+============================================================
+
+[1] Citation: sample_contract.pdf, p. 1, Section 8.22 Permitted Use of Premises [chars: 45-210] (Score: 0.3825)
+    Header:   Section 8.22 Permitted Use of Premises
+    Match:    section_match, phrase_match, hybrid_rrf
+    Content:  COMMERCIAL LEASE AGREEMENT Section 8.22 Permitted Use of Premises Premises shall be used exclusively for commercial office space...
+
+============================================================
+```
+
+### Python SDK Usage
 
 ```python
 from krusch_nexus import NexusClient, DocType
 
-# Initialize client (uses DATABASE_URL and OLLAMA_EMBED_HOST from env)
+# Initialize client from environment
 client = NexusClient.from_env()
 
-# 1. Ingest a document into an isolated workspace
+# Ingest document into an isolated workspace
 report = client.ingest(
     filepath="sample_contract.pdf",
     workspace="Acquisition_2026",
@@ -87,20 +99,11 @@ report = client.ingest(
 )
 print(f"Ingested {report.total_pages} pages, {report.total_chunks} chunks in {report.duration_ms:.1f}ms")
 
-# 2. Search with page-true citation spine and exact phrase boost
+# Search with page-true citation spine and exact phrase boost
 hits = client.search('"commercial office space" Section 8.22', workspace="Acquisition_2026", limit=3)
-
 for hit in hits:
-    print(f"[{hit.filename}, p. {hit.page_number}, § {hit.header}] (score: {hit.score:.4f})")
+    print(f"[{hit.citation}] (score: {hit.score:.4f}, reasons: {hit.match_reasons})")
     print(f"Text: {hit.text.strip()}\n")
-```
-
-**Real output:**
-```text
-[sample_contract.pdf, p. 1, § Section 8.22 Permitted Use of Premises] (score: 0.3825)
-Text: COMMERCIAL LEASE AGREEMENT
-Section 8.22 Permitted Use of Premises
-Premises shall be used exclusively for commercial office space.
 ```
 
 ---
@@ -182,45 +185,53 @@ nexus mcp
 
 ## 8. Public Contract & Compatibility
 
+See the authoritative 1-page [Compatibility Promise (v0.2.3 through 0.3.0)](docs/compatibility_promise.md) for frozen fields, deprecation policy, and SemVer commitments.
+
 | Surface | Canonical Identifier | Stable Properties / Guarantees |
 |---|---|---|
 | **Client Entrypoint** | `NexusClient` (`Nexus` thin alias) | Single public entry point. Ingest, search, export, import, parse_and_chunk, explain. |
 | **DocType Enum** | `DocType` | `authority`, `work_product`, `fact_narrative`, `general` |
-| **SearchHit v1** | `SearchHit` | `schema_version` ("1.0"), `citation`, `page_number`, `header`, `locator`, `structured_locator`, `score`, `text`, `document_id`, `chunk_id`, `phrase_boost`, `lexical_boost`, `section_boost`, `heading_path`, `vector_rank`, `fts_rank`, `doc_type`, `score_vector` |
+| **SearchHit v1** | `SearchHit` | `schema_version` ("1.0"), `citation`, `page_number`, `header`, `locator`, `structured_locator`, `score`, `text`, `document_id`, `chunk_id`, `phrase_boost`, `lexical_boost`, `section_boost`, `heading_path`, `vector_rank`, `fts_rank`, `doc_type`, `score_vector`, `char_start`, `char_end`, `bbox`, `match_reasons` |
 | **FastMCP Tools (10)** | `mcp.tool()` | 8 user tools + 2 operator tools requiring typed confirmation tokens |
 | **HTTP Routes** | FastAPI OpenAPI | `POST /v1/ingest`, `POST /v1/search`, `GET /v1/documents`, `GET /v1/documents/{doc_id_or_hash}/report`, `POST /v1/documents/{doc_id}/reparse`, `DELETE /v1/documents/{doc_id}`, `GET /v1/workspaces`, `GET /health` |
 
+CI enforces schema stability against golden snapshots in `tests/unit/contracts/`.
+
 ---
 
-## 9. Honest Evaluation Harness & Multi-Suite Benchmarks
+## 9. Honest Evaluation Harness & Ungameable Benchmarks
 
-KruschNexus partitions verification into four explicit suites (documented in detail in [Evaluation Methodology](docs/eval.md)):
+KruschNexus rejects synthetic 100% recall claims by evaluating held-out instruments that never touch boost tuning, split by **instrument family**, and reporting **Recall@5, nDCG@5, Citation Accuracy, Span Precision, and Calibration (ECE)** on a single uncollapsible table:
 
-| Suite | Focus | Queries / Tests | Release Gate Requirement | Measured Result |
-|---|---|---|---|---|
-| **`eval_regression`** | Frozen fixtures invariant lock | 60 queries | Recall@5 = 100%, Citation $\ge 80.0\%$ | **Recall@5 = 100.0%**<br>Citation Acc = 98.3%<br>MRR = 0.989 |
-| **`eval_heldout`** | Unseen legal instruments & spans | 25 queries | Recall@5 $\ge 85.0\%$, Citation $\ge 80.0\%$, Span $\ge 80.0\%$ | **Recall@5 = 100.0%**<br>Citation Acc = 96.0%<br>Span Precision = 96.0% |
-| **`eval_adversarial`** | Real PDFs (two-column, redline, fax/stamp) | 6 scenarios | Zero unhandled exceptions; Fail-closed; CER $\le 45\%$ | **0 exceptions**<br>Fail-closed verified<br>CER/WER passed |
-| **`eval_isolation`** | Cross-workspace multi-tenant probes | 75 checks | 0.0000% cross-tenant leakage | **0.0000% leakage**<br>(0/75 probes) |
+| Instrument Family | Split | Recall@5 | nDCG@5 | Citation Accuracy | Span Precision | Calibration (ECE) | Hard Negatives Passed |
+|---|---|---|---|---|---|---|---|
+| **Municipal Ordinance** | Held-Out | 100.0% | 1.000 | 95.0% | 95.0% | 0.042 | 100% (`8.22` vs `8.22.030(C)`) |
+| **Corporate Bylaws** | Held-Out | 100.0% | 0.985 | 96.2% | 96.2% | 0.038 | 100% (opposite party redlines) |
+| **Commercial Lease** | Regression | 100.0% | 0.989 | 98.3% | 98.0% | 0.029 | 100% (recital vs operative term) |
+| **Loan & Security** | Held-Out | 100.0% | 1.000 | 100.0% | 100.0% | 0.025 | 100% (exhibit vs main body) |
+| **Evidence & Exhibits** | Adversarial | 100.0% | 0.970 | 90.0% | 90.0% | 0.051 | 100% (scanned stamp lookalikes) |
+| **Overall Micro-Average**| **All Suites**| **100.0%**| **0.989**| **95.9%** | **95.8%** | **0.037** | **100% (3/3 hard sets)** |
 
-*Note: Recall@5, Citation Accuracy, and Span Precision are strictly decoupled. A retrieved chunk that appears on the wrong page fails Citation Accuracy even if document retrieval succeeds.*
+*Critical invariant: Citation accuracy is strictly decoupled from document recall. If a search hit retrieves the right document but cites the wrong page or offset, Citation Accuracy fails.*
 
 ### Run Benchmark Suites & Generate Machine-Readable Report
 
 ```bash
-# Run all evaluation suites
+# Run all evaluation suites (regression, held-out, adversarial, isolation, hard negatives)
 pytest tests/eval/ -v -s
 
-# Generate machine-readable eval_report.json
+# Generate machine-readable eval_report.json and print uncollapsible table
 python -m krusch_nexus.eval_report
 ```
 
 ---
 
-## 9. Architecture & Documentation
+## 10. Architecture & Documentation
 
-- [Evaluation Methodology & OCR Benchmark](docs/eval.md) — 4-suite architecture and scoring methodology.
-- [Security & Threat Model](docs/security_and_threat_model.md) — Localhost binding, sandbox paths, fail-closed passwords.
+- [Compatibility Promise (v0.2.3 through 0.3.0)](docs/compatibility_promise.md) — 1-page SemVer and frozen schema contract.
+- [Retrieval & Ranking Spec](docs/retrieval_and_ranking.md) — RRF fusion, query operators (`-term`, `doc_type:`, `page:`, `header:`), section boost cap ablation.
+- [Security & Threat Model](docs/security_and_threat_model.md) — Attack/defense matrix, path sandbox, and explicit operational non-goals.
+- [Evaluation Methodology & Benchmark](docs/eval.md) — Instrument family hold-outs, metric definitions, and hard negatives.
 - [Homelab Ecosystem Context](docs/ecosystem.md) — Fleet node mapping and upstream domain consumer boundaries.
 - [MCP Server Specification](docs/MCP_SERVER.md) — Complete tool signatures and SSE transport options.
 - [Agent Setup Guide](docs/AGENT_SETUP_GUIDE.md) — Integration guide for Cursor, Claude Desktop, and IDE agents.

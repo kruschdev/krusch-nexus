@@ -1,0 +1,159 @@
+{
+  "description": "Frozen IngestReport contract matching legal/business requirements.",
+  "properties": {
+    "chunks": {
+      "default": 0,
+      "title": "Chunks",
+      "type": "integer"
+    },
+    "citation_preview": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Citation Preview"
+    },
+    "detected_mime": {
+      "default": "application/octet-stream",
+      "title": "Detected Mime",
+      "type": "string"
+    },
+    "doc_type": {
+      "default": "general",
+      "title": "Doc Type",
+      "type": "string"
+    },
+    "document_id": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Document Id"
+    },
+    "duration_ms": {
+      "default": 0.0,
+      "title": "Duration Ms",
+      "type": "number"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "file_hash": {
+      "title": "File Hash",
+      "type": "string"
+    },
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "ocr_confidence": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Ocr Confidence",
+      "type": "object"
+    },
+    "ocr_mean_confidence": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ocr Mean Confidence"
+    },
+    "ocr_pages": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Ocr Pages",
+      "type": "array"
+    },
+    "pages": {
+      "default": 0,
+      "title": "Pages",
+      "type": "integer"
+    },
+    "parser_name": {
+      "default": "default",
+      "title": "Parser Name",
+      "type": "string"
+    },
+    "parser_version": {
+      "default": "1.0",
+      "title": "Parser Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "default": "completed",
+      "title": "Status",
+      "type": "string"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "tool_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tool Versions",
+      "type": "object"
+    },
+    "total_chunks": {
+      "default": 0,
+      "title": "Total Chunks",
+      "type": "integer"
+    },
+    "total_pages": {
+      "default": 0,
+      "title": "Total Pages",
+      "type": "integer"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "workspace": {
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "filename",
+    "workspace",
+    "file_hash"
+  ],
+  "title": "IngestReport",
+  "type": "object"
+}

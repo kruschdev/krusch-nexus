@@ -285,6 +285,71 @@ class NexusClient:
         finally:
             db.close()
 
+    def get_document_lineage(self, filename: str, workspace: str) -> Dict[str, Any]:
+        """
+        Retrieve complete version lineage (v1 -> v2) for a document in a workspace,
+        including section header diffs (added_headers, removed_headers, retained_headers).
+        """
+        db = self._get_db()
+        try:
+            ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
+            if not ws:
+                raise WorkspaceNotFound(f"Workspace '{workspace}' not found.")
+
+            docs = db.query(Document).filter(
+                Document.workspace_id == ws.id,
+                Document.filename == filename.strip()
+            ).order_by(Document.version.asc(), Document.id.asc()).all()
+
+            if not docs:
+                return {"filename": filename, "workspace": workspace, "version_count": 0, "versions": []}
+
+            versions_data = []
+            prior_headers = None
+            for d in docs:
+                chunks = db.query(DocumentChunk).filter(DocumentChunk.document_id == d.id).order_by(DocumentChunk.chunk_index.asc()).all()
+                headers_seen = set()
+                headers = []
+                for c in chunks:
+                    h = c.header or "General"
+                    if h not in headers_seen:
+                        headers_seen.add(h)
+                        headers.append(h)
+
+                diff = None
+                if prior_headers is not None:
+                    curr_set = set(headers)
+                    prior_set = set(prior_headers)
+                    diff = {
+                        "prior_version": versions_data[-1]["version"],
+                        "added_headers": [h for h in headers if h not in prior_set],
+                        "removed_headers": [h for h in prior_headers if h not in curr_set],
+                        "retained_headers": [h for h in headers if h in prior_set]
+                    }
+
+                versions_data.append({
+                    "version": d.version,
+                    "document_id": d.id,
+                    "file_hash": d.file_hash,
+                    "status": d.status,
+                    "ingested_at": d.ingested_at.isoformat() if d.ingested_at else None,
+                    "total_pages": d.total_pages,
+                    "total_chunks": len(chunks),
+                    "header_count": len(headers),
+                    "headers": headers,
+                    "diff_from_prior": diff
+                })
+                prior_headers = headers
+
+            return {
+                "filename": filename,
+                "workspace": workspace,
+                "version_count": len(versions_data),
+                "versions": versions_data
+            }
+        finally:
+            db.close()
+
     def search(
         self,
         query: str,

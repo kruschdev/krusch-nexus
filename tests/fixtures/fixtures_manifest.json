@@ -5,95 +5,141 @@
   "fixtures": {
     "adversarial_blank_scan.pdf": {
       "sha256": "28fc094f0057111935f1003579f5ab70381e15cd9c645ee0aa504fb26e57cc49",
-      "bytes": 9147
+      "bytes": 9147,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "scanned_image"
     },
     "adversarial_fax_stamp.pdf": {
       "sha256": "2fcfeabedbe70edec6edda57d6724dcfee5e9b65e0bb162bb04805754472afcb",
-      "bytes": 51863
+      "bytes": 51863,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "telecom_transmission"
     },
     "adversarial_redline.docx": {
       "sha256": "da22942c15b06ece32bcd31c74dc8b4931fd3c18b7937780218a94070c573676",
-      "bytes": 1103
+      "bytes": 1103,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "commercial_transaction"
     },
     "adversarial_redline.pdf": {
       "sha256": "c9eb72b7587037a6c8040dc338581f36a11689c5f3ca5e9e49c05a00ae56f5b0",
-      "bytes": 43665
+      "bytes": 43665,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "commercial_transaction"
     },
     "adversarial_redline.txt": {
       "sha256": "e83c386795bf737323f812c96ec097aee273c193ad218251857ef40ce8fdce71",
-      "bytes": 492
+      "bytes": 492,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "commercial_transaction"
     },
     "adversarial_twocolumn.pdf": {
       "sha256": "f042318f83cce0debcfb01b73f7d30b7ac1e0d3dbf55899dc49f369eae481bbb",
-      "bytes": 59170
+      "bytes": 59170,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "municipal_ordinance"
     },
     "adversarial_twocolumn.txt": {
       "sha256": "c73c8ea99bfc91ff78836d1c400b8c47446aee9546b243cf832f4b528208f872",
-      "bytes": 652
+      "bytes": 652,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "municipal_ordinance"
     },
     "deal_memo.eml": {
       "sha256": "69bfabf60c24bb1ccf149997ac51ae0bb431efd7111a84b40fafb9df2d2f3447",
-      "bytes": 488
+      "bytes": 488,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "executive_correspondence"
     },
     "empty_file.txt": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "bytes": 0
+      "bytes": 0,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "edge_case_empty"
     },
     "encrypted_sample.pdf": {
       "sha256": "eeffa52dfc2e9777a58bb7a3ecea80616c0d312094fb24cc3cc5c1439eb6499c",
-      "bytes": 402
+      "bytes": 402,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "encrypted_media"
     },
     "heldout_bylaws.txt": {
       "sha256": "f034de929475c1865af66ed42c9c98245dd8f1a04dc3cf3b8020b349c2074ea0",
-      "bytes": 660
+      "bytes": 660,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "corporate_governance"
     },
     "heldout_employment_agreement.txt": {
       "sha256": "0d177af9e2f9bda86dce746de91de4c58620de0544d2e7c71e6d4ae2a8829326",
-      "bytes": 731
+      "bytes": 731,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "employment_contract"
     },
     "heldout_lease_amendment.txt": {
       "sha256": "f497b4ac8ebf3acdbb8e52c273e5d5e64ff88027ff2da548cad4fb3ab010b10b",
-      "bytes": 594
+      "bytes": 594,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "real_estate_lease"
     },
     "heldout_promissory_note.txt": {
       "sha256": "07695003b15599af7ff8085391c313fdeaee74769494874c26621876353bc463",
-      "bytes": 751
+      "bytes": 751,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "commercial_debt"
     },
     "heldout_software_license.txt": {
       "sha256": "6630f63651b633fd240642a3b3fadac5f5db54340a75727f358f08e66513beac",
-      "bytes": 610
+      "bytes": 610,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "intellectual_property"
     },
     "malicious_payload.exe": {
       "sha256": "aa28297aaf8306156db4f96c282b83b4cd80543e680aad6d424de88b22f8ec57",
-      "bytes": 14
+      "bytes": 14,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "binary_malware_defense"
     },
     "mixed_sample.pdf": {
       "sha256": "1554d41240672ccdf9fee360bc2a29e7a080713e59db41c6cb869108c142d938",
-      "bytes": 21832
+      "bytes": 21832,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "mixed_scan_digital"
     },
     "municipal_code.txt": {
       "sha256": "1a821917ccd3bd911a1668ffb7402e6685e2253f5d63052fd943135f52225ace",
-      "bytes": 654
+      "bytes": 654,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "statutory_code"
     },
     "policy_manual.docx": {
       "sha256": "44da25ef173135d8510c3c73760b75dedb88372ae547b0b7399ea0d5a765770d",
-      "bytes": 1507
+      "bytes": 1507,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "organizational_policy"
     },
     "sample_contract.pdf": {
       "sha256": "a90b5abe0a5619bed61f98110eb4c4f6ea1103b26ac149e4d21a5f456f8c554e",
-      "bytes": 994
+      "bytes": 994,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "commercial_contract"
     },
     "scanned_page.pdf": {
       "sha256": "7d1e40d03d1f496c1716293a3c11f33d783b7871b9b4bf58cd623f87328641a8",
-      "bytes": 20946
+      "bytes": 20946,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "scanned_settlement_release"
     },
     "script_injection.html": {
       "sha256": "a47c1fdbea5dfc80c9b3f31ad8ff9eceb8dc2bf3924510c1d62d950d21fdd6f1",
-      "bytes": 211
+      "bytes": 211,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "markup_injection_defense"
     },
     "vendor_matrix.csv": {
       "sha256": "eac20227cf55ec5fc478ac4358e652abeee5d19d6a05c6b27c6046cb0cc226e6",
-      "bytes": 266
+      "bytes": 266,
+      "license": "CC0-1.0 (Synthetic Homelab Test Fixture)",
+      "instrument_family": "tabular_matrix"
     }
   }
 }
