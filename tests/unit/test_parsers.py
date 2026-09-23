@@ -17,7 +17,8 @@ from krusch_nexus.parsers import (
     parse_pdf,
     parse_plain_or_code,
     extract_html_text,
-    detect_file_mime
+    detect_file_mime,
+    OCRPolicy
 )
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
@@ -129,6 +130,54 @@ class TestParsers(unittest.TestCase):
         self.assertEqual(doc.pages[1].page_number, 2)
         self.assertIn("Section 8.22 Permitted Use of Premises", doc.pages[0].text)
         self.assertIn("Section 19.3 Termination for Breach", doc.pages[1].text)
+
+    def test_ocr_policy_defaults(self):
+        """Verify unified OCRPolicy object values match documented standards."""
+        policy = OCRPolicy()
+        self.assertEqual(policy.min_printable_chars, 40)
+        self.assertEqual(policy.dpi, 300)
+        self.assertEqual(policy.psm_prose, 6)
+        self.assertEqual(policy.psm_form, 4)
+        self.assertEqual(policy.confidence_floor, 0.50)
+        self.assertEqual(policy.language, "eng")
+        self.assertEqual(policy.timeout_seconds, 30.0)
+
+    def test_mixed_pdf_selective_ocr(self):
+        """
+        Verify that a mixed PDF (digital text pages + scanned exhibit)
+        OCRs ONLY the scanned exhibit page, preserving digital text without overwriting.
+        """
+        mixed_path = os.path.join(FIXTURES_DIR, "mixed_sample.pdf")
+        self.assertTrue(os.path.exists(mixed_path), "mixed_sample.pdf fixture must exist")
+
+        policy = OCRPolicy(min_printable_chars=40, dpi=300)
+        doc = parse_pdf(mixed_path, "mixed_sample.pdf", policy=policy)
+
+        self.assertEqual(doc.total_pages, 3)
+        self.assertEqual(doc.parser_version, "pdf-poppler@2.0")
+
+        # Page 1: Digital text (no OCR applied)
+        p1 = doc.pages[0]
+        self.assertFalse(p1.ocr_applied, "Page 1 has digital text; OCR should not be applied")
+        self.assertIsNone(p1.ocr_text, "Page 1 ocr_text should remain None")
+        self.assertGreater(len(p1.digital_text), 0, "Page 1 digital_text must be populated")
+        self.assertIn("COMMERCIAL LEASE AGREEMENT", p1.digital_text)
+
+        # Page 2: Digital text (no OCR applied)
+        p2 = doc.pages[1]
+        self.assertFalse(p2.ocr_applied, "Page 2 has digital text; OCR should not be applied")
+        self.assertIsNone(p2.ocr_text, "Page 2 ocr_text should remain None")
+        self.assertGreater(len(p2.digital_text), 0, "Page 2 digital_text must be populated")
+        self.assertIn("Termination for Breach", p2.digital_text)
+
+        # Page 3: Scanned exhibit (OCR must be applied)
+        p3 = doc.pages[2]
+        self.assertTrue(p3.ocr_applied, "Page 3 is a scanned image; OCR must be applied")
+        self.assertIsNotNone(p3.ocr_text, "Page 3 ocr_text must be populated")
+        self.assertEqual(p3.digital_text, "", "Page 3 digital_text must remain empty (not corrupted by OCR)")
+        self.assertIn("EXHIBIT", p3.ocr_text.upper())
+        self.assertIn("SETTLEMENT RELEASE", p3.ocr_text.upper())
+        self.assertIn("LIQUIDATED DAMAGES", p3.ocr_text.upper())
 
 
 if __name__ == "__main__":

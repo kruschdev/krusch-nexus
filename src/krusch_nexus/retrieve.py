@@ -1,11 +1,14 @@
 """
 KruschNexus Minimal Hybrid Retrieval Engine (retrieve.py)
 =========================================================
-150-line hybrid search: vector ANN + FTS + RRF (k=60) + statutory & phrase boost.
+Hybrid search: vector ANN + FTS + RRF (k=60) + statutory & phrase boost.
 Strictly workspace-isolated. Zero LLM calls in search path.
+Records explainability metrics in optional search_traces table.
 """
 
 import re
+import json
+import time
 import hashlib
 import logging
 from typing import List, Optional, Tuple, Dict, Any
@@ -13,7 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .models import SearchHit, Citation, StructuredLocator, NexusConfig
-from .store import DocumentChunk, Workspace
+from .store import DocumentChunk, Workspace, SearchTrace
 from .exceptions import WorkspaceRequiredError
 
 logger = logging.getLogger("krusch_nexus.retrieve")
@@ -29,6 +32,19 @@ _QUERY_EMBED_CACHE: Dict[str, List[float]] = {}
 def hash_query(q: str) -> str:
     """Deterministic hash of search query string."""
     return hashlib.sha256(re.sub(r'\s+', ' ', q).strip().encode('utf-8')).hexdigest()
+
+
+def normalize_citation_token(token: str) -> str:
+    """
+    Normalize statutory citation tokens:
+    '§1950.5' / 'Section 1950.5' / 'sec. 1950.5' -> '1950.5'
+    'Article IV' / 'Art. IV' -> 'article iv'
+    """
+    if not token:
+        return ""
+    t = token.lower().strip()
+    t = re.sub(r'^(?:§+|section|sec\.|article|art\.|clause)\s*', '', t)
+    return t.strip()
 
 
 def retrieve(
@@ -52,6 +68,7 @@ def retrieve(
     exact quote phrase boosting, statutory section query parsing, explainability metadata,
     and librarian filter support.
     """
+    start_time = time.time()
     if not workspace_id or workspace_id <= 0:
         raise WorkspaceRequiredError("Search requires an explicit workspace ID.")
     if not query or not query.strip():
@@ -70,11 +87,12 @@ def retrieve(
     sec_match = SECTION_PATTERN.search(q_str)
     target_section = sec_match.group(0).strip() if sec_match else None
     section_number = sec_match.group(1).strip() if sec_match else None
+    norm_target_token = normalize_citation_token(section_number or target_section or "")
 
     # Extract exact phrase quotes (e.g. "liquidated damages")
     quoted_phrases = [p.strip().lower() for p in QUOTE_PATTERN.findall(q_str) if len(p.strip()) >= 3]
 
-    # Filters
+    # Filters (SQL-level predicates)
     resolved_filters = dict(filters or {})
     active_doc_type = doc_type or resolved_filters.get("doc_type")
     filter_page = resolved_filters.get("page")
@@ -84,6 +102,24 @@ def retrieve(
 
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     ws_name = ws.name if ws else f"Workspace_{workspace_id}"
+
+    # Build SQL filter clauses
+    sql_filter_clauses = []
+    sql_params: Dict[str, Any] = {"ws_id": workspace_id}
+    if active_doc_type:
+        sql_filter_clauses.append("AND doc_type = :doc_type")
+        sql_params["doc_type"] = active_doc_type
+    if filter_page is not None:
+        sql_filter_clauses.append("AND page_number = :filter_page")
+        sql_params["filter_page"] = filter_page
+    if filter_doc_id is not None:
+        sql_filter_clauses.append("AND document_id = :filter_doc_id")
+        sql_params["filter_doc_id"] = filter_doc_id
+    if filter_filename is not None:
+        sql_filter_clauses.append("AND filename = :filter_filename")
+        sql_params["filter_filename"] = filter_filename
+
+    sql_filter_str = " ".join(sql_filter_clauses)
 
     # 1. Embed Query (cached by hash)
     query_vector = None
@@ -99,13 +135,11 @@ def retrieve(
             except Exception as e:
                 logger.warning(f"Query embed failed: {e}")
 
-    # 2. Vector ANN in workspace (strictly respecting hard workspace_id tenant key)
+    # 2. Vector ANN in workspace (strictly respecting hard workspace_id tenant key and SQL filters)
     dense_results: List[Tuple[DocumentChunk, float]] = []
     if query_vector and is_postgres:
         vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
-        doc_filter = "AND doc_type = :doc_type" if active_doc_type else ""
         try:
-            # Set HNSW ef_search runtime tuning parameter
             db.execute(text(f"SET LOCAL hnsw.ef_search = {conf.hnsw_ef_search};"))
         except Exception:
             pass
@@ -113,12 +147,11 @@ def retrieve(
         sql = f"""
             SELECT id, 1 - (embedding <=> '{vec_literal}'::vector) as sim
             FROM document_chunks
-            WHERE workspace_id = :ws_id AND embedding IS NOT NULL {doc_filter}
+            WHERE workspace_id = :ws_id AND embedding IS NOT NULL {sql_filter_str}
             ORDER BY embedding <=> '{vec_literal}'::vector ASC LIMIT :d_lim;
         """
-        params: Dict[str, Any] = {"ws_id": workspace_id, "d_lim": dense_limit}
-        if active_doc_type:
-            params["doc_type"] = active_doc_type
+        params = dict(sql_params)
+        params["d_lim"] = dense_limit
         try:
             rows = db.execute(text(sql), params).fetchall()
             ids = [r[0] for r in rows]
@@ -129,20 +162,19 @@ def retrieve(
         except Exception as e:
             logger.debug(f"Dense search error: {e}")
 
-    # 3. FTS in workspace (strictly respecting hard workspace_id tenant key)
+    # 3. FTS in workspace (strictly respecting hard workspace_id tenant key and SQL filters)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
     if is_postgres:
-        doc_filter = "AND doc_type = :doc_type" if active_doc_type else ""
         clean_fts_q = re.sub(r'["\'§]', ' ', q_str).strip()
         sql = f"""
             SELECT id, ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', :q)) as r_score
             FROM document_chunks
-            WHERE workspace_id = :ws_id AND to_tsvector('english', content) @@ plainto_tsquery('english', :q) {doc_filter}
+            WHERE workspace_id = :ws_id AND to_tsvector('english', content) @@ plainto_tsquery('english', :q) {sql_filter_str}
             ORDER BY r_score DESC LIMIT :s_lim;
         """
-        params = {"ws_id": workspace_id, "q": clean_fts_q, "s_lim": sparse_limit}
-        if active_doc_type:
-            params["doc_type"] = active_doc_type
+        params = dict(sql_params)
+        params["q"] = clean_fts_q
+        params["s_lim"] = sparse_limit
         try:
             rows = db.execute(text(sql), params).fetchall()
             ids = [r[0] for r in rows]
@@ -153,11 +185,18 @@ def retrieve(
         except Exception as e:
             logger.debug(f"Sparse FTS error: {e}")
     else:
-        # SQLite lexical match fallback (strictly respecting hard workspace_id tenant key)
+        # SQLite lexical match fallback with SQL-level filtering
         toks = [t.lower() for t in re.findall(r'\w+', q_str) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if active_doc_type:
             q_base = q_base.filter(DocumentChunk.doc_type == active_doc_type)
+        if filter_page is not None:
+            q_base = q_base.filter(DocumentChunk.page_number == filter_page)
+        if filter_doc_id is not None:
+            q_base = q_base.filter(DocumentChunk.document_id == filter_doc_id)
+        if filter_filename is not None:
+            q_base = q_base.filter(DocumentChunk.filename == filter_filename)
+
         scored = []
         for c in q_base.all():
             full = (c.content + " " + (c.header or "") + " " + (c.locator or "")).lower()
@@ -177,6 +216,7 @@ def retrieve(
     sec_boosted: Dict[int, bool] = {}
     lex_boosted: Dict[int, bool] = {}
     phrase_boosted: Dict[int, bool] = {}
+    boost_accumulated: Dict[int, float] = {}
 
     for rank, (c, sim) in enumerate(dense_results, 1):
         obj_map[c.id] = c
@@ -190,53 +230,73 @@ def retrieve(
         f_ranks[c.id] = rank
         rrf[c.id] = rrf.get(c.id, 0.0) + (1.0 / (k_val + rank))
 
-    # Fallback if no vector/FTS match (strictly respecting hard workspace_id tenant key)
+    # Fallback if no vector/FTS match
     if not rrf:
         fallback_query = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if active_doc_type:
             fallback_query = fallback_query.filter(DocumentChunk.doc_type == active_doc_type)
+        if filter_page is not None:
+            fallback_query = fallback_query.filter(DocumentChunk.page_number == filter_page)
+        if filter_doc_id is not None:
+            fallback_query = fallback_query.filter(DocumentChunk.document_id == filter_doc_id)
+        if filter_filename is not None:
+            fallback_query = fallback_query.filter(DocumentChunk.filename == filter_filename)
+
         fallback = fallback_query.order_by(DocumentChunk.id.desc()).limit(limit).all()
         for idx, c in enumerate(fallback):
             obj_map[c.id] = c
             rrf[c.id] = 1.0 / (k_val + idx + 1)
 
     # 5. Exact Quoted Phrase Boosting ("liquidated damages")
+    MAX_TOTAL_BOOST = 0.12  # Capped boosts so section mention cannot drown better semantic hit
     if quoted_phrases:
         for c_id, chunk in obj_map.items():
             content_low = chunk.content.lower()
             header_low = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
             for qp in quoted_phrases:
                 if qp in content_low or qp in header_low:
-                    rrf[c_id] += boost_phrase
+                    add_b = min(boost_phrase, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+                    if add_b > 0:
+                        rrf[c_id] += add_b
+                        boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
                     phrase_boosted[c_id] = True
 
-    # 6. Statutory Section Lexical-First Boost (§ 1950.5, Section 8.22.030, Art. IV)
-    if target_section or section_number:
-        target_token = (section_number or target_section or "").lower()
+    # 6. Normalized Section Boost (§ 1950.5, Section 8.22.030, Art. IV)
+    if norm_target_token:
         for c_id, chunk in obj_map.items():
+            # Extract heading tokens from heading_path or header
+            h_tokens = []
+            if chunk.heading_path:
+                try:
+                    h_list = json.loads(chunk.heading_path) if isinstance(chunk.heading_path, str) else chunk.heading_path
+                    for h in h_list:
+                        h_tokens.append(normalize_citation_token(h))
+                        h_tokens.append(h.lower())
+                except Exception:
+                    pass
+
             h_text = ((chunk.header or "") + " " + (chunk.locator or "")).lower()
+            h_norm = normalize_citation_token(h_text)
             c_text = chunk.content.lower()
 
-            if target_token in h_text:
-                rrf[c_id] += boost_hdr
+            matched_header = (norm_target_token in h_tokens) or (norm_target_token in h_norm) or (norm_target_token in h_text)
+            if matched_header:
+                add_b = min(boost_hdr, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+                if add_b > 0:
+                    rrf[c_id] += add_b
+                    boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
                 sec_boosted[c_id] = True
-            elif target_token in c_text:
-                rrf[c_id] += boost_cnt
+            elif norm_target_token in c_text:
+                add_b = min(boost_cnt, MAX_TOTAL_BOOST - boost_accumulated.get(c_id, 0.0))
+                if add_b > 0:
+                    rrf[c_id] += add_b
+                    boost_accumulated[c_id] = boost_accumulated.get(c_id, 0.0) + add_b
                 lex_boosted[c_id] = True
 
-    # 7. Apply Librarian Hard Predicate Filters
+    # 7. Post-filter for header_regex (if specified)
     candidate_ids = list(rrf.keys())
     for c_id in candidate_ids:
         chunk = obj_map[c_id]
-        if filter_page is not None and chunk.page_number != filter_page:
-            rrf.pop(c_id, None)
-            continue
-        if filter_doc_id is not None and chunk.document_id != filter_doc_id:
-            rrf.pop(c_id, None)
-            continue
-        if filter_filename is not None and chunk.filename != filter_filename:
-            rrf.pop(c_id, None)
-            continue
         if filter_header_regex:
             full_h = (chunk.header or "") + " " + (chunk.locator or "")
             if not re.search(filter_header_regex, full_h, re.IGNORECASE):
@@ -290,6 +350,14 @@ def retrieve(
             reasons.append("quoted_phrase_match")
 
         struct_loc = StructuredLocator.from_raw(page=c.page_number, locator_str=c.locator, header=c.header)
+        h_path = []
+        if getattr(c, "heading_path", None):
+            try:
+                h_path = json.loads(c.heading_path) if isinstance(c.heading_path, str) else c.heading_path
+            except Exception:
+                h_path = list(struct_loc.path)
+        else:
+            h_path = list(struct_loc.path)
 
         hits.append(SearchHit(
             citation=cit,
@@ -297,6 +365,7 @@ def retrieve(
             header=c.header,
             locator=c.locator,
             structured_locator=struct_loc,
+            heading_path=h_path,
             score=round(rrf[c_id], 5),
             text=c.content,
             document_id=c.document_id,
@@ -319,6 +388,33 @@ def retrieve(
             file_hash=c.doc_hash,
             doc_type=c.doc_type
         ))
+
+    # 10. Record Explainability Fuse into optional SearchTrace table
+    try:
+        dur_ms = round((time.time() - start_time) * 1000, 2)
+        trace_rec = SearchTrace(
+            workspace_id=workspace_id,
+            query_hash=hash_query(q_str),
+            dense_ranks=json.dumps(v_ranks),
+            sparse_ranks=json.dumps(f_ranks),
+            fused_ranks=json.dumps({c_id: rank for rank, c_id in enumerate(deduped_ids, 1)}),
+            boosts_applied=json.dumps({
+                c_id: [
+                    b for b, flag in [
+                        ("section_boost", sec_boosted.get(c_id)),
+                        ("lexical_boost", lex_boosted.get(c_id)),
+                        ("phrase_boost", phrase_boosted.get(c_id))
+                    ] if flag
+                ]
+                for c_id in deduped_ids
+            }),
+            duration_ms=dur_ms
+        )
+        db.add(trace_rec)
+        db.commit()
+    except Exception as e:
+        logger.debug(f"Search trace recording skipped: {e}")
+
     return hits
 
 

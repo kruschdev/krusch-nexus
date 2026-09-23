@@ -177,6 +177,86 @@ def create_negative_fixtures(target_dir: str):
         f.write(html_with_script)
 
 
+def create_mixed_pdf(output_path: str):
+    """Generate a mixed PDF with both digital text pages and a scanned exhibit page."""
+    import subprocess
+    target_dir = os.path.dirname(output_path)
+    p1 = os.path.join(target_dir, "sample_contract.pdf")
+    p2 = os.path.join(target_dir, "scanned_page.pdf")
+    if not os.path.exists(p1):
+        create_pdf(p1)
+    if not os.path.exists(p2):
+        create_scanned_pdf(p2)
+    subprocess.run(["pdfunite", p1, p2, output_path], check=True)
+
+
+def create_heldout_fixtures(target_dir: str):
+    """Generate held-out documents not used during chunker/retrieval tuning."""
+    bylaws_content = (
+        "AMENDED AND RESTATED BYLAWS OF KRUSCH ENTERPRISES INC.\n\n"
+        "Article I: Stockholders and Governance\n"
+        "Section 1.1 Annual Meeting\n"
+        "The annual meeting of stockholders shall be held on the third Tuesday of May each calendar year.\n\n"
+        "Section 1.2 Special Meetings\n"
+        "Special meetings of the stockholders may be called only by the Chairman of the Board or Chief Executive Officer.\n\n"
+        "Article II: Board of Directors\n"
+        "Section 2.1 Number and Qualifications\n"
+        "The Board shall consist of not less than five (5) nor more than nine (9) directors.\n\n"
+        "Section 2.4 Quorum and Voting\n"
+        "A majority of the total number of authorized directors shall constitute a quorum for the transaction of business."
+    )
+    with open(os.path.join(target_dir, "heldout_bylaws.txt"), "w", encoding="utf-8") as f:
+        f.write(bylaws_content)
+
+    note_content = (
+        "SECURED COMMERCIAL PROMISSORY NOTE\n\n"
+        "Section 1. Principal and Interest\n"
+        "Borrower promises to pay to the order of Lender the principal sum of Two Million Five Hundred Thousand Dollars ($2,500,000).\n"
+        "Interest shall accrue on unpaid principal at an annual fixed rate of 6.75% calculated on a 360-day year.\n\n"
+        "Section 2. Maturity and Amortization Schedule\n"
+        "The entire outstanding balance together with all accrued and unpaid interest shall be due and payable on December 31, 2030.\n\n"
+        "Section 3. Events of Default and Acceleration\n"
+        "Failure to make any installment within ten (10) calendar days of the due date constitutes an immediate Event of Default.\n"
+        "Upon an Event of Default, Lender may declare the entire balance immediately due and payable without presentment."
+    )
+    with open(os.path.join(target_dir, "heldout_promissory_note.txt"), "w", encoding="utf-8") as f:
+        f.write(note_content)
+
+
+def create_adversarial_fixtures(target_dir: str):
+    """Generate adversarial documents for stress-testing parsers, chunkers, and retrievers."""
+    twocolumn = (
+        "CALIFORNIA COMMERCIAL CODE - DIVISION 9 SECURED TRANSACTIONS\n\n"
+        "| COLUMN A: STATUTORY TEXT | COLUMN B: OFFICIAL COMMENTS |\n"
+        "| --- | --- |\n"
+        "| Section 9-102. Definitions and Index. | Comment 1: This section provides definitions. |\n"
+        "| (a) In this division: | Comment 2: Subsection (a) defines terms. |\n"
+        "| (1) 'Accession' means goods that are physically | Comment 3: Goods installed in other goods. |\n"
+        "| united with other goods. | Comment 4: Accessions retain identity. |\n"
+        "| (2) 'Account' means a right to payment of a monetary | Comment 5: Monetary obligations whether or not |\n"
+        "| obligation for property that has been or is to be sold. | earned by performance. |\n"
+    )
+    with open(os.path.join(target_dir, "adversarial_twocolumn.txt"), "w", encoding="utf-8") as f:
+        f.write(twocolumn)
+
+    redline = (
+        "SETTLEMENT AGREEMENT (CONFIDENTIAL REDLINE - DRAFT 4)\n\n"
+        "Article 3: Mutual Release of Claims\n"
+        "3.1 Release by Plaintiff\n"
+        "Plaintiff hereby releases Defendant from all claims [DELETED: including unknown claims under Section 1542]\n"
+        "[ADDED: provided that this release specifically excludes indemnification obligations under Exhibit D].\n\n"
+        "Article 4: Non-Disclosure\n"
+        "4.1 Confidential Treatment\n"
+        "The settlement consideration [DELETED: of $1,000,000] [ADDED: of $1,250,000] shall be held in strict confidence."
+    )
+    with open(os.path.join(target_dir, "adversarial_redline.txt"), "w", encoding="utf-8") as f:
+        f.write(redline)
+
+    blank_img = Image.new("RGB", (800, 600), color="white")
+    blank_path = os.path.join(target_dir, "adversarial_blank_scan.pdf")
+    blank_img.save(blank_path, "PDF", resolution=300.0)
+
+
 def main():
     target_dir = os.path.dirname(__file__)
     create_scanned_pdf(os.path.join(target_dir, "scanned_page.pdf"))
@@ -186,7 +266,10 @@ def main():
     create_vendor_matrix(os.path.join(target_dir, "vendor_matrix.csv"))
     create_pdf(os.path.join(target_dir, "sample_contract.pdf"))
     create_encrypted_pdf(os.path.join(target_dir, "encrypted_sample.pdf"))
+    create_mixed_pdf(os.path.join(target_dir, "mixed_sample.pdf"))
     create_negative_fixtures(target_dir)
+    create_heldout_fixtures(target_dir)
+    create_adversarial_fixtures(target_dir)
     print("All fixtures generated successfully in tests/fixtures/")
 
 

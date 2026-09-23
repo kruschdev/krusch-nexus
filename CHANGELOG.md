@@ -5,6 +5,33 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-22
+
+### Summary
+Deep architectural hardening establishing strict API & contract stability, a modular parser registry with single-policy OCR, honest 4-suite evaluation metrics with decoupled citation accuracy, end-to-end structured locators with `heading_path` array column persistence, explainable retrieval traces, crash-safe ingestion resumption, and robust air-gap security boundaries.
+
+### Added
+- **Alembic Schema Migration `c3d4e5f6a7b8`**: Added `heading_path` JSON array column on `document_chunks` table and created the `search_traces` table for rank-level explainability without storing document text.
+- **Modular Parser Registry (`src/krusch_nexus/parsers/`)**: Replaced monolithic `parsers.py` with individual modules (`pdf.py`, `ocr.py`, `docx.py`, `eml.py`, `tabular.py`, `html.py`, `registry.py`).
+- **Single OCR Policy Dataclass (`OCRPolicy`)**: Centralized `min_printable_chars=40`, `dpi=300`, `psm_prose=6`, `psm_form=4`, `confidence_floor=0.50`, `max_pixels=100_000_000`, `timeout_seconds=30.0`. Preserves `digital_text` and `ocr_text` distinctly.
+- **Four Decoupled Evaluation Suites (`tests/eval/`)**:
+  - `eval_regression`: 60 frozen fixture queries, Recall@5 = 100.0%, Citation Accuracy = 98.3%, MRR = 0.989.
+  - `eval_heldout`: Unseen legal documents, Recall@5 = 100.0%, Citation Accuracy = 100.0%.
+  - `eval_adversarial`: Two-column statutes, redlines, empty scans, encrypted PDFs.
+  - `eval_isolation`: Multi-tenant cross-workspace property test (75 checks across 5 workspaces, 0.0000% leakage).
+- **Comprehensive Evaluation Documentation (`docs/eval.md`)**: Full scoring formulas, query catalog, and explicit benchmark manifest of the 8 OCR testing pages.
+- **Crash-Safe Ingestion Resumption**: Persistent `IngestState` transitions in `ingest_runs` (`STAGED`, `PARSED`, `CHUNKED`, `EMBEDDED`, `COMMITTED`, `ARCHIVED`). Property test proves worker kill after `CHUNKED` resumes to `COMMITTED` with exactly 1 document row and 0 duplicate chunks.
+- **SQL-Level Predicates & Normalized Section Boosting**: Exact filters for `page`, `doc_id`, `doc_type`, and `filename`. Normalized section matching across citation formats (`§ 1950.5`, `Section 1950.5`, `sec. 1950.5`) with total boost capped at `0.12`.
+- **Air-Gap Security & Startup Probe**: Prohibits remote/cloud embedding endpoints (`AirGapViolationError`); enforces mandatory `NEXUS_API_TOKEN` in non-dev; audits localhost interface bindings in `nexus doctor`.
+- **Symlink Escape & Image Bomb Defenses**: Sandboxing verifies and rejects symlinks pointing outside allowed roots or to prohibited system directories; image pixel caps prevent decompression bomb attacks.
+- **Read-Only Replica Role**: Optional `search_database_url` splits read queries from primary writer database.
+
+### Changed
+- **Contract Freezing**: Exported `NexusClient` as canonical SDK client with thin `Nexus = NexusClient` alias. Frozen versioned Pydantic schemas (`SearchHit` v1, `IngestReport` v1). Frozen `DocType` enum (`AUTHORITY`, `WORK_PRODUCT`, `FACT_NARRATIVE`, `GENERAL`).
+- **CI Workflow**: Added mypy type audits and an automated 3-line quickstart smoke test against fixtures.
+
+---
+
 ## [0.2.0] - 2026-09-22
 
 ### Summary

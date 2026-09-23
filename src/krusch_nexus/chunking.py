@@ -65,6 +65,7 @@ class Chunk:
         self.structured_locator = structured_locator or StructuredLocator.from_raw(
             page=page_number, locator_str=locator, header=header
         )
+        self.heading_path = list(self.structured_locator.path) if (self.structured_locator and self.structured_locator.path) else []
         self.metadata = metadata or {}
         self.char_start = char_start
         self.char_end = char_end
@@ -80,6 +81,7 @@ class Chunk:
             "header": self.header,
             "locator": self.locator,
             "structured_locator": self.structured_locator.model_dump() if self.structured_locator else None,
+            "heading_path": self.heading_path,
             "page_number": self.page_number,
             "chunk_index": self.chunk_index,
             "source_hash": self.source_hash,

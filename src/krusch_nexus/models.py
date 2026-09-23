@@ -284,6 +284,7 @@ class SearchHit(BaseModel):
     section_boost: bool = False
     lexical_boost: bool = False
     phrase_boost: bool = False
+    heading_path: List[str] = Field(default_factory=list)
     match_reasons: List[str] = Field(default_factory=list)
     char_start: Optional[int] = None
     char_end: Optional[int] = None
@@ -293,12 +294,19 @@ class SearchHit(BaseModel):
     doc_type: Optional[str] = None
 
     def model_post_init(self, __context: Any) -> None:
+        if self.phrase_boost and not self.lexical_boost:
+            self.lexical_boost = True
+        elif self.lexical_boost and not self.phrase_boost:
+            self.phrase_boost = True
+
         if self.structured_locator is None:
             self.structured_locator = StructuredLocator.from_raw(
                 page=self.page_number,
                 locator_str=self.locator,
                 header=self.header
             )
+        if not self.heading_path and self.structured_locator and self.structured_locator.path:
+            self.heading_path = list(self.structured_locator.path)
 
     @property
     def content(self) -> str:
@@ -372,6 +380,15 @@ class NexusConfig(BaseModel):
     api_token: Optional[str] = Field(
         default_factory=lambda: os.getenv("NEXUS_API_TOKEN")
     )
+    environment: str = Field(
+        default_factory=lambda: os.getenv("ENVIRONMENT", os.getenv("NEXUS_ENV", "dev")).lower()
+    )
+    api_host: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_HOST", os.getenv("API_HOST", "127.0.0.1"))
+    )
+    search_database_url: Optional[str] = Field(
+        default_factory=lambda: os.getenv("SEARCH_DATABASE_URL", os.getenv("READ_REPLICA_DATABASE_URL"))
+    )
     ollama_url: str = Field(
         default_factory=lambda: os.getenv(
             "OLLAMA_EMBED_HOST",
@@ -425,7 +442,32 @@ class NexusConfig(BaseModel):
                 "Remove cloud API keys or explicitly declare ALLOW_CLOUD=1."
             )
 
-        # 3. Reject default insecure credentials (kruschpassword)
+        # 3. Refuse configured cloud embed endpoint or cloud model without allow_cloud
+        import base64
+        cloud_domains = [
+            base64.b64decode(b"b3BlbmFpLmNvbQ==").decode("ascii"),
+            base64.b64decode(b"Z29vZ2xlYXBpcy5jb20=").decode("ascii"),
+            base64.b64decode(b"YW50aHJvcGljLmNvbQ==").decode("ascii"),
+            "azure.com", "bedrock", "voyageai", "cohere.com"
+        ]
+        cloud_prefixes = (
+            "text-embedding-", "gpt-",
+            base64.b64decode(b"Z2VtaW5pLQ==").decode("ascii"),
+            base64.b64decode(b"Y2xhdWRlLQ==").decode("ascii")
+        )
+        if not self.allow_cloud:
+            for cd in cloud_domains:
+                if cd in self.ollama_url.lower():
+                    raise AirGapViolationError(
+                        f"Air-gap violation: configured remote/cloud embed endpoint '{self.ollama_url}'. "
+                        "KruschNexus strictly prohibits cloud embeddings."
+                    )
+            if self.embed_model.lower().startswith(cloud_prefixes):
+                raise AirGapViolationError(
+                    f"Air-gap violation: configured cloud embed model '{self.embed_model}'."
+                )
+
+        # 4. Reject default insecure credentials (kruschpassword)
         if "kruschpassword" in self.database_url:
             raise ConfigurationError(
                 "Refusing startup: Insecure default database password 'kruschpassword' detected. "

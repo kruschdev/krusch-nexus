@@ -101,6 +101,7 @@ class DocumentChunk(Base):
     page_number = Column(Integer, nullable=True, index=True)  # None for unpaged docs like DOCX/CSV
     locator = Column(String(255), nullable=True)             # Structural breadcrumb or row range
     header = Column(String(255), nullable=True)
+    heading_path = Column(Text, nullable=True)               # JSON-encoded list of heading hierarchy strings
     content = Column(Text, nullable=False)                   # Raw chunk text (used for embedding & search)
     citation = Column(String(512), nullable=True)            # Formatted citation
     source_hash = Column(String(64), nullable=False, index=True)
@@ -158,12 +159,36 @@ class EmbedCache(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class SearchTrace(Base):
+    """
+    Explainability fuse trace for hybrid retrieval scoring and ranking.
+    Zero document text logged; purely structural hashes and rank mappings for offline tuning.
+    """
+    __tablename__ = "search_traces"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
+    query_hash = Column(String(64), nullable=False, index=True)
+    dense_ranks = Column(Text, nullable=True)     # JSON-encoded mapping {chunk_id: rank}
+    sparse_ranks = Column(Text, nullable=True)    # JSON-encoded mapping {chunk_id: rank}
+    fused_ranks = Column(Text, nullable=True)     # JSON-encoded mapping {chunk_id: rank}
+    boosts_applied = Column(Text, nullable=True)  # JSON-encoded mapping {chunk_id: [boost_names]}
+    duration_ms = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 # ─── Database Engine & Session Management ─────────────────────────────────────
+
+_ENGINES: Dict[str, Any] = {}
+
 
 def get_engine(db_url: Optional[str] = None):
     url = db_url or os.getenv("DATABASE_URL")
     if not url:
         url = "sqlite:///./nexus.db"
+
+    if url in _ENGINES:
+        return _ENGINES[url]
 
     if "kruschpassword" in url:
         raise ConfigurationError(
@@ -172,8 +197,16 @@ def get_engine(db_url: Optional[str] = None):
         )
 
     if "sqlite" in url:
-        return create_engine(url, connect_args={"check_same_thread": False})
-    return create_engine(url)
+        if ":memory:" in url or url == "sqlite://":
+            from sqlalchemy.pool import StaticPool
+            eng = create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        else:
+            eng = create_engine(url, connect_args={"check_same_thread": False})
+    else:
+        eng = create_engine(url)
+
+    _ENGINES[url] = eng
+    return eng
 
 
 def get_session_factory(engine=None):

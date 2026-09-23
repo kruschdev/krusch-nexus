@@ -9,7 +9,7 @@ A dedicated homelab corpus factory providing:
 
 __version__ = "0.2.0"
 
-from .client import NexusClient
+from .client import NexusClient, Nexus
 from .models import (
     NexusConfig,
     IngestRequest,
@@ -48,6 +48,7 @@ from .exceptions import (
 
 __all__ = [
     "NexusClient",
+    "Nexus",
     "NexusConfig",
     "IngestRequest",
     "IngestReport",

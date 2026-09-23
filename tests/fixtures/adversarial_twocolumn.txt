@@ -1,0 +1,10 @@
+CALIFORNIA COMMERCIAL CODE - DIVISION 9 SECURED TRANSACTIONS
+
+| COLUMN A: STATUTORY TEXT | COLUMN B: OFFICIAL COMMENTS |
+| --- | --- |
+| Section 9-102. Definitions and Index. | Comment 1: This section provides definitions. |
+| (a) In this division: | Comment 2: Subsection (a) defines terms. |
+| (1) 'Accession' means goods that are physically | Comment 3: Goods installed in other goods. |
+| united with other goods. | Comment 4: Accessions retain identity. |
+| (2) 'Account' means a right to payment of a monetary | Comment 5: Monetary obligations whether or not |
+| obligation for property that has been or is to be sold. | earned by performance. |

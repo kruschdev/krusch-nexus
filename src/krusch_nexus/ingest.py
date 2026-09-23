@@ -205,9 +205,9 @@ class IngestPipeline:
     Enforces atomic DB transactions, provenance recording, and poison isolation.
     """
 
-    def __init__(self, config: Optional[NexusConfig] = None):
+    def __init__(self, config: Optional[NexusConfig] = None, engine=None):
         self.config = config or NexusConfig.from_env()
-        self.engine = get_engine(self.config.database_url)
+        self.engine = engine or get_engine(self.config.database_url)
         self._sessionmaker = get_session_factory(self.engine)
 
     def _get_db(self):
@@ -219,7 +219,8 @@ class IngestPipeline:
         workspace_name: str = "General",
         doc_type: DocType = DocType.GENERAL,
         archive_source: bool = True,
-        filename: Optional[str] = None
+        filename: Optional[str] = None,
+        simulate_crash_after_state: Optional[IngestState] = None
     ) -> IngestReport:
         """
         Execute the single-file ingestion pipeline.
@@ -261,7 +262,7 @@ class IngestPipeline:
         file_size = os.path.getsize(filepath_str)
         if file_size == 0:
             err = ParseError(f"File '{orig_filename}' is empty (0 bytes).")
-            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="")
+            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="", archive=archive_source)
             return IngestReport(
                 status="failed",
                 filename=orig_filename,
@@ -274,7 +275,7 @@ class IngestPipeline:
         ext = os.path.splitext(orig_filename)[1].lower()
         if ext not in ALLOWED_EXT:
             err = UnsupportedMimeError(f"Unsupported file format '{ext}' for file '{orig_filename}'")
-            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="")
+            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="", archive=archive_source)
             return IngestReport(
                 status="failed",
                 filename=orig_filename,
@@ -286,7 +287,7 @@ class IngestPipeline:
         # File size check
         if file_size > self.config.max_file_size_bytes:
             err = TooLargeError(f"File size ({file_size}B) exceeds limit of {self.config.max_file_size_bytes}B")
-            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="")
+            self._handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="", archive=archive_source)
             return IngestReport(
                 status="failed",
                 filename=orig_filename,
@@ -298,6 +299,7 @@ class IngestPipeline:
         mtime = os.path.getmtime(filepath_str)
         current_state = IngestState.STAGED
         db = self._get_db()
+        run_rec: Optional[IngestRun] = None
 
         try:
             # 1. Fetch or create Workspace
@@ -317,7 +319,7 @@ class IngestPipeline:
                 Document.file_hash == file_hash
             ).first()
 
-            if existing_doc:
+            if existing_doc and existing_doc.status == IngestState.COMMITTED.value:
                 if archive_source:
                     self._archive_success(filepath_str, orig_filename, workspace_name, file_hash)
 
@@ -354,8 +356,35 @@ class IngestPipeline:
                     duration_ms=elapsed_ms
                 )
 
+            # Crash resumption hygiene: cleanup any uncommitted/orphaned chunks or partial doc from prior crash
+            db.query(DocumentChunk).filter(
+                DocumentChunk.workspace_id == workspace.id,
+                DocumentChunk.doc_hash == file_hash
+            ).delete()
+            if existing_doc and existing_doc.status != IngestState.COMMITTED.value:
+                db.delete(existing_doc)
+            db.commit()
+
+            # Create persistent IngestRun ledger record
+            run_rec = IngestRun(
+                workspace_id=workspace.id,
+                workspace=workspace_name,
+                workspace_name=workspace_name,
+                filename=orig_filename,
+                file_hash=file_hash,
+                state=IngestState.STAGED.value,
+                started_at=datetime.fromtimestamp(start_time, timezone.utc),
+            )
+            db.add(run_rec)
+            db.commit()
+
             # 3. Stage: PARSED (Multi-format parser with page boundaries & OCR)
             current_state = IngestState.PARSED
+            run_rec.state = IngestState.PARSED.value
+            db.commit()
+            if simulate_crash_after_state == IngestState.PARSED:
+                raise SystemExit("Worker killed after PARSED")
+
             parser_result: ParserResult = parse_document(
                 file_path=filepath_str,
                 filename=orig_filename,
@@ -398,8 +427,16 @@ class IngestPipeline:
             if not chunks:
                 raise ParseError(f"No usable content chunks could be generated for '{orig_filename}'")
 
+            run_rec.state = IngestState.CHUNKED.value
+            db.commit()
+            if simulate_crash_after_state == IngestState.CHUNKED:
+                raise SystemExit("Worker killed after CHUNKED")
+
             # 5. Stage: EMBEDDED (Vector generation via local Ollama HTTP client in batches)
             current_state = IngestState.EMBEDDED
+            run_rec.state = IngestState.EMBEDDED.value
+            db.commit()
+
             chunk_texts = [c.text for c in chunks]  # Embed raw text only!
             embeddings: List[List[float]] = []
             embed_batch_size = self.config.embed_batch_size
@@ -407,6 +444,9 @@ class IngestPipeline:
                 b_slice = chunk_texts[b_idx:b_idx + embed_batch_size]
                 b_vecs = get_embeddings_batch(b_slice, config=self.config, db=db)
                 embeddings.extend(b_vecs)
+
+            if simulate_crash_after_state == IngestState.EMBEDDED:
+                raise SystemExit("Worker killed after EMBEDDED")
 
             # 6. Stage: COMMITTED (Atomic single-transaction commit)
             current_state = IngestState.COMMITTED
@@ -445,6 +485,7 @@ class IngestPipeline:
                     page_number=c.page_number,
                     locator=c.locator,
                     header=c.header,
+                    heading_path=json.dumps(getattr(c, "heading_path", [])),
                     content=c.text,
                     citation=c.citation,
                     source_hash=c.source_hash,
@@ -483,20 +524,27 @@ class IngestPipeline:
             )
 
             # Record run in ingest_runs ledger
-            run_rec = IngestRun(
-                document_id=new_doc.id,
-                workspace_id=workspace.id,
-                workspace=workspace_name,
-                workspace_name=workspace_name,
-                filename=orig_filename,
-                file_hash=file_hash,
-                state=IngestState.COMMITTED.value,
-                started_at=datetime.fromtimestamp(start_time, timezone.utc),
-                completed_at=datetime.now(timezone.utc),
-                duration_ms=elapsed_ms,
-                payload=report.model_dump_json()
-            )
-            db.add(run_rec)
+            if run_rec:
+                run_rec.document_id = new_doc.id
+                run_rec.state = IngestState.COMMITTED.value
+                run_rec.completed_at = datetime.now(timezone.utc)
+                run_rec.duration_ms = elapsed_ms
+                run_rec.payload = report.model_dump_json()
+            else:
+                run_rec = IngestRun(
+                    document_id=new_doc.id,
+                    workspace_id=workspace.id,
+                    workspace=workspace_name,
+                    workspace_name=workspace_name,
+                    filename=orig_filename,
+                    file_hash=file_hash,
+                    state=IngestState.COMMITTED.value,
+                    started_at=datetime.fromtimestamp(start_time, timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=elapsed_ms,
+                    payload=report.model_dump_json()
+                )
+                db.add(run_rec)
             new_doc.ingest_report = report.model_dump_json()
 
             # ATOMIC COMMIT of all records
@@ -521,6 +569,11 @@ class IngestPipeline:
                     "ingested_at": datetime.now(timezone.utc).isoformat()
                 }
                 self._archive_success(filepath_str, orig_filename, workspace_name, file_hash, manifest=manifest_data)
+                try:
+                    run_rec.state = IngestState.ARCHIVED.value
+                    db.commit()
+                except Exception:
+                    pass
 
             logger.info(
                 f"Ingested '{orig_filename}' into '{workspace_name}' "
@@ -529,30 +582,23 @@ class IngestPipeline:
             return report
 
         except Exception as e:
-            db.rollback()
+            try:
+                db.rollback()
+            except Exception:
+                pass
             err_class = type(e).__name__
             logger.error(f"Ingest failed at state [{current_state.value}] for '{orig_filename}': {err_class}: {e}")
 
-            # Record failure run in ingest_runs ledger
-            try:
-                fail_run = IngestRun(
-                    filename=orig_filename,
-                    workspace=workspace_name,
-                    workspace_name=workspace_name,
-                    file_hash=file_hash,
-                    state=IngestState.FAILED.value,
-                    started_at=datetime.fromtimestamp(start_time, timezone.utc),
-                    completed_at=datetime.now(timezone.utc),
-                    duration_ms=round((time.time() - start_time) * 1000, 2),
-                    error_class=err_class,
-                    error_message=str(e)
-                )
-                db.add(fail_run)
-                db.commit()
-            except Exception:
-                db.rollback()
-
-            self._handle_failure(filepath_str, orig_filename, workspace_name, e, start_time, file_hash=file_hash)
+            self._handle_failure(
+                filepath_str,
+                orig_filename,
+                workspace_name,
+                e,
+                start_time,
+                file_hash=file_hash,
+                archive=archive_source,
+                run_rec_id=run_rec.id if run_rec else None
+            )
             elapsed_ms = round((time.time() - start_time) * 1000, 2)
             return IngestReport(
                 status="failed",
@@ -603,7 +649,9 @@ class IngestPipeline:
         workspace_name: str,
         error: Exception,
         start_time: float,
-        file_hash: str = ""
+        file_hash: str = "",
+        archive: bool = False,
+        run_rec_id: Optional[int] = None
     ):
         """
         Isolate failed file to .failed/<workspace>/<name> and write redacted sidecar .error.json.
@@ -625,7 +673,7 @@ class IngestPipeline:
             dest_file = failed_dir / filename
             sidecar_file = failed_dir / f"{filename}.error.json"
 
-            if p.exists() and p.resolve() != dest_file.resolve():
+            if archive and p.exists() and p.resolve() != dest_file.resolve():
                 shutil.move(str(p), str(dest_file))
 
             # Redacted error data: Zero document content or chunk text!
@@ -644,6 +692,18 @@ class IngestPipeline:
             # Persist failure to IngestRun ledger
             try:
                 with get_db_session(self.engine) as db_sess:
+                    if run_rec_id:
+                        rec = db_sess.query(IngestRun).filter(IngestRun.id == run_rec_id).first()
+                        if rec:
+                            rec.state = IngestState.FAILED.value
+                            rec.error_class = type(error).__name__
+                            rec.error_message = str(error)
+                            rec.completed_at = datetime.now(timezone.utc)
+                            rec.duration_ms = round((time.time() - start_time) * 1000, 2)
+                            db_sess.commit()
+                            logger.info(f"Isolated poison file '{filename}' ({type(error).__name__}) to {failed_dir}")
+                            return
+
                     run_rec = IngestRun(
                         filename=filename,
                         workspace=workspace_name,

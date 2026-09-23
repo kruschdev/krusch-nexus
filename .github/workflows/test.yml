@@ -35,6 +35,7 @@ jobs:
     - name: Run Linters & Type Audits
       run: |
         ruff check src/
+        mypy src/krusch_nexus/ --ignore-missing-imports
 
     - name: Homelab Path & Secret Hygiene Guard
       run: |
@@ -49,6 +50,13 @@ jobs:
     - name: Generate Fixtures
       run: |
         python tests/fixtures/create_fixtures.py
+
+    - name: Quickstart Smoke Test (README 3-line sample)
+      env:
+        DATABASE_URL: "sqlite:///:memory:"
+        OLLAMA_BASE_URL: "http://127.0.0.1:11434"
+      run: |
+        python -c "from krusch_nexus import NexusClient; client = NexusClient(); report = client.ingest('tests/fixtures/sample_contract.pdf', workspace='CIQuickstart'); hits = client.search('confidentiality clause', workspace='CIQuickstart'); assert len(hits) > 0, 'Quickstart returned 0 hits'; print(f'CI Quickstart OK: {hits[0].citation}')"
 
     - name: Run Layered Test Suite & Citation Benchmark
       env:

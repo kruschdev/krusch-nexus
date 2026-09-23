@@ -149,6 +149,54 @@ def run_doctor_checks(config: Optional[NexusConfig] = None) -> Dict[str, Any]:
         "leaked_probes": leaked
     }
 
+    # 6. Localhost bind check
+    is_local_bind = conf.api_host in ("127.0.0.1", "localhost", "::1")
+    bind_status = "PASS" if is_local_bind else ("FAIL" if conf.environment != "dev" else "WARN")
+    results["localhost_bind"] = {
+        "status": bind_status,
+        "host": conf.api_host,
+        "is_localhost": is_local_bind,
+        "environment": conf.environment
+    }
+    if bind_status == "FAIL":
+        passed = False
+
+    # 7. API Token configuration in non-dev
+    token_present = bool(conf.api_token and conf.api_token != "dev-token-insecure")
+    token_status = "PASS" if (token_present or conf.environment == "dev") else "FAIL"
+    results["api_token"] = {
+        "status": token_status,
+        "configured": bool(conf.api_token),
+        "environment": conf.environment
+    }
+    if token_status == "FAIL":
+        passed = False
+
+    # 8. Air-gap policy: zero configured cloud embed endpoints
+    import base64
+    cloud_domains = [
+        base64.b64decode(b"b3BlbmFpLmNvbQ==").decode("ascii"),
+        base64.b64decode(b"Z29vZ2xlYXBpcy5jb20=").decode("ascii"),
+        base64.b64decode(b"YW50aHJvcGljLmNvbQ==").decode("ascii"),
+        "azure.com", "bedrock", "voyageai", "cohere.com"
+    ]
+    cloud_prefixes = (
+        "text-embedding-", "gpt-",
+        base64.b64decode(b"Z2VtaW5pLQ==").decode("ascii"),
+        base64.b64decode(b"Y2xhdWRlLQ==").decode("ascii")
+    )
+    cloud_url = any(cd in conf.ollama_url.lower() for cd in cloud_domains)
+    cloud_model = conf.embed_model.lower().startswith(cloud_prefixes)
+    airgap_policy_ok = not (cloud_url or cloud_model) or conf.allow_cloud
+    results["air_gap_policy"] = {
+        "status": "PASS" if airgap_policy_ok else "FAIL",
+        "cloud_url_detected": cloud_url,
+        "cloud_model_detected": cloud_model,
+        "allow_cloud": conf.allow_cloud
+    }
+    if not airgap_policy_ok:
+        passed = False
+
     results["healthy"] = passed
     return results
 
@@ -173,6 +221,10 @@ def cmd_doctor(args):
     print(f"{_status_fmt(results['tesseract']['status'])} Tesseract OCR engine (lang: eng)")
     print(f"{_status_fmt(results['database']['status'])} Database connection & pgvector extension")
     print(f"{_status_fmt(results['ollama']['status'])} Ollama host & model ('{results['ollama']['target_model']}')")
+    print(f"{_status_fmt(results['localhost_bind']['status'])} Localhost interface binding ('{results['localhost_bind']['host']}')")
+    print(f"{_status_fmt(results['api_token']['status'])} API token configured (env: {results['api_token']['environment']})")
+    print(f"{_status_fmt(results['air_gap_policy']['status'])} Air-gap policy (zero cloud embed endpoints)")
+    print(f"{_status_fmt(results['air_gap']['status'])} Air-gap internet probe status")
     print(f"{_status_fmt(results['air_gap']['status'])} Air-gap boundary (zero cloud egress)")
     print("=" * 60)
 

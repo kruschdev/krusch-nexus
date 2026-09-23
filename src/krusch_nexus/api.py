@@ -113,6 +113,11 @@ async def auth_exception_handler(request: Request, exc: AuthenticationError):
 
 def verify_api_token(authorization: Optional[str] = Header(None)):
     """Enforce API token authentication using constant-time comparison when configured."""
+    if config.environment != "dev" and not config.api_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="NEXUS_API_TOKEN must be configured and provided in non-dev environment"
+        )
     if not config.api_token:
         return True
     if not authorization:
@@ -120,8 +125,11 @@ def verify_api_token(authorization: Optional[str] = Header(None)):
     parts = authorization.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Authorization header format")
+    token_val = parts[1].strip()
+    if not token_val:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Empty bearer token")
 
-    if not secrets.compare_digest(parts[1], config.api_token):
+    if not secrets.compare_digest(token_val, config.api_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token")
     return True
 

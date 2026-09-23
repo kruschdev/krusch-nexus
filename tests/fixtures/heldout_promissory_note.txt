@@ -1,0 +1,12 @@
+SECURED COMMERCIAL PROMISSORY NOTE
+
+Section 1. Principal and Interest
+Borrower promises to pay to the order of Lender the principal sum of Two Million Five Hundred Thousand Dollars ($2,500,000).
+Interest shall accrue on unpaid principal at an annual fixed rate of 6.75% calculated on a 360-day year.
+
+Section 2. Maturity and Amortization Schedule
+The entire outstanding balance together with all accrued and unpaid interest shall be due and payable on December 31, 2030.
+
+Section 3. Events of Default and Acceleration
+Failure to make any installment within ten (10) calendar days of the due date constitutes an immediate Event of Default.
+Upon an Event of Default, Lender may declare the entire balance immediately due and payable without presentment.

@@ -62,8 +62,10 @@ class NexusClient:
                 self.config.database_url = database_url
 
         self.engine = get_engine(self.config.database_url)
+        self.search_engine = get_engine(self.config.search_database_url or self.config.database_url)
         init_db(self.engine)
         self._sessionmaker = get_session_factory(self.engine)
+        self._search_sessionmaker = get_session_factory(self.search_engine)
 
     @classmethod
     def from_env(cls, **kwargs) -> "NexusClient":
@@ -74,12 +76,16 @@ class NexusClient:
     def _get_db(self):
         return self._sessionmaker()
 
+    def _get_search_db(self):
+        return self._search_sessionmaker()
+
     def ingest(
         self,
         filepath: str,
         workspace: str,
         doc_type: DocType = DocType.GENERAL,
-        archive: bool = False
+        archive: bool = False,
+        simulate_crash_after_state: Optional[Any] = None
     ) -> IngestReport:
         """
         Ingest a local document (PDF, DOCX, EML, CSV, HTML, TXT/MD) into a workspace.
@@ -88,12 +94,13 @@ class NexusClient:
             raise WorkspaceRequiredError("A workspace name is required to ingest documents.")
 
         from .ingest import IngestPipeline
-        pipeline = IngestPipeline(self.config)
+        pipeline = IngestPipeline(self.config, engine=self.engine)
         return pipeline.process_file(
             filepath=filepath,
             workspace_name=workspace.strip(),
             doc_type=doc_type,
-            archive_source=archive
+            archive_source=archive,
+            simulate_crash_after_state=simulate_crash_after_state
         )
 
     ingest_file = ingest
@@ -183,7 +190,7 @@ class NexusClient:
         workspace: str,
         doc_type: Optional[str] = None,
         limit: int = 5,
-        filters: Optional[SearchFilter] = None
+        filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None
     ) -> List[SearchHit]:
         """
         Execute hybrid vector + full-text search across a workspace.
@@ -192,7 +199,7 @@ class NexusClient:
         if not workspace or not workspace.strip():
             raise WorkspaceRequiredError("A target workspace is required for search. Global multi-workspace search is disallowed.")
 
-        db = self._get_db()
+        db = self._get_search_db()
         try:
             ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
             if not ws:
@@ -201,7 +208,12 @@ class NexusClient:
             def _embed(text_str: str) -> List[float]:
                 return get_embedding(text_str, config=self.config, db=db)
 
-            resolved_filters = filters.model_dump(exclude_none=True) if filters else {}
+            if isinstance(filters, SearchFilter):
+                resolved_filters = filters.model_dump(exclude_none=True)
+            elif isinstance(filters, dict):
+                resolved_filters = dict(filters)
+            else:
+                resolved_filters = {}
 
             return retrieve(
                 query=query,
@@ -271,3 +283,7 @@ class NexusClient:
             return res
         finally:
             db.close()
+
+
+# Canonical thin alias for backwards-compatibility
+Nexus = NexusClient

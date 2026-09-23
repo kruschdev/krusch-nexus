@@ -192,7 +192,8 @@ def nexus_search_corpus(
                     "header": h.header,
                     "locator": h.locator,
                     "formatted": h.citation,
-                    "structured_locator": h.structured_locator.model_dump() if h.structured_locator else None
+                    "structured_locator": h.structured_locator.model_dump() if h.structured_locator else None,
+                    "heading_path": h.heading_path
                 },
                 "explainability": {
                     "dense_score": h.dense_score,

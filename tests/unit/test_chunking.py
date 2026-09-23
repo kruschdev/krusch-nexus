@@ -54,6 +54,38 @@ class TestChunking(unittest.TestCase):
         self.assertIn("Section 2.0: Hardware Audits", p2_chunks[0].citation)
         self.assertNotIn("[policy.docx", p2_chunks[0].text)
 
+    def test_embedding_input_does_not_contain_citation_string(self):
+        """
+        Critical Invariant:
+        Embedding vector input (chunk.text) must NEVER contain baked-in citation
+        strings such as '[filename - p.N] § ...' or synthetic formatting wrappers.
+        Citations and breadcrumbs live strictly in metadata.
+        """
+        page = ParsedPage(page_number=14, text="Article IV: Governance\nSection 8.22.030: Operative text of statute.")
+        chunks = chunk_document_pages(
+            pages=[page],
+            filename="ordinance.pdf",
+            file_hash="hash_abc_999",
+            max_chars=1000
+        )
+        self.assertGreaterEqual(len(chunks), 1)
+        for c in chunks:
+            # Text to be embedded must never contain citation wrappers
+            self.assertNotEqual(c.text, c.citation)
+            self.assertNotIn("ordinance.pdf", c.text)
+            self.assertNotIn("p.14", c.text)
+            self.assertNotIn("[ordinance.pdf", c.text)
+
+            # Formatted citation must contain document and page number
+            self.assertIn("ordinance.pdf", c.citation)
+            self.assertIn("p.14", c.citation)
+
+            # Structured locator and heading path
+            self.assertIsNotNone(c.structured_locator)
+            self.assertEqual(c.structured_locator.page, 14)
+            self.assertIsInstance(c.heading_path, list)
+            self.assertIn("Page 14", c.heading_path)
+
 
 if __name__ == "__main__":
     unittest.main()
