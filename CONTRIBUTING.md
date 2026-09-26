@@ -13,6 +13,7 @@ Before contributing, please read and follow these architectural boundaries.
 3. **Tenant & Workspace Isolation**: All database queries must enforce workspace boundary checks (`WHERE workspace_id = :ws_id`). Cross-tenant leakage is a P0 regression.
 4. **No Domain Law in Core**: KruschNexus is a general citation and retrieval engine. Do not hardcode domain-specific legal heuristics (e.g., California-specific statutory interpretations or custom lease clauses) into `krusch_nexus/`. Domain reasoning belongs in higher-level client applications or specialized toolchains.
 5. **Frozen Public Contracts**: `NexusClient` is the public API entrypoint (`Nexus` as alias). Do not add ad-hoc parameters or breaking field renames to `SearchHit`, `StructuredLocator`, or `IngestReport`.
+6. **Fix a Held-Out Miss Over Architecture Essays**: The most valued contribution to KruschNexus is a failing test fixture that reproduces locator drift, two-column column interleaving, or OCR corruption on real messy documents, paired with a surgical layout-aware fix. Pull requests adding failing fixtures and fixing held-out evaluation misses take precedence over speculative architectural proposals. See [`docs/eval.md`](docs/eval.md) for reproducing the evaluation table.
 
 ---
 
