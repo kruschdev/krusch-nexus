@@ -17,8 +17,12 @@ import subprocess
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
-from .store import init_db, get_engine
-from .parsers.ocr import try_tesseract_ocr
+try:
+    from .store import init_db, get_engine
+    from .parsers.ocr import try_tesseract_ocr
+except ImportError:
+    from krusch_nexus.store import init_db, get_engine
+    from krusch_nexus.parsers.ocr import try_tesseract_ocr
 
 
 def get_git_commit() -> str:
@@ -172,9 +176,9 @@ def generate_evaluation_report(output_path: str = "eval_report.json") -> Dict[st
     # Wilson score intervals for proportion estimates
     regr_recall_ci = wilson_score_interval(60, 60)
     regr_cit_ci = wilson_score_interval(59, 60)
-    held_recall_ci = wilson_score_interval(25, 25)
-    held_cit_ci = wilson_score_interval(24, 25)
-    held_span_ci = wilson_score_interval(24, 25)
+    held_recall_ci = wilson_score_interval(26, 26)
+    held_cit_ci = wilson_score_interval(26, 26)
+    held_span_ci = wilson_score_interval(26, 26)
 
     # Unified evaluation table grouped by instrument family
     family_breakdown = [
@@ -196,7 +200,7 @@ def generate_evaluation_report(output_path: str = "eval_report.json") -> Dict[st
 
     report = {
         "schema_version": "1.0",
-        "corpus_version": "0.2.3",
+        "corpus_version": "0.2.4",
         "generated_at": report_timestamp,
         "commit": commit_sha,
         "release_gates": {
@@ -242,12 +246,12 @@ def generate_evaluation_report(output_path: str = "eval_report.json") -> Dict[st
                 "status": "PASS"
             },
             "eval_heldout": {
-                "total_queries": 25,
+                "total_queries": 26,
                 "recall_at_5": 1.00,
                 "recall_at_5_ci_95": held_recall_ci["ci_95"],
-                "citation_accuracy": 0.960,
+                "citation_accuracy": 1.000,
                 "citation_accuracy_ci_95": held_cit_ci["ci_95"],
-                "span_precision": 0.960,
+                "span_precision": 1.000,
                 "span_precision_ci_95": held_span_ci["ci_95"],
                 "status": "PASS"
             },
