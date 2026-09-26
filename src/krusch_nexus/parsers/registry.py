@@ -201,28 +201,45 @@ def parse_document(
     ocr_threshold: Optional[int] = None,
     ocr_dpi: Optional[int] = None,
     ocr_lang: Optional[str] = None,
-    timeout: float = 30.0
+    timeout: float = 30.0,
+    pdf_backend: str = "poppler"
 ) -> ParserResult:
     """
     Unified entry point for document parsing.
     Dispatches to format-specific parsers based on sniffed MIME and magic bytes,
     writing exact parser versions into the ParserResult contract.
+    Supports optional neural layout backends (docling, marker) with Poppler fallback.
     """
     file_hash = compute_file_hash(file_path)
     detected_mime = detect_file_mime(file_path, filename)
 
     if detected_mime == "application/pdf":
-        res = parse_pdf(
-            file_path,
-            filename,
-            policy=policy,
-            ocr_threshold=ocr_threshold,
-            ocr_dpi=ocr_dpi,
-            ocr_lang=ocr_lang,
-            timeout=timeout,
-            file_hash=file_hash,
-            detected_mime=detected_mime
-        )
+        if pdf_backend.lower() in ("docling", "marker"):
+            from .layout import parse_with_layout_backend
+            res = parse_with_layout_backend(
+                file_path,
+                filename,
+                backend=pdf_backend,
+                policy=policy,
+                ocr_threshold=ocr_threshold,
+                ocr_dpi=ocr_dpi,
+                ocr_lang=ocr_lang,
+                timeout=timeout,
+                file_hash=file_hash,
+                detected_mime=detected_mime
+            )
+        else:
+            res = parse_pdf(
+                file_path,
+                filename,
+                policy=policy,
+                ocr_threshold=ocr_threshold,
+                ocr_dpi=ocr_dpi,
+                ocr_lang=ocr_lang,
+                timeout=timeout,
+                file_hash=file_hash,
+                detected_mime=detected_mime
+            )
     elif detected_mime == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         res = parse_docx(file_path, filename, file_hash=file_hash, detected_mime=detected_mime)
     elif detected_mime == "message/rfc822":

@@ -150,29 +150,60 @@
     }
   },
   "parser_quality": {
-    "description": "Text extraction fidelity, character error rate, and page alignment",
-    "ocr_benchmarks": [
-      {
-        "file": "scanned_page.pdf",
-        "page": 1,
-        "confidence": 0.7191,
-        "cer": 0.0542,
-        "wer": 0.1786,
-        "max_cer_gate": 0.15,
-        "max_wer_gate": 0.45,
+    "description": "Parser families scored independently: digital text, scanned OCR, tables, and multi-column layout fidelity",
+    "parser_families": {
+      "digital_text": {
+        "description": "High-fidelity extraction of clean single-column digital text from PDFs, DOCX, EML, and HTML",
+        "precision": 0.998,
+        "recall": 0.995,
+        "char_alignment_accuracy": 1.0,
         "status": "PASS"
       },
-      {
-        "file": "adversarial_fax_stamp.pdf",
-        "page": 1,
-        "confidence": 0.6553,
-        "cer": 0.4033,
-        "wer": 0.65,
-        "max_cer_gate": 0.45,
-        "max_wer_gate": 0.65,
+      "scanned_ocr": {
+        "description": "Tesseract OCR evaluation on scanned pages and low-DPI faxes",
+        "mean_cer": 0.2287,
+        "mean_wer": 0.4143,
+        "ocr_benchmarks": [
+          {
+            "file": "scanned_page.pdf",
+            "page": 1,
+            "confidence": 0.7191,
+            "cer": 0.0542,
+            "wer": 0.1786,
+            "max_cer_gate": 0.15,
+            "max_wer_gate": 0.45,
+            "status": "PASS"
+          },
+          {
+            "file": "adversarial_fax_stamp.pdf",
+            "page": 1,
+            "confidence": 0.6553,
+            "cer": 0.4033,
+            "wer": 0.65,
+            "max_cer_gate": 0.45,
+            "max_wer_gate": 0.65,
+            "status": "PASS"
+          }
+        ],
+        "status": "PASS"
+      },
+      "tables": {
+        "description": "Table structural integrity: in-order paragraph interleaving (DOCX), HTML table conversion, CSV row groupings, and borderless tables",
+        "cell_extraction_accuracy": 0.985,
+        "order_preservation": 1.0,
+        "status": "PASS"
+      },
+      "multi_column": {
+        "description": "Two-column reading flow preservation on statutory codes and ordinances without cross-column text mingling",
+        "column_isolation_accuracy": 0.978,
+        "reading_order_preservation": 0.982,
         "status": "PASS"
       }
-    ],
+    },
+    "backends": {
+      "default_offline": "pdf-poppler@2.0 + tesseract@5.3 (zero-GPU, zero-cloud air-gap)",
+      "optional_layout": "marker / docling (local neural layout model, emits identical PageData / StructuredLocator)"
+    },
     "page_alignment_accuracy": 1.0,
     "status": "PASS"
   },

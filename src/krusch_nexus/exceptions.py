@@ -46,6 +46,11 @@ class WorkspaceNotFound(NexusError):
     pass
 
 
+class DocumentNotFound(NexusError):
+    """Raised when the specified document does not exist in the database."""
+    pass
+
+
 class EmbeddingUnavailable(NexusError):
     """Raised when the local Ollama embedding host cannot be reached or fails to embed."""
     pass

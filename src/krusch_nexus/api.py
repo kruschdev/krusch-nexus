@@ -400,6 +400,15 @@ def get_document_ingest_report(doc_id_or_hash: str):
     return report
 
 
+@app.get("/v1/documents/{doc_id_or_hash}/exhibits", dependencies=[Depends(verify_api_token)])
+def get_document_exhibit_manifest(doc_id_or_hash: str):
+    """Fetch structured parent <-> exhibit / attachment lineage for a document."""
+    try:
+        return client.get_exhibit_manifest(doc_id_or_hash)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.post("/v1/documents/{doc_id}/reparse", response_model=IngestReport, dependencies=[Depends(verify_api_token)])
 def reparse_document(
     doc_id: int,

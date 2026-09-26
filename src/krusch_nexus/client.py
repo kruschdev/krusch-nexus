@@ -7,6 +7,7 @@ Does NOT mutate ambient os.environ.
 """
 
 import os
+import re
 import json
 import logging
 import secrets
@@ -23,6 +24,7 @@ from .models import (
 )
 from .exceptions import (
     WorkspaceNotFound,
+    DocumentNotFound,
     WorkspaceRequiredError,
     ParseError,
     AuthenticationError,
@@ -359,6 +361,117 @@ class NexusClient:
                 "workspace": workspace,
                 "version_count": len(versions_data),
                 "versions": versions_data
+            }
+        finally:
+            db.close()
+
+    def get_exhibit_manifest(
+        self,
+        doc_id_or_hash: Union[int, str],
+        workspace: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Extract structured parent <-> exhibit / attachment lineage for a document.
+        Discovers embedded exhibits, schedules, addenda, and attachments across chunks,
+        plus any child documents linked by filename convention or parent metadata.
+        """
+        db = self._get_db()
+        try:
+            query = db.query(Document)
+            if isinstance(doc_id_or_hash, int) or str(doc_id_or_hash).isdigit():
+                doc = query.filter(Document.id == int(doc_id_or_hash)).first()
+            else:
+                doc = query.filter(Document.file_hash == str(doc_id_or_hash)).first()
+
+            if not doc:
+                raise DocumentNotFound(f"Document '{doc_id_or_hash}' not found.")
+
+            ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
+            ws_name = ws.name if ws else f"Workspace_{doc.workspace_id}"
+
+            chunks = db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == doc.id
+            ).order_by(DocumentChunk.chunk_index.asc()).all()
+
+            exhibits = []
+            attachments = []
+            seen_exhibit_keys = set()
+
+            exhibit_pattern = re.compile(
+                r'\b(Exhibit|Schedule|Appendix|Addendum)\s+([A-Z0-9IVXLCDM]+(?:[\.\-][A-Z0-9]+)*)',
+                re.IGNORECASE
+            )
+            attachment_pattern = re.compile(
+                r'\b(Attachment)(?::\s*|\s+)([^\n\r]+)',
+                re.IGNORECASE
+            )
+
+            for c in chunks:
+                combined_header = f"{c.header or ''} {c.locator or ''}".strip()
+                ex_match = exhibit_pattern.search(combined_header)
+                if ex_match:
+                    kind_label = ex_match.group(1).title()
+                    identifier = f"{kind_label} {ex_match.group(2).upper()}"
+                    if identifier not in seen_exhibit_keys:
+                        seen_exhibit_keys.add(identifier)
+                        exhibits.append({
+                            "identifier": identifier,
+                            "kind": kind_label.lower(),
+                            "title": c.header or identifier,
+                            "page_number": c.page_number,
+                            "locator": c.locator,
+                            "citation": c.citation,
+                            "chunk_index": c.chunk_index,
+                            "source": "embedded_section"
+                        })
+
+                att_match = attachment_pattern.search(combined_header)
+                if att_match:
+                    att_name = att_match.group(2).strip()
+                    if att_name not in seen_exhibit_keys:
+                        seen_exhibit_keys.add(att_name)
+                        attachments.append({
+                            "identifier": att_name,
+                            "title": att_name,
+                            "page_number": c.page_number,
+                            "locator": c.locator,
+                            "citation": c.citation,
+                            "chunk_index": c.chunk_index,
+                            "source": "email_attachment" if doc.mime == "message/rfc822" else "embedded_attachment"
+                        })
+
+            base_name, _ = os.path.splitext(doc.filename)
+            siblings = db.query(Document).filter(
+                Document.workspace_id == doc.workspace_id,
+                Document.id != doc.id
+            ).all()
+
+            for s in siblings:
+                s_base, _ = os.path.splitext(s.filename)
+                if s_base.startswith(base_name) and ("exhibit" in s_base.lower() or "attachment" in s_base.lower()):
+                    exhibits.append({
+                        "identifier": s.filename,
+                        "kind": "standalone_document",
+                        "title": s.filename,
+                        "page_number": 1,
+                        "document_id": s.id,
+                        "file_hash": s.file_hash,
+                        "total_pages": s.total_pages,
+                        "citation": f"{s.filename} p.1",
+                        "source": "linked_standalone"
+                    })
+
+            return {
+                "document_id": doc.id,
+                "filename": doc.filename,
+                "workspace": ws_name,
+                "file_hash": doc.file_hash,
+                "total_pages": doc.total_pages,
+                "total_chunks": len(chunks),
+                "exhibit_count": len(exhibits),
+                "attachment_count": len(attachments),
+                "exhibits": exhibits,
+                "attachments": attachments
             }
         finally:
             db.close()

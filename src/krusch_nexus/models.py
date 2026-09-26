@@ -137,7 +137,15 @@ def format_citation(
     if sec_label and sec_label.strip():
         s = sec_label.strip().lstrip("#").strip()
         s_lower = s.lower()
-        if not s.startswith("§") and not s_lower.startswith("section") and not s_lower.startswith("row") and not s_lower.startswith("art"):
+        if (
+            not s.startswith("§")
+            and not s_lower.startswith("section")
+            and not s_lower.startswith("row")
+            and not s_lower.startswith("art")
+            and not s_lower.startswith("table")
+            and not s_lower.startswith("exhibit")
+            and not s_lower.startswith("attachment")
+        ):
             clean_sec = f"§ {s}"
         else:
             clean_sec = s

@@ -243,6 +243,19 @@ def nexus_get_ingest_report(doc_id_or_hash: str) -> str:
 
 
 @mcp.tool()
+def nexus_get_exhibit_manifest(doc_id_or_hash: str) -> str:
+    """
+    Retrieve structured parent <-> exhibit / attachment lineage for a document.
+    Discovers embedded exhibits, schedules, appendices, addenda, and attachments across chunks.
+    """
+    try:
+        manifest = get_client().get_exhibit_manifest(doc_id_or_hash)
+        return json.dumps(manifest, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
 def nexus_search_corpus(
     query: str,
     workspace_name: str,
