@@ -284,7 +284,8 @@ class IngestPipeline:
                 ocr_threshold=self.config.ocr_threshold_chars,
                 ocr_dpi=self.config.ocr_dpi,
                 ocr_lang=self.config.ocr_lang,
-                timeout=self.config.subprocess_timeout
+                timeout=self.config.subprocess_timeout,
+                pdf_backend=self.config.pdf_backend
             )
             t_parse_end = time.time()
             parse_ms = round((t_parse_end - t_parse_start) * 1000, 2)

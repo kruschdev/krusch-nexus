@@ -542,6 +542,9 @@ class NexusConfig(BaseModel):
     reranker_backend: str = Field(
         default_factory=lambda: os.getenv("NEXUS_RERANKER_BACKEND", "none").lower()
     )
+    pdf_backend: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_PDF_BACKEND", "poppler").lower()
+    )
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":

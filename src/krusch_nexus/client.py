@@ -147,7 +147,8 @@ class NexusClient:
             ocr_threshold=self.config.ocr_threshold_chars,
             ocr_dpi=self.config.ocr_dpi,
             ocr_lang=self.config.ocr_lang,
-            timeout=self.config.subprocess_timeout
+            timeout=self.config.subprocess_timeout,
+            pdf_backend=self.config.pdf_backend
         )
 
         chunks = chunk_document_pages(
