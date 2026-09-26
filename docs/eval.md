@@ -10,7 +10,7 @@ The evaluation harness is partitioned into five distinct suites in `tests/eval/`
 
 | Suite | File | Purpose | Release Gate Requirement | Measured Result |
 |---|---|---|---|---|
-| **`eval_heldout`** | [`test_eval_heldout.py`](../tests/eval/test_eval_heldout.py) | **Primary Release Gate**: Evaluates 26 queries across 7 parser families (`digital_pdf`, `ocr_pdf`, `docx`, `html_email`, `tabular_csv`, `statutory_txt`, `mixed_pdf`) on messy documents (SEC 10-K, two-column newspapers, 150 DPI scans, redacted orders). | **Citation Accuracy $\ge 80.0\%$**;<br>**Span Precision $\ge 80.0\%$**;<br>Recall@5 $\ge 85.0\%$ | **Citation Acc = 100.0%**<br>**Span Precision = 96.2%**<br>**Recall@5 = 100.0%** |
+| **`eval_heldout`** | [`test_eval_heldout.py`](../tests/eval/test_eval_heldout.py) | **Primary Release Gate**: Evaluates 26 queries across 7 parser families (`digital_pdf`, `ocr_pdf`, `docx`, `html_email`, `tabular_csv`, `statutory_txt`, `mixed_pdf`) on messy documents (SEC 10-K, two-column newspapers, 150 DPI scans, redacted orders). | **Citation Accuracy $\ge 80.0\%$**;<br>**Span Precision $\ge 80.0\%$**;<br>Recall@5 $\ge 85.0\%$ | **Citation Acc = 100.0%**<br>**Span Precision = 100.0%**<br>**Recall@5 = 100.0%** |
 | **`eval_hard_negatives`** | [`test_eval_hard_negatives.py`](../tests/eval/test_eval_hard_negatives.py) | Non-statutory hard negatives: queries composed exclusively of synonyms without `§` or `Section` tokens. Prevents section boost score inflation. | **`section_boost == False`**;<br>Zero false positive cross-leakage | **100.0% Precision**<br>0.0% False Positives |
 | **`eval_regression`** | [`test_eval_regression.py`](../tests/eval/test_eval_regression.py) | Invariant regression lock over frozen baseline instruments. Ensures refactors to chunkers, parsers, or ranking preserve baseline invariants. | **Recall@5 = 100.0%**;<br>Citation Accuracy $\ge 80.0\%$ | **Recall@5 = 100.0%**<br>Citation Acc = 98.3%<br>MRR = 0.989 |
 | **`eval_adversarial`** | [`test_eval_adversarial.py`](../tests/eval/test_eval_adversarial.py) | Stress-tests against difficult document structures: two-column statutory PDFs, redline draft PDFs with strikethroughs, degraded fax scans with stamps, blank scans, and encrypted PDFs. | **Zero unhandled exceptions**; Fail-closed on encrypted PDFs; OCR CER $\le 45\%$ | **0 exceptions**; Fail-closed verified; CER/WER benchmark passed |
@@ -28,7 +28,7 @@ Evaluated using `pytest tests/eval -m heldout -s`:
 ======================================================================
 Total Held-Out Queries:    26
 Citation Accuracy (PRI):   100.0% (26/26)
-Span Precision (PRI):      96.2% (25/26)
+Span Precision (PRI):      100.0% (26/26)
 Recall@5 (SEC):            100.0% (26/26)
 ----------------------------------------------------------------------
 Parser Family    | Count  | Citation Acc | Span Prec  | Recall@5
@@ -37,7 +37,7 @@ digital_pdf      | 3      | 100.0%       | 100.0%     | 100.0%
 docx             | 1      | 100.0%       | 100.0%     | 100.0%  
 html_email       | 1      | 100.0%       | 100.0%     | 100.0%  
 mixed_pdf        | 2      | 100.0%       | 100.0%     | 100.0%  
-ocr_pdf          | 4      | 100.0%       | 75.0%      | 100.0%  
+ocr_pdf          | 4      | 100.0%       | 100.0%     | 100.0%  
 statutory_txt    | 14     | 100.0%       | 100.0%     | 100.0%  
 tabular_csv      | 1      | 100.0%       | 100.0%     | 100.0%  
 ======================================================================

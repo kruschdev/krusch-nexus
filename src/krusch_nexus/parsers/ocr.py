@@ -12,7 +12,7 @@ import tempfile
 import subprocess
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 
 from ..models import ContentBlock
 
@@ -77,6 +77,46 @@ def get_system_tool_versions() -> dict:
     return versions
 
 
+def suppress_blackout_redactions(gray_img) -> Tuple[Any, List[Tuple[int, int, int, int]]]:
+    """
+    Detect solid blackout redaction rectangles in grayscale image and whiten them to
+    prevent Tesseract page segmentation analysis from skipping adjacent text blocks.
+    Returns: (modified_image, list_of_redaction_bboxes)
+    """
+    try:
+        import numpy as np
+        import itertools
+        from PIL import ImageDraw
+
+        arr = np.array(gray_img)
+        black_mask = (arr < 40)
+        row_black_counts = np.sum(black_mask, axis=1)
+        wide_black_rows = np.where(row_black_counts > 100)[0]
+        redactions: List[Tuple[int, int, int, int]] = []
+        if len(wide_black_rows) > 0:
+            for k, g in itertools.groupby(enumerate(wide_black_rows), lambda ix: ix[0] - ix[1]):
+                group = list(map(lambda x: x[1], g))
+                if len(group) >= 12:  # height >= 12 pixels
+                    y_min, y_max = group[0], group[-1]
+                    sub_mask = black_mask[y_min:y_max+1, :]
+                    col_black = np.where(np.sum(sub_mask, axis=0) > (len(group) * 0.75))[0]
+                    if len(col_black) > 100:  # width > 100 pixels
+                        x_min, x_max = int(col_black[0]), int(col_black[-1])
+                        density = float(np.mean(black_mask[y_min:y_max+1, x_min:x_max+1]))
+                        if density >= 0.80:
+                            redactions.append((x_min, y_min, x_max, y_max))
+
+        if redactions:
+            draw = ImageDraw.Draw(gray_img)
+            for rx1, ry1, rx2, ry2 in redactions:
+                # Whiten blackout bar with a 5px safety margin
+                draw.rectangle([(rx1 - 5, ry1 - 5), (rx2 + 5, ry2 + 5)], fill=255)
+        return gray_img, redactions
+    except Exception as e:
+        logger.debug(f"Redaction suppression skipped: {e}")
+        return gray_img, []
+
+
 def try_tesseract_ocr(
     pdf_path: str,
     page_num: int,
@@ -129,9 +169,10 @@ def try_tesseract_ocr(
                 if (w * h) > policy.max_pixels:
                     logger.warning(f"Image bomb protection: page {page_num} ({w}x{h}={w*h}px) exceeds cap of {policy.max_pixels}px")
                     return None, None, []
-                # Preprocessing: preserve DPI, convert to grayscale, and expand dynamic range
+                # Preprocessing: preserve DPI, convert to grayscale, whiten redaction blackouts, and expand dynamic range
                 dpi = img.info.get("dpi", (policy.dpi, policy.dpi))
                 gray = img.convert("L")
+                gray, _ = suppress_blackout_redactions(gray)
                 gray = ImageOps.autocontrast(gray, cutoff=0)
                 enhancer = ImageEnhance.Contrast(gray)
                 enhanced = enhancer.enhance(1.2)
