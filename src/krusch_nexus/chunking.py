@@ -32,6 +32,37 @@ OPERATIVE_PATTERN = re.compile(
 )
 MARKDOWN_HEADING_PATTERN = re.compile(r'^(#{1,6}\s+[^\n]+)', re.MULTILINE)
 
+# Running noise, stamps, page numbers, and confidentiality banners that must NEVER become headers
+NOISE_LINE_REGEX = re.compile(
+    r'^(?:'
+    r'page\s+\d+(?:\s+of\s+\d+)?'
+    r'|\d+\s*[\/\-]\s*\d+'
+    r'|-\s*\d+\s*-'
+    r'|\d+'
+    r'|confidential'
+    r'|privileged'
+    r'|attorney-client\s+privilege'
+    r'|all\s+rights\s+reserved'
+    r'|[A-Z]{2,12}[-_\s]*\d{4,12}'  # Bates stamp
+    r'|(?:EXHIBIT|(?:PLTF|DEF|GOV|STATE)\s+EX(?:HIBIT)?)\s*(?:#|NO\.?)?\s*[\w\.\-]+'
+    r'|(?:TRANSMISSION|FAX|SENT|RCVD)\b.*'
+    r'|Case\s+[0-9]+:[0-9]{2}-[a-z]{2,4}-[0-9]+.*'
+    r')$',
+    re.IGNORECASE
+)
+
+# Table of Contents lines with dotted or dashed leaders ending in page numbers
+TOC_LINE_REGEX = re.compile(r'(?:\.{3,}|_{3,}|\-{3,})\s*(?:\d+|[ivxlcdm]+)$', re.IGNORECASE)
+
+# Anchored section pattern (must appear at start of line or following markdown hashes)
+ANCHORED_SECTION_REGEX = re.compile(
+    r'^(?:'
+    r'(?:(?:[A-Za-z\.]+\s+)*(?:Code|U\.S\.C\.|Stat\.|C\.F\.R\.)\s*)?(?:§+|Section|Sec\.|Article|Art\.|Clause|Exhibit)\s*[0-9A-Za-z\.\-:]+(?:\([0-9A-Za-z]+\))*'
+    r'|\b[0-9]{1,3}\.[0-9]{2,3}(?:\.[0-9]{2,4})?(?:\([A-Za-z0-9]+\))*'
+    r')(?:\s*[:\-\—\.]\s*|\s+|$)',
+    re.IGNORECASE
+)
+
 
 def normalize_statute_citation(query: str) -> Dict[str, Any]:
     """
@@ -98,6 +129,8 @@ class Chunk:
         char_end: Optional[int] = None,
         confidence: Optional[float] = None,
         bbox: Optional[List[float]] = None,
+        pdf_page: Optional[int] = None,
+        printed_page: Optional[str] = None,
         chunker_version: str = "1.0",
         embed_model: str = "bge-large"
     ):
@@ -107,13 +140,20 @@ class Chunk:
         self.header = header
         self.locator = locator
         self.page_number = page_number
+        self.pdf_page = pdf_page if pdf_page is not None else page_number
+        self.printed_page = printed_page
         self.chunk_index = chunk_index
         self.source_hash = source_hash
         self.doc_hash = doc_hash
         self.filename = filename
         self.bbox = bbox
         self.structured_locator = structured_locator or StructuredLocator.from_raw(
-            page=page_number, locator_str=locator, header=header, bbox=bbox
+            page=page_number,
+            pdf_page=self.pdf_page,
+            printed_page=self.printed_page,
+            locator_str=locator,
+            header=header,
+            bbox=bbox
         )
         self.heading_path = list(self.structured_locator.path) if (self.structured_locator and self.structured_locator.path) else []
         self.metadata = metadata or {}
@@ -133,6 +173,8 @@ class Chunk:
             "structured_locator": self.structured_locator.model_dump() if self.structured_locator else None,
             "heading_path": self.heading_path,
             "page_number": self.page_number,
+            "pdf_page": self.pdf_page,
+            "printed_page": self.printed_page,
             "chunk_index": self.chunk_index,
             "source_hash": self.source_hash,
             "doc_hash": self.doc_hash,
@@ -156,28 +198,70 @@ def compute_chunk_hash(text: str) -> str:
 SUBSECTION_PATTERN = re.compile(r'^\s*(\([a-z0-9]+\)|\b[0-9]+[a-z]?\.\b|[A-Z]\.)\s+', re.IGNORECASE)
 
 
+def infer_heading_level(heading: str) -> int:
+    """Infer hierarchical depth of a heading (1=Article/Chapter, 2=Section, 3=Subsection)."""
+    h = heading.strip().lower()
+    if h.startswith('#'):
+        hashes = len(heading) - len(heading.lstrip('#'))
+        return min(hashes, 4)
+    if h.startswith(('article', 'art.', 'chapter', 'part', 'title', 'exhibit', 'schedule', 'appendix')):
+        return 1
+    if h.startswith(('section', 'sec.', '§', 'clause')) or re.match(r'^\d+\.\d+', h):
+        if len(re.findall(r'\.\d+', h)) >= 2:
+            return 3
+        return 2
+    if re.match(r'^\([a-z0-9]+\)', h) or h.startswith(('subsection', 'sub-section', 'paragraph')):
+        return 3
+    return 1 if heading.isupper() else 2
+
+
+def update_heading_stack(stack: List[str], new_heading: str, level: Optional[int] = None) -> List[str]:
+    """Maintain monotonic observed heading stack at appropriate hierarchical depth."""
+    lvl = level or infer_heading_level(new_heading)
+    idx = max(0, min(lvl - 1, len(stack)))
+    return stack[:idx] + [new_heading]
+
+
 def detect_header_candidate(line: str) -> Optional[str]:
     """
     Inspect whether a single line qualifies as a structural heading or section title.
-    Returns clean title string or None.
+    Enforces layout-aware features:
+    - Rejects running headers/footers, page numbers, and bates stamps.
+    - Rejects table-of-contents lines with dotted leaders.
+    - Requires section patterns to be anchored at line start (prevents 'Article IV.' buried mid-paragraph).
+    - Checks native markdown headers (# to ######).
+    - Checks short all-caps titles without sentence punctuation.
     """
     clean = line.strip()
     if not clean or len(clean) > 120:
         return None
 
-    # Check Markdown heading (# to ######)
+    # 1. Reject noise (page numbers, confidential banners, bates numbers, pacer headers)
+    if NOISE_LINE_REGEX.match(clean):
+        return None
+
+    # 2. Reject Table of Contents lines (dotted leaders ending in page numbers)
+    if TOC_LINE_REGEX.search(clean):
+        return None
+
+    # 3. Check Markdown heading (# to ######)
     if clean.startswith('#'):
         return re.sub(r'^#+\s*', '', clean).strip()
 
-    # Check Section / Article pattern
-    sec_match = SECTION_PATTERN.search(clean)
-    if sec_match:
-        if len(clean) <= 90 and not clean.endswith("."):
+    # 4. Check Section / Article pattern (must be a genuine header, not buried mid-paragraph prose)
+    m = SECTION_PATTERN.search(clean)
+    if m:
+        prefix = clean[:m.start()].strip()
+        # Mid-paragraph rejection:
+        # If prefix contains lowercase prose words or is long, it is buried mid-paragraph
+        if prefix and (not prefix.isupper() or len(prefix) > 40):
+            return None
+        if len(clean) <= 100:
             return clean
-        return sec_match.group(0).strip()
+        return m.group(0).rstrip(' :.-—').strip()
 
-    # Check All-Caps short title
-    if clean.isupper() and 4 < len(clean) < 80 and not any(p in clean for p in [".", ";", "!", "?"]):
+    # 5. Check All-Caps short title (no sentence-ending punctuation)
+    if clean.isupper() and 4 < len(clean) < 80 and not any(p in clean for p in ['.', ';', '!', '?']):
         return clean.title()
 
     return None
@@ -187,10 +271,19 @@ def format_chunk_citation(
     filename: str,
     page_number: Optional[int],
     locator: Optional[str] = None,
-    header: Optional[str] = None
+    header: Optional[str] = None,
+    pdf_page: Optional[int] = None,
+    printed_page: Optional[str] = None
 ) -> str:
     """Format canonical citation string."""
-    return format_citation(filename=filename, page_number=page_number, locator=locator, header=header)
+    return format_citation(
+        filename=filename,
+        page_number=page_number,
+        pdf_page=pdf_page,
+        printed_page=printed_page,
+        locator=locator,
+        header=header
+    )
 
 
 def union_bboxes(bboxes: List[List[float]]) -> Optional[List[float]]:
@@ -232,15 +325,18 @@ def chunk_document_pages(
     resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
     base_meta["doc_type"] = resolved_doc_type
 
-    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header, bbox)
-    elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]]]] = []
+    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header, bbox, printed_page)
+    elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]], Optional[str]]] = []
     for p in pages:
         p_text = p.text
         if not p_text.strip():
             continue
-        page_idx = p.index if p.index is not None else getattr(p, "page_number", None)
+        page_idx = p.pdf_page if getattr(p, "pdf_page", None) is not None else (p.index if p.index is not None else getattr(p, "page_number", None))
+        printed_pg = getattr(p, "printed_page", None)
         p_conf = getattr(p, "confidence", None)
         block_map = {b.text.strip(): b.bbox for b in p.blocks if b.bbox and b.text.strip()}
+        native_heading_set = {b.text.strip() for b in p.blocks if getattr(b, "block_type", "") == "heading"}
+        noise_block_set = {b.text.strip() for b in p.blocks if getattr(b, "block_type", "") in ("header_footer", "bates_stamp", "exhibit_stamp", "fax_stamp")}
 
         curr_lines: List[str] = []
         c_start: Optional[int] = None
@@ -251,16 +347,20 @@ def chunk_document_pages(
             line = match.group(0).strip()
             if not line:
                 continue
+            # Filter noise lines so running footers and bates stamps never pollute chunks or become headers
+            if line in noise_block_set or NOISE_LINE_REGEX.match(line):
+                continue
             line_bbox = block_map.get(line)
-            hdr = detect_header_candidate(line)
+            is_native = line in native_heading_set or line.startswith('#')
+            hdr = line if is_native else detect_header_candidate(line)
             if hdr:
                 if curr_lines:
                     comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
-                    elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox))
+                    elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg))
                     curr_lines = []
                     curr_bboxes = []
                     c_start = None
-                elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox))
+                elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox, printed_pg))
             else:
                 if not curr_lines:
                     c_start = match.start()
@@ -271,12 +371,12 @@ def chunk_document_pages(
 
         if curr_lines:
             comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
-            elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox))
+            elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg))
 
     if not elements:
         return []
 
-    current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]]]] = []
+    current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]], Optional[str]]] = []
     current_len = 0
     current_header = "General"
     overlap_item_count = 0
@@ -294,11 +394,19 @@ def chunk_document_pages(
         primary_item = current_items[overlap_item_count] if len(current_items) > overlap_item_count else current_items[0]
         first_page = primary_item[0] if primary_item[0] is not None else current_items[0][0]
         first_loc = primary_item[1] if primary_item[1] is not None else current_items[0][1]
+        first_printed = primary_item[8] if len(primary_item) > 8 and primary_item[8] is not None else (current_items[0][8] if len(current_items[0]) > 8 else None)
 
         # Use breadcrumb stack
         loc = " > ".join(heading_stack) if (first_page is None and heading_stack) else first_loc
         c_hash = compute_chunk_hash(raw_chunk)
-        cit_str = format_chunk_citation(filename, page_number=first_page, locator=loc, header=current_header)
+        cit_str = format_chunk_citation(
+            filename,
+            page_number=first_page,
+            pdf_page=first_page,
+            printed_page=first_printed,
+            locator=loc,
+            header=current_header
+        )
 
         c_start = current_items[0][4]
         c_end = current_items[-1][5]
@@ -310,18 +418,31 @@ def chunk_document_pages(
         chunk_bbox = union_bboxes(item_bboxes)
 
         chunk_meta = {**base_meta, "doc_type": resolved_doc_type}
-        chunks.append(Chunk(
+        s_loc = StructuredLocator.from_raw(
+            page=first_page,
+            pdf_page=first_page,
+            printed_page=first_printed,
+            locator_str=loc,
+            header=current_header,
+            bbox=chunk_bbox
+        )
+        if heading_stack:
+            s_loc.path = [f"Page {first_page}"] + list(heading_stack) if first_page is not None else list(heading_stack)
+
+        chunk_obj = Chunk(
             text=raw_chunk,          # Embed raw text only!
             raw_text=raw_chunk,
             citation=cit_str,
             header=current_header,
             locator=loc,
             page_number=first_page,
+            pdf_page=first_page,
+            printed_page=first_printed,
             chunk_index=global_chunk_idx,
             source_hash=c_hash,      # Hashed on raw text only!
             doc_hash=file_hash,
             filename=filename,
-            structured_locator=StructuredLocator.from_raw(page=first_page, locator_str=loc, header=current_header, bbox=chunk_bbox),
+            structured_locator=s_loc,
             metadata=chunk_meta,
             char_start=c_start,
             char_end=c_end,
@@ -329,7 +450,9 @@ def chunk_document_pages(
             bbox=chunk_bbox,
             chunker_version=chunker_version,
             embed_model=embed_model
-        ))
+        )
+        chunk_obj.heading_path = list(s_loc.path)
+        chunks.append(chunk_obj)
         global_chunk_idx += 1
 
         if clear_overlap:
@@ -361,6 +484,10 @@ def chunk_document_pages(
         first_line = para.split('\n')[0]
         detected = detect_header_candidate(first_line)
 
+        # Flush on physical page boundary so hits on Page N strictly belong to Page N
+        if current_items and current_items[0][0] is not None and page_num is not None and current_items[0][0] != page_num:
+            flush_current_chunk(clear_overlap=True)
+
         if detected:
             is_operative = bool(OPERATIVE_PATTERN.search(first_line) or first_line.startswith('#'))
             should_flush = False
@@ -372,8 +499,7 @@ def chunk_document_pages(
             if should_flush:
                 flush_current_chunk(clear_overlap=True)
             title = detected
-            if title not in heading_stack:
-                heading_stack.append(title)
+            heading_stack = update_heading_stack(heading_stack, title)
             current_header = title
             if is_operative:
                 has_operative_in_chunk = True

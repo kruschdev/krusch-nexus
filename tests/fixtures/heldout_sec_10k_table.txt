@@ -1,0 +1,12 @@
+UNITED STATES SECURITIES AND EXCHANGE COMMISSION
+FORM 10-K ANNUAL REPORT
+Item 8. Financial Statements and Supplementary Data
+CONSOLIDATED STATEMENTS OF OPERATIONS
+Three Years Ended December 31, 2026 (in millions)
+Revenue: 2026: $84,250 | 2025: $72,100 | 2024: $61,500
+Cost of Revenue: 2026: $38,100 | 2025: $33,400 | 2024: $28,900
+Gross Profit: 2026: $46,150 | 2025: $38,700 | 2024: $32,600
+Research and Development: 2026: $12,400 | 2025: $10,800 | 2024: $9,200
+Operating Income: 2026: $33,750 | 2025: $27,900 | 2024: $23,400
+Note 1. Stock-based compensation expense included in operating costs was $2,450 million in 2026.
+Note 2. Provision for income taxes was $4,850 million with an effective tax rate of 14.4 percent.

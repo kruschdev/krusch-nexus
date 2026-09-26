@@ -3,20 +3,58 @@
     "StructuredLocator": {
       "description": "Structured locator object providing semantic addressing across formats.",
       "properties": {
-        "bbox": {
+        "kind": {
+          "default": "page",
+          "enum": [
+            "page",
+            "heading",
+            "row_range"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "page": {
           "anyOf": [
             {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
+              "type": "integer"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Bbox"
+          "title": "Page"
+        },
+        "pdf_page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pdf Page"
+        },
+        "printed_page": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Printed Page"
+        },
+        "path": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Path",
+          "type": "array"
         },
         "char_span": {
           "anyOf": [
@@ -40,10 +78,20 @@
           "default": null,
           "title": "Char Span"
         },
-        "formatted": {
-          "default": "",
-          "title": "Formatted",
-          "type": "string"
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
         },
         "header": {
           "anyOf": [
@@ -57,34 +105,10 @@
           "default": null,
           "title": "Header"
         },
-        "kind": {
-          "default": "page",
-          "enum": [
-            "page",
-            "heading",
-            "row_range"
-          ],
-          "title": "Kind",
+        "formatted": {
+          "default": "",
+          "title": "Formatted",
           "type": "string"
-        },
-        "page": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Page"
-        },
-        "path": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Path",
-          "type": "array"
         }
       },
       "title": "StructuredLocator",
@@ -93,6 +117,240 @@
   },
   "description": "Frozen search hit contract returned by retrieval with explainability metadata.",
   "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "citation": {
+      "title": "Citation",
+      "type": "string"
+    },
+    "page_number": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Page Number"
+    },
+    "pdf_page": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pdf Page"
+    },
+    "printed_page": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Printed Page"
+    },
+    "header": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Header"
+    },
+    "locator": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locator"
+    },
+    "structured_locator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StructuredLocator"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "score": {
+      "default": 0.0,
+      "title": "Score",
+      "type": "number"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "document_id": {
+      "title": "Document Id",
+      "type": "integer"
+    },
+    "chunk_id": {
+      "title": "Chunk Id",
+      "type": "integer"
+    },
+    "filename": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Filename"
+    },
+    "workspace": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace"
+    },
+    "chunk_index": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Chunk Index"
+    },
+    "dense_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dense Score"
+    },
+    "sparse_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sparse Score"
+    },
+    "vector_rank": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Vector Rank"
+    },
+    "fts_rank": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fts Rank"
+    },
+    "section_boost": {
+      "default": false,
+      "title": "Section Boost",
+      "type": "boolean"
+    },
+    "lexical_boost": {
+      "default": false,
+      "title": "Lexical Boost",
+      "type": "boolean"
+    },
+    "phrase_boost": {
+      "default": false,
+      "title": "Phrase Boost",
+      "type": "boolean"
+    },
+    "heading_path": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Heading Path",
+      "type": "array"
+    },
+    "match_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Match Reasons",
+      "type": "array"
+    },
+    "char_start": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Char Start"
+    },
+    "char_end": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Char End"
+    },
     "bbox": {
       "anyOf": [
         {
@@ -108,50 +366,6 @@
       "default": null,
       "title": "Bbox"
     },
-    "char_end": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Char End"
-    },
-    "char_start": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Char Start"
-    },
-    "chunk_id": {
-      "title": "Chunk Id",
-      "type": "integer"
-    },
-    "chunk_index": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Chunk Index"
-    },
-    "citation": {
-      "title": "Citation",
-      "type": "string"
-    },
     "confidence": {
       "anyOf": [
         {
@@ -163,113 +377,6 @@
       ],
       "default": null,
       "title": "Confidence"
-    },
-    "dense_score": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Dense Score"
-    },
-    "doc_type": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Doc Type"
-    },
-    "document_id": {
-      "title": "Document Id",
-      "type": "integer"
-    },
-    "file_hash": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "File Hash"
-    },
-    "filename": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Filename"
-    },
-    "fts_rank": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Fts Rank"
-    },
-    "header": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Header"
-    },
-    "heading_path": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Heading Path",
-      "type": "array"
-    },
-    "lexical_boost": {
-      "default": false,
-      "title": "Lexical Boost",
-      "type": "boolean"
-    },
-    "locator": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Locator"
-    },
-    "match_reasons": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Match Reasons",
-      "type": "array"
     },
     "ocr_mean_confidence": {
       "anyOf": [
@@ -283,41 +390,9 @@
       "default": null,
       "title": "Ocr Mean Confidence"
     },
-    "page_number": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Page Number"
-    },
-    "phrase_boost": {
+    "used_ocr": {
       "default": false,
-      "title": "Phrase Boost",
-      "type": "boolean"
-    },
-    "schema_version": {
-      "default": "1.0",
-      "title": "Schema Version",
-      "type": "string"
-    },
-    "score": {
-      "default": 0.0,
-      "title": "Score",
-      "type": "number"
-    },
-    "score_vector": {
-      "additionalProperties": true,
-      "title": "Score Vector",
-      "type": "object"
-    },
-    "section_boost": {
-      "default": false,
-      "title": "Section Boost",
+      "title": "Used Ocr",
       "type": "boolean"
     },
     "source_hash": {
@@ -332,51 +407,7 @@
       "default": null,
       "title": "Source Hash"
     },
-    "sparse_score": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Sparse Score"
-    },
-    "structured_locator": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/StructuredLocator"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "text": {
-      "title": "Text",
-      "type": "string"
-    },
-    "used_ocr": {
-      "default": false,
-      "title": "Used Ocr",
-      "type": "boolean"
-    },
-    "vector_rank": {
-      "anyOf": [
-        {
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Vector Rank"
-    },
-    "workspace": {
+    "file_hash": {
       "anyOf": [
         {
           "type": "string"
@@ -386,7 +417,24 @@
         }
       ],
       "default": null,
-      "title": "Workspace"
+      "title": "File Hash"
+    },
+    "doc_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Doc Type"
+    },
+    "score_vector": {
+      "additionalProperties": true,
+      "title": "Score Vector",
+      "type": "object"
     }
   },
   "required": [

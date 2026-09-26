@@ -98,6 +98,50 @@ class TestEvalHardNegatives(unittest.TestCase):
         self.assertEqual(top.filename, "civil_code_1950_5.txt")
         self.assertIn("21 calendar days", top.text)
 
+    def test_non_statutory_synonym_hard_negatives(self):
+        """
+        Hard Negative Invariant:
+        Assert pure synonym-based retrieval without any statutory tokens ('§', 'Section', 'Sec.')
+        or numeric section references successfully retrieves authoritative provisions without
+        section boost inflation (section_boost must be False).
+        """
+        # Query 1: RAP notice without section numbers
+        hits1 = self.client.search(
+            "mandatory municipal rental adjustment dispute guidance paperwork upon move-in",
+            workspace="HardNegWorkspace",
+            limit=3
+        )
+        self.assertGreater(len(hits1), 0)
+        top1 = hits1[0]
+        self.assertEqual(top1.filename, "oakland_rent_code.txt")
+        self.assertFalse(top1.section_boost, "Section boost must not fire on synonym-only query")
+        self.assertIn("Form RAP-1", top1.text)
+
+        # Query 2: Deposit return timeframe without section number
+        hits2 = self.client.search(
+            "landlord accounting and security deductions formal return timeframe three weeks",
+            workspace="HardNegWorkspace",
+            limit=3
+        )
+        self.assertGreater(len(hits2), 0)
+        top2 = hits2[0]
+        self.assertEqual(top2.filename, "civil_code_1950_5.txt")
+        self.assertFalse(top2.section_boost, "Section boost must not fire on synonym-only query")
+        self.assertIn("21 calendar days", top2.text)
+
+        # Query 3: Loan facility limit without section number
+        hits3 = self.client.search(
+            "borrower aggregate term borrowing limit five million dollars",
+            workspace="HardNegWorkspace",
+            limit=3
+        )
+        self.assertGreater(len(hits3), 0)
+        top3 = hits3[0]
+        self.assertEqual(top3.filename, "credit_agreement.txt")
+        self.assertFalse(top3.section_boost, "Section boost must not fire on synonym-only query")
+        self.assertIn("5,000,000", top3.text)
+        self.assertNotIn("Exhibit A", top3.header or "")
+
 
 if __name__ == "__main__":
     unittest.main()

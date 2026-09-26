@@ -267,6 +267,163 @@ def create_heldout_fixtures(target_dir: str):
     with open(os.path.join(target_dir, "heldout_software_license.txt"), "w", encoding="utf-8") as f:
         f.write(license_content)
 
+    # 6. Held-out SEC 10-K Multi-Column Financial Table PDF & TXT
+    sec_10k_lines = [
+        "UNITED STATES SECURITIES AND EXCHANGE COMMISSION",
+        "FORM 10-K ANNUAL REPORT",
+        "Item 8. Financial Statements and Supplementary Data",
+        "CONSOLIDATED STATEMENTS OF OPERATIONS",
+        "Three Years Ended December 31, 2026 (in millions)",
+        "Revenue: 2026: $84,250 | 2025: $72,100 | 2024: $61,500",
+        "Cost of Revenue: 2026: $38,100 | 2025: $33,400 | 2024: $28,900",
+        "Gross Profit: 2026: $46,150 | 2025: $38,700 | 2024: $32,600",
+        "Research and Development: 2026: $12,400 | 2025: $10,800 | 2024: $9,200",
+        "Operating Income: 2026: $33,750 | 2025: $27,900 | 2024: $23,400",
+        "Note 1. Stock-based compensation expense included in operating costs was $2,450 million in 2026.",
+        "Note 2. Provision for income taxes was $4,850 million with an effective tax rate of 14.4 percent."
+    ]
+    with open(os.path.join(target_dir, "heldout_sec_10k_table.pdf"), "wb") as f:
+        f.write(build_simple_digital_pdf([sec_10k_lines]))
+    with open(os.path.join(target_dir, "heldout_sec_10k_table.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(sec_10k_lines))
+
+    # 7. Held-out Two-Column Newspaper PDF
+    news_img = Image.new("RGB", (1400, 1800), color="white")
+    n_draw = ImageDraw.Draw(news_img)
+    n_draw.text((80, 40), "CHRONICLE FINANCIAL DISPATCH - MORNING EDITION", fill="black")
+    n_draw.line([(80, 75), (1320, 75)], fill="black", width=3)
+    # Column 1
+    n_draw.text((80, 100), "Section 4. Biotech Merger Clearance", fill="black")
+    n_draw.text((80, 140), "Federal antitrust regulators formally cleared the $4.2 billion acquisition.", fill="black")
+    n_draw.text((80, 180), "The transaction unites GeneCraft Therapeutics and Horizon BioLabs.", fill="black")
+    n_draw.text((80, 220), "Closing is scheduled for the fourth quarter pending shareholder consent.", fill="black")
+    # Vertical rule
+    n_draw.line([(680, 90), (680, 1600)], fill="gray", width=1)
+    # Column 2
+    n_draw.text((720, 100), "Market Yields and Treasury Notes", fill="black")
+    n_draw.text((720, 140), "Benchmark ten-year Treasury yields remained steady at 4.15 percent.", fill="black")
+    n_draw.text((720, 180), "Institutional investors weighed macroeconomic indicators and central bank remarks.", fill="black")
+    n_draw.text((720, 220), "Corporate debt issuance volume set a quarterly record of $45 billion.", fill="black")
+    news_img.save(os.path.join(target_dir, "heldout_twocolumn_newspaper.pdf"), "PDF", resolution=300.0)
+
+    # 8. Held-out 150 DPI Medical Scan PDF
+    med_img = Image.new("RGB", (1000, 1400), color="white")
+    m_draw = ImageDraw.Draw(med_img)
+    m_draw.text((50, 40), "CLINICAL INTAKE AND EMERGENCY DISCHARGE PROTOCOL", fill="black")
+    m_draw.text((50, 100), "Section 8. Emergency Room Discharge Protocol", fill="black")
+    m_draw.text((50, 160), "Patient presented with acute lower quadrant abdominal discomfort.", fill="black")
+    m_draw.text((50, 220), "Prescription: Amoxicillin 500mg twice daily with meals for seven consecutive days.", fill="black")
+    m_draw.text((50, 280), "Discharge Status: Stable and cleared for ambulatory convalescence at home.", fill="black")
+    m_draw.text((50, 340), "Attending Physician: Dr. Sarah Vance MD Lic #994821", fill="black")
+    # Low resolution 150 DPI
+    med_img.save(os.path.join(target_dir, "heldout_medical_scan_150dpi.pdf"), "PDF", resolution=150.0)
+
+    # 9. Held-out Redacted Court Protective Order PDF
+    red_img = Image.new("RGB", (1200, 1600), color="white")
+    r_draw = ImageDraw.Draw(red_img)
+    r_draw.text((80, 50), "UNITED STATES DISTRICT COURT FOR THE NORTHERN DISTRICT", fill="black")
+    r_draw.text((80, 120), "PROTECTIVE ORDER AND PRELIMINARY INJUNCTION", fill="black")
+    r_draw.text((80, 190), "Section 2. Enjoined Trade Secrets and Proprietary Formulations", fill="black")
+    r_draw.text((80, 250), "Defendant shall immediately cease utilizing protected chemical formulation:", fill="black")
+    # Solid blackout redaction rectangle
+    r_draw.rectangle([(80, 290), (700, 340)], fill="black")
+    r_draw.text((80, 370), "Defendant is permanently enjoined from commercial distribution of catalytic compounds.", fill="black")
+    r_draw.text((80, 430), "IT IS SO ORDERED this 26th day of September 2026.", fill="black")
+    red_img.save(os.path.join(target_dir, "heldout_redacted_order.pdf"), "PDF", resolution=300.0)
+
+    # 10. Held-out Mixed Digital + Scan PDF (Divergent Physical vs Printed Pages)
+    p1_cover = [
+        "MASTER COMMERCIAL LEASE AND SERVICES AGREEMENT",
+        "Dated September 26, 2026",
+        "Between Horizon Properties LLC and TechCorp Global Holdings Inc."
+    ]
+    p2_toc = [
+        "TABLE OF CONTENTS",
+        "Section 1. Leased Premises ................... Page 1",
+        "Section 2. Base Rent and Escalation .......... Page 2",
+        "Section 3. Permitted Subtenants .............. Page 3",
+        "Exhibit A. Description of Premises ........... Page 4",
+        "Exhibit B. Permitted Subtenants .............. Page 5",
+        "Printed page: Page ii"
+    ]
+    p3_body = [
+        "Section 2. Base Rent and Escalation Schedule",
+        "Tenant shall pay monthly base rent of $42,500 due on the first day of each month.",
+        "Annual escalation of 3.25 percent shall take effect on each anniversary date.",
+        "Printed page: Page 2 of 10"
+    ]
+    pdf_digital_part = build_simple_digital_pdf([p1_cover, p2_toc, p3_body])
+    temp_digital = os.path.join(target_dir, "_temp_digital_part.pdf")
+    with open(temp_digital, "wb") as f:
+        f.write(pdf_digital_part)
+
+    # Exhibit scan image
+    ex_img = Image.new("RGB", (1000, 1400), color="white")
+    e_draw = ImageDraw.Draw(ex_img)
+    e_draw.text((60, 60), "EXHIBIT B: SCHEDULE OF PERMITTED SUBTENANTS", fill="black")
+    e_draw.text((60, 130), "Subtenant Apex Logistics LLC is hereby approved for occupancy of Suite 400.", fill="black")
+    e_draw.text((60, 190), "Sublease term shall coincide with Master Lease duration.", fill="black")
+    e_draw.text((60, 250), "Printed page: Exhibit B-1", fill="black")
+    temp_scan = os.path.join(target_dir, "_temp_scan_part.pdf")
+    ex_img.save(temp_scan, "PDF", resolution=300.0)
+
+    mixed_path = os.path.join(target_dir, "heldout_mixed_digital_scan.pdf")
+    import subprocess
+    subprocess.run(["pdfunite", temp_digital, temp_scan, mixed_path], check=True)
+    if os.path.exists(temp_digital):
+        os.remove(temp_digital)
+    if os.path.exists(temp_scan):
+        os.remove(temp_scan)
+
+
+def build_simple_digital_pdf(pages_lines: list) -> bytes:
+    """Build valid multi-page digital PDF with extractable text streams."""
+    page_count = len(pages_lines)
+    next_id = 3
+    page_and_content_ids = []
+    for _ in pages_lines:
+        page_and_content_ids.append((next_id, next_id + 1))
+        next_id += 2
+    font_id = next_id
+    next_id += 1
+
+    catalog = b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+    kids_str = " ".join(f"{p[0]} 0 R" for p in page_and_content_ids)
+    pages_obj = f"2 0 obj << /Type /Pages /Kids [{kids_str}] /Count {page_count} >> endobj\n".encode("latin1")
+
+    page_objs = []
+    for (p_id, c_id), lines in zip(page_and_content_ids, pages_lines):
+        stream_cmds = ["BT /F1 10 Tf 50 750 Td"]
+        for i, line in enumerate(lines):
+            safe = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+            if i == 0:
+                stream_cmds.append(f"({safe}) Tj")
+            else:
+                stream_cmds.append(f"0 -18 Td ({safe}) Tj")
+        stream_cmds.append("ET")
+        stream_data = "\n".join(stream_cmds).encode("latin1")
+        p_obj = f"{p_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {c_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >> endobj\n".encode("latin1")
+        c_obj = f"{c_id} 0 obj << /Length {len(stream_data)} >> stream\n".encode("latin1") + stream_data + b"\nendstream\nendobj\n"
+        page_objs.extend([p_obj, c_obj])
+
+    font_obj = f"{font_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".encode("latin1")
+    all_objs = [catalog, pages_obj] + page_objs + [font_obj]
+    out = [b"%PDF-1.4\n"]
+    offsets = []
+    pos = len(out[0])
+    for obj in all_objs:
+        offsets.append(pos)
+        out.append(obj)
+        pos += len(obj)
+    startxref = pos
+    xref = [f"xref\n0 {len(all_objs) + 1}\n0000000000 65535 f \n".encode("latin1")]
+    for off in offsets:
+        xref.append(f"{off:010d} 00000 n \n".encode("latin1"))
+    out.extend(xref)
+    trailer = f"trailer << /Size {len(all_objs) + 1} /Root 1 0 R >>\nstartxref\n{startxref}\n%%EOF\n".encode("latin1")
+    out.append(trailer)
+    return b"".join(out)
+
 
 def create_adversarial_fixtures(target_dir: str):
     """Generate adversarial documents for stress-testing parsers, chunkers, and retrievers."""
@@ -390,7 +547,7 @@ def generate_fixtures_manifest(target_dir: str):
 
     manifest = {
         "schema_version": "1.0",
-        "corpus_version": "0.2.3",
+        "corpus_version": "0.2.4",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "fixtures": {}
     }

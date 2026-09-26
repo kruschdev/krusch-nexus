@@ -8,7 +8,7 @@ import re
 from html.parser import HTMLParser
 from typing import List, Optional
 
-from ..models import PageData, ParserResult, StructuredLocator
+from ..models import PageData, ParserResult, StructuredLocator, ContentBlock
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -16,9 +16,12 @@ class _HTMLTextExtractor(HTMLParser):
     def __init__(self):
         super().__init__()
         self.result: List[str] = []
+        self.blocks: List[ContentBlock] = []
         self._current_tag: Optional[str] = None
         self._skip_depth = 0
         self._heading_level = 0
+        self._curr_heading_buf: List[str] = []
+        self._curr_para_buf: List[str] = []
         self._in_table_cell = False
         self._table_row: List[str] = []
 
@@ -29,8 +32,10 @@ class _HTMLTextExtractor(HTMLParser):
             self._skip_depth += 1
         elif t in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             self._heading_level = int(t[1])
+            self._curr_heading_buf = []
             self.result.append(f"\n\n{'#' * self._heading_level} ")
         elif t in ["p", "div"]:
+            self._curr_para_buf = []
             self.result.append("\n\n")
         elif t == "br":
             self.result.append("\n")
@@ -46,15 +51,25 @@ class _HTMLTextExtractor(HTMLParser):
         if t in ["script", "style", "head", "noscript", "svg", "iframe"]:
             self._skip_depth = max(0, self._skip_depth - 1)
         elif t in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+            h_text = " ".join(self._curr_heading_buf).strip()
+            if h_text:
+                self.blocks.append(ContentBlock(block_type="heading", text=h_text, level=self._heading_level))
             self._heading_level = 0
+            self._curr_heading_buf = []
             self.result.append("\n\n")
         elif t in ["p", "div"]:
+            p_text = " ".join(self._curr_para_buf).strip()
+            if p_text:
+                self.blocks.append(ContentBlock(block_type="paragraph", text=p_text))
+            self._curr_para_buf = []
             self.result.append("\n\n")
         elif t in ["td", "th"]:
             self._in_table_cell = False
         elif t == "tr":
             if self._table_row:
-                self.result.append("\n| " + " | ".join(self._table_row) + " |")
+                row_str = "| " + " | ".join(self._table_row) + " |"
+                self.result.append("\n" + row_str)
+                self.blocks.append(ContentBlock(block_type="table", text=row_str))
 
     def handle_data(self, data: str):
         if self._skip_depth > 0:
@@ -62,6 +77,11 @@ class _HTMLTextExtractor(HTMLParser):
         text = data.strip()
         if not text:
             return
+        if self._heading_level > 0:
+            self._curr_heading_buf.append(text)
+        elif self._current_tag in ["p", "div"]:
+            self._curr_para_buf.append(text)
+
         if self._in_table_cell:
             self._table_row.append(text)
         else:
@@ -91,14 +111,17 @@ def parse_html(
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         html = f.read()
 
-    clean_text = extract_html_text(html)
+    parser = _HTMLTextExtractor()
+    parser.feed(html)
+    clean_text = parser.get_text()
     pages = [PageData(
         index=None,
         locator="HTML Document",
         structured_locator=StructuredLocator(kind="heading", page=None, path=["HTML Document"], formatted="HTML Document"),
         text=clean_text,
         digital_text=clean_text,
-        char_count=len(clean_text)
+        char_count=len(clean_text),
+        blocks=parser.blocks
     )]
     return ParserResult(
         filename=filename,

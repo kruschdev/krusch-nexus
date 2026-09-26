@@ -187,6 +187,18 @@ class NexusClient:
 
             ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
             if ws and getattr(ws, "is_legal_hold", False):
+                try:
+                    audit = OperatorAudit(
+                        action="BLOCKED_LEGAL_HOLD_MUTATION",
+                        document_id=document_id,
+                        workspace_id=ws.id,
+                        confirmation_token=confirmation_token or operator_token or "unspecified",
+                        details=json.dumps({"attempted_action": "reparse", "filename": doc.filename, "workspace": ws.name})
+                    )
+                    db.add(audit)
+                    db.commit()
+                except Exception as ae:
+                    logger.warning(f"Could not record blocked legal hold audit: {ae}")
                 raise LegalHoldActiveError(f"CANNOT_REPARSE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
 
             source_path = doc.original_path
@@ -259,6 +271,18 @@ class NexusClient:
 
             ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
             if ws and getattr(ws, "is_legal_hold", False):
+                try:
+                    audit = OperatorAudit(
+                        action="BLOCKED_LEGAL_HOLD_MUTATION",
+                        document_id=document_id,
+                        workspace_id=ws.id,
+                        confirmation_token=confirmation_token or operator_token or "unspecified",
+                        details=json.dumps({"attempted_action": "delete", "filename": doc.filename, "workspace": ws.name})
+                    )
+                    db.add(audit)
+                    db.commit()
+                except Exception as ae:
+                    logger.warning(f"Could not record blocked legal hold audit: {ae}")
                 raise LegalHoldActiveError(f"CANNOT_DELETE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
 
             ws_id = doc.workspace_id
@@ -658,7 +682,8 @@ class NexusClient:
         self,
         workspace: str,
         legal_hold: bool = True,
-        operator_token: Optional[str] = None
+        operator_token: Optional[str] = None,
+        release_confirmation_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """Toggle legal hold status on a workspace. Operator action."""
         if self.config.operator_token:
@@ -671,12 +696,30 @@ class NexusClient:
             if not ws:
                 raise WorkspaceNotFound(f"Workspace '{workspace}' does not exist.")
 
+            if not legal_hold and getattr(ws, "is_legal_hold", False):
+                expected_release_token = f"CONFIRM_RELEASE_HOLD_{ws.name}"
+                if release_confirmation_token != expected_release_token:
+                    try:
+                        audit = OperatorAudit(
+                            action="REJECTED_LEGAL_HOLD_RELEASE",
+                            workspace_id=ws.id,
+                            confirmation_token=release_confirmation_token or "missing",
+                            details=json.dumps({"workspace": ws.name, "reason": "Missing required release confirmation token"})
+                        )
+                        db.add(audit)
+                        db.commit()
+                    except Exception as ae:
+                        logger.warning(f"Could not record rejected release audit: {ae}")
+                    raise LegalHoldActiveError(
+                        f"RELEASING_LEGAL_HOLD_REQUIRES_CONFIRMATION: Releasing legal hold on '{ws.name}' requires release_confirmation_token='{expected_release_token}'."
+                    )
+
             ws.is_legal_hold = bool(legal_hold)
             try:
                 audit = OperatorAudit(
                     action="set_legal_hold",
                     workspace_id=ws.id,
-                    confirmation_token=operator_token or "unspecified",
+                    confirmation_token=release_confirmation_token or operator_token or "unspecified",
                     details=json.dumps({"workspace": ws.name, "legal_hold": ws.is_legal_hold})
                 )
                 db.add(audit)
@@ -718,6 +761,17 @@ class NexusClient:
                 return False
 
             if getattr(ws, "is_legal_hold", False):
+                try:
+                    audit = OperatorAudit(
+                        action="BLOCKED_LEGAL_HOLD_MUTATION",
+                        workspace_id=ws.id,
+                        confirmation_token=confirmation_token or operator_token or "unspecified",
+                        details=json.dumps({"attempted_action": "purge_workspace", "workspace": ws.name})
+                    )
+                    db.add(audit)
+                    db.commit()
+                except Exception as ae:
+                    logger.warning(f"Could not record blocked legal hold audit: {ae}")
                 raise LegalHoldActiveError(f"CANNOT_PURGE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
 
             ws_id = ws.id

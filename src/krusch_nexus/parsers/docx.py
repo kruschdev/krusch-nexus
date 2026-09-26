@@ -10,7 +10,7 @@ import logging
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 
-from ..models import PageData, ParserResult, StructuredLocator
+from ..models import PageData, ParserResult, StructuredLocator, ContentBlock
 from ..exceptions import ParseError
 
 logger = logging.getLogger("krusch_nexus.parsers.docx")
@@ -42,6 +42,7 @@ def parse_docx(
 
             if body is not None:
                 document_elements: List[str] = []
+                document_blocks: List[ContentBlock] = []
 
                 redline_changes: List[dict] = []
                 for child in body:
@@ -88,8 +89,10 @@ def parse_docx(
                             idx = max(0, min(heading_level - 1, len(heading_stack)))
                             heading_stack = heading_stack[:idx] + [clean_h]
                             document_elements.append(f"{'#' * min(heading_level, 4)} {clean_h}")
+                            document_blocks.append(ContentBlock(block_type="heading", text=clean_h, level=heading_level))
                         else:
                             document_elements.append(p_text)
+                            document_blocks.append(ContentBlock(block_type="paragraph", text=p_text))
 
                     # Case 2: Table (<w:tbl>) in natural document order
                     elif tag == f"{{{ns['w']}}}tbl":
@@ -107,7 +110,9 @@ def parse_docx(
                                 col_count = len(table_rows[0].split('|')) - 2
                                 divider = "| " + " | ".join(["---"] * max(1, col_count)) + " |"
                                 table_rows.insert(1, divider)
-                            document_elements.append("\n".join(table_rows))
+                            tbl_str = "\n".join(table_rows)
+                            document_elements.append(tbl_str)
+                            document_blocks.append(ContentBlock(block_type="table", text=tbl_str))
 
                 full_body = "\n\n".join(document_elements).strip()
                 loc = " > ".join(heading_stack) if heading_stack else "General"
@@ -122,6 +127,7 @@ def parse_docx(
                     text=full_body,
                     digital_text=full_body,
                     char_count=len(full_body),
+                    blocks=document_blocks,
                     extra=page_extra
                 ))
 

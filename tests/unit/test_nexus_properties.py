@@ -94,8 +94,13 @@ class TestNexusProperties:
                 operator_token="secret_prop_token_123"
             )
 
-        # Release legal hold and verify mutation unblocked
-        self.client.set_legal_hold("LitigationHoldWS", legal_hold=False, operator_token="secret_prop_token_123")
+        # Release legal hold with required confirmation token and verify mutation unblocked
+        self.client.set_legal_hold(
+            "LitigationHoldWS",
+            legal_hold=False,
+            operator_token="secret_prop_token_123",
+            release_confirmation_token="CONFIRM_RELEASE_HOLD_LitigationHoldWS"
+        )
         del_ok = self.client.delete_document(
             doc_id,
             confirmation_token=f"CONFIRM_DELETE_{doc_id}",

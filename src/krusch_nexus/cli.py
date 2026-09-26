@@ -616,6 +616,20 @@ def cmd_workspace(args):
     return 1
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    """Execute the 60-second zero-dependency headless demonstration."""
+    scripts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    try:
+        import demo_60s
+        demo_60s.main()
+        return 0
+    except Exception as e:
+        print(f"Error running demo: {e}", file=sys.stderr)
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nexus",
@@ -738,6 +752,10 @@ def main():
     ws_quota.add_argument("name", type=str, help="Workspace name")
 
     p_workspace.set_defaults(func=cmd_workspace)
+
+    # 14. Demo (60-second headless demo)
+    p_demo = subparsers.add_parser("demo", help="Run 60-second headless demonstration with zero external dependencies")
+    p_demo.set_defaults(func=cmd_demo)
 
     parsed = parser.parse_args()
     sys.exit(parsed.func(parsed))

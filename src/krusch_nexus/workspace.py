@@ -398,6 +398,8 @@ def export_legal_hold_bundle(
         from .store import OperatorAudit
         audits = db.query(OperatorAudit).filter(OperatorAudit.workspace_id == ws.id).order_by(OperatorAudit.timestamp.desc()).all()
 
+        from .parsers.ocr import get_system_tool_versions
+
         manifest_docs = [
             {
                 "id": d.id,
@@ -405,6 +407,11 @@ def export_legal_hold_bundle(
                 "file_hash": d.file_hash,
                 "doc_type": d.doc_type,
                 "mime": d.mime,
+                "parser_name": getattr(d, "parser_name", "default"),
+                "parser_version": getattr(d, "parser_version", "1.0"),
+                "chunker_version": getattr(d, "chunker_version", "1.0"),
+                "embedding_model": getattr(d, "embedding_model", "bge-large"),
+                "embedding_dim": getattr(d, "embedding_dim", 1024),
                 "total_pages": d.total_pages,
                 "total_chunks": d.total_chunks,
                 "ingested_at": d.ingested_at.isoformat() if d.ingested_at else None
@@ -447,6 +454,8 @@ def export_legal_hold_bundle(
         bundle = {
             "export_type": "LEGAL_HOLD_BUNDLE",
             "schema_version": "1.0",
+            "engine_version": "0.2.4",
+            "tool_versions": get_system_tool_versions(),
             "workspace_id": ws.id,
             "workspace_name": ws.name,
             "is_legal_hold": getattr(ws, "is_legal_hold", False),

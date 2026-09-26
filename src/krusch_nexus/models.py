@@ -54,6 +54,8 @@ class StructuredLocator(BaseModel):
     """Structured locator object providing semantic addressing across formats."""
     kind: Literal["page", "heading", "row_range"] = "page"
     page: Optional[int] = None
+    pdf_page: Optional[int] = None        # 1-based physical page in PDF viewer
+    printed_page: Optional[str] = None   # Text printed on page (e.g. 'Page 3 of 12' or 'iii')
     path: List[str] = Field(default_factory=list)
     char_span: Optional[Tuple[int, int]] = None
     bbox: Optional[List[float]] = None  # [left, top, width, height] in PDF points
@@ -67,28 +69,35 @@ class StructuredLocator(BaseModel):
         locator_str: Optional[str] = None,
         header: Optional[str] = None,
         char_span: Optional[Tuple[int, int]] = None,
-        bbox: Optional[List[float]] = None
+        bbox: Optional[List[float]] = None,
+        pdf_page: Optional[int] = None,
+        printed_page: Optional[str] = None
     ) -> "StructuredLocator":
         clean_hdr = header if (header and header != "General") else None
-        if page is not None:
-            path_items = [f"Page {page}"]
+        p_num = pdf_page if pdf_page is not None else page
+        if p_num is not None:
+            path_items = [f"Page {p_num}"]
             if clean_hdr:
                 path_items.append(clean_hdr)
             elif locator_str:
                 path_items.extend([p.strip() for p in locator_str.split(">") if p.strip()])
             return cls(
                 kind="page",
-                page=page,
+                page=p_num,
+                pdf_page=p_num,
+                printed_page=printed_page,
                 path=path_items,
                 char_span=char_span,
                 bbox=bbox,
                 header=clean_hdr,
-                formatted=f"Page {page}"
+                formatted=f"Page {p_num}"
             )
         if locator_str and ("row" in locator_str.lower() or "rows" in locator_str.lower()):
             return cls(
                 kind="row_range",
                 page=None,
+                pdf_page=None,
+                printed_page=printed_page,
                 path=[locator_str],
                 char_span=char_span,
                 bbox=bbox,
@@ -100,6 +109,8 @@ class StructuredLocator(BaseModel):
         return cls(
             kind="heading",
             page=None,
+            pdf_page=None,
+            printed_page=printed_page,
             path=path_items,
             char_span=char_span,
             bbox=bbox,
@@ -113,7 +124,9 @@ def format_citation(
     page_number: Optional[int] = None,
     locator: Optional[str] = None,
     header: Optional[str] = None,
-    structured_locator: Optional[StructuredLocator] = None
+    structured_locator: Optional[StructuredLocator] = None,
+    pdf_page: Optional[int] = None,
+    printed_page: Optional[str] = None
 ) -> str:
     """
     Produce a canonical, format-honest citation string:
@@ -121,18 +134,19 @@ def format_citation(
     - DOCX / HTML / MD (unpaged with heading): '{filename} § {path}'
     - CSV / Tabular (unpaged rows): '{filename} Rows {range}'
     - Fallback: '{filename}'
-    Never emits 'p. None'.
+    Never emits 'p. None'. Always references physical 1-based page.
     """
-    if isinstance(page_number, str):
-        if page_number.lower() in ("none", "null", ""):
-            page_number = None
+    p_num = pdf_page if pdf_page is not None else page_number
+    if isinstance(p_num, str):
+        if p_num.lower() in ("none", "null", ""):
+            p_num = None
         else:
             try:
-                page_number = int(page_number)
+                p_num = int(p_num)
             except ValueError:
-                page_number = None
+                p_num = None
 
-    sec_label = locator if (page_number is None and locator) else (header or locator)
+    sec_label = locator if (p_num is None and locator) else (header or locator)
     clean_sec = ""
     if sec_label and sec_label.strip():
         s = sec_label.strip().lstrip("#").strip()
@@ -150,10 +164,13 @@ def format_citation(
         else:
             clean_sec = s
 
-    if page_number is not None:
+    if p_num is not None:
+        p_label = f"p.{p_num}"
+        if printed_page and str(printed_page).strip() and str(printed_page).strip() != str(p_num):
+            p_label = f"p.{p_num} [printed: {printed_page.strip()}]"
         if clean_sec:
-            return f"{filename} p.{page_number} {clean_sec}"
-        return f"{filename} p.{page_number}"
+            return f"{filename} {p_label} {clean_sec}"
+        return f"{filename} {p_label}"
     else:
         if clean_sec:
             return f"{filename} {clean_sec}"
@@ -165,14 +182,20 @@ class Citation(BaseModel):
     schema_version: str = "1.0"
     filename: str
     page_number: Optional[int] = None
+    pdf_page: Optional[int] = None
+    printed_page: Optional[str] = None
     locator: Optional[str] = None
     header: Optional[str] = None
     structured_locator: Optional[StructuredLocator] = None
 
     def model_post_init(self, __context: Any) -> None:
+        if self.pdf_page is None and self.page_number is not None:
+            self.pdf_page = self.page_number
         if self.structured_locator is None:
             self.structured_locator = StructuredLocator.from_raw(
                 page=self.page_number,
+                pdf_page=self.pdf_page,
+                printed_page=self.printed_page,
                 locator_str=self.locator,
                 header=self.header
             )
@@ -181,6 +204,8 @@ class Citation(BaseModel):
         return format_citation(
             filename=self.filename,
             page_number=self.page_number,
+            pdf_page=self.pdf_page,
+            printed_page=self.printed_page,
             locator=self.locator,
             header=self.header,
             structured_locator=self.structured_locator
@@ -203,8 +228,10 @@ class ContentBlock(BaseModel):
 class PageData(BaseModel):
     """Represents a single parsed page or structural section in Page Object Model."""
     schema_version: str = "1.0"
-    index: Optional[int] = None      # 1-based page number (None for unpaged files)
-    locator: Optional[str] = None    # Heading hierarchy or row-group (e.g. "Art. IV > Sec. 8.22")
+    index: Optional[int] = None          # 1-based physical page number (None for unpaged files)
+    pdf_page: Optional[int] = None       # 1-based physical PDF page
+    printed_page: Optional[str] = None   # Page label printed on physical paper/header/footer
+    locator: Optional[str] = None        # Heading hierarchy or row-group (e.g. "Art. IV > Sec. 8.22")
     structured_locator: Optional[StructuredLocator] = None
     text: str
     digital_text: str = ""
@@ -336,6 +363,8 @@ class SearchHit(BaseModel):
     schema_version: str = "1.0"
     citation: str
     page_number: Optional[int] = None
+    pdf_page: Optional[int] = None
+    printed_page: Optional[str] = None
     header: Optional[str] = None
     locator: Optional[str] = None
     structured_locator: Optional[StructuredLocator] = None
@@ -367,6 +396,9 @@ class SearchHit(BaseModel):
     score_vector: Dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
+        if self.pdf_page is None and self.page_number is not None:
+            self.pdf_page = self.page_number
+
         if self.phrase_boost and not self.lexical_boost:
             self.lexical_boost = True
         elif self.lexical_boost and not self.phrase_boost:
@@ -381,6 +413,8 @@ class SearchHit(BaseModel):
         if self.structured_locator is None:
             self.structured_locator = StructuredLocator.from_raw(
                 page=self.page_number,
+                pdf_page=self.pdf_page,
+                printed_page=self.printed_page,
                 locator_str=self.locator,
                 header=self.header,
                 char_span=span,
@@ -391,6 +425,10 @@ class SearchHit(BaseModel):
                 self.structured_locator.char_span = span
             if self.bbox and self.structured_locator.bbox is None:
                 self.structured_locator.bbox = self.bbox
+            if self.pdf_page and self.structured_locator.pdf_page is None:
+                self.structured_locator.pdf_page = self.pdf_page
+            if self.printed_page and self.structured_locator.printed_page is None:
+                self.structured_locator.printed_page = self.printed_page
 
         if not self.citation:
             self.citation = format_citation(
