@@ -41,7 +41,9 @@ from .exceptions import (
     UnsupportedMimeError,
     PathSandboxError,
     WorkspaceRequiredError,
-    AuthenticationError
+    AuthenticationError,
+    WorkspaceNotFound,
+    LegalHoldActiveError
 )
 from .client import NexusClient
 from .store import init_db, Workspace
@@ -107,6 +109,16 @@ async def workspace_required_exception_handler(request: Request, exc: WorkspaceR
 @app.exception_handler(AuthenticationError)
 async def auth_exception_handler(request: Request, exc: AuthenticationError):
     return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content={"error": "AuthenticationError", "detail": str(exc)})
+
+
+@app.exception_handler(WorkspaceNotFound)
+async def workspace_not_found_exception_handler(request: Request, exc: WorkspaceNotFound):
+    return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"error": "WorkspaceNotFound", "detail": str(exc)})
+
+
+@app.exception_handler(LegalHoldActiveError)
+async def legal_hold_exception_handler(request: Request, exc: LegalHoldActiveError):
+    return JSONResponse(status_code=status.HTTP_423_LOCKED, content={"error": "LegalHoldActiveError", "detail": str(exc)})
 
 
 # ─── Constant-Time Bearer Token Security ─────────────────────────────────────
@@ -392,6 +404,8 @@ def reparse_document(
     """Re-parse and re-chunk an existing document in the corpus (operator action)."""
     try:
         return client.reparse(doc_id, operator_token=op_token)
+    except (LegalHoldActiveError, WorkspaceRequiredError, PathSandboxError, AuthenticationError):
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Reparse failed: {e}")
 
@@ -443,8 +457,55 @@ def create_workspace(req: CreateWorkspaceRequest):
             id=ws.id,
             name=ws.name,
             description=ws.description,
+            is_legal_hold=getattr(ws, "is_legal_hold", False),
             document_count=0,
             created_at=str(ws.created_at)
         )
     finally:
         db.close()
+
+
+class SetLegalHoldRequest(BaseModel):
+    legal_hold: bool = True
+
+
+@app.post("/v1/workspaces/{name}/legal-hold")
+def set_workspace_legal_hold(
+    name: str,
+    req: SetLegalHoldRequest,
+    op_token: Optional[str] = Depends(verify_operator_token),
+    token: str = Depends(verify_api_token)
+):
+    """Place or release a legal hold on a workspace (operator protected)."""
+    verify_workspace_token(name.strip(), token)
+    return client.set_legal_hold(name.strip(), legal_hold=req.legal_hold, operator_token=op_token)
+
+
+@app.get("/v1/workspaces/{name}/export-hold-bundle")
+def export_workspace_legal_hold_bundle(
+    name: str,
+    token: str = Depends(verify_api_token)
+):
+    """Generate a signed cryptographic Legal Hold bundle for audit and compliance."""
+    verify_workspace_token(name.strip(), token)
+    return client.export_legal_hold_bundle(workspace=name.strip())
+
+
+@app.delete("/v1/workspaces/{name}")
+def purge_workspace(
+    name: str,
+    confirmation_token: str = Query(..., description="Confirmation token matching CONFIRM_PURGE_<name>"),
+    op_token: Optional[str] = Depends(verify_operator_token),
+    token: str = Depends(verify_api_token)
+):
+    """Purge a workspace and all documents (destructive operator action). Blocks under legal hold."""
+    verify_workspace_token(name.strip(), token)
+    success = client.purge_workspace(
+        workspace=name.strip(),
+        confirmation_token=confirmation_token,
+        operator_token=op_token
+    )
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{name}' not found")
+    return {"status": "purged", "workspace": name.strip()}
+

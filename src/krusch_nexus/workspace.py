@@ -367,3 +367,109 @@ def import_workspace(
         raise
     finally:
         db.close()
+
+
+def export_legal_hold_bundle(
+    workspace_name: str,
+    output_path: Optional[str] = None,
+    config: Optional[NexusConfig] = None,
+    engine=None
+) -> Dict[str, Any]:
+    """
+    Generate a cryptographic Legal Hold audit bundle for a workspace.
+    Includes full document manifests, SHA-256 hashes, chunk summaries, and operator audit logs.
+    """
+    import hashlib
+    if not workspace_name or not workspace_name.strip():
+        raise WorkspaceRequiredError("A workspace name is required for legal hold bundle export.")
+
+    conf = config or NexusConfig.from_env()
+    db_engine = engine or get_engine(conf.database_url)
+    sessionmaker = get_session_factory(db_engine)
+    db = sessionmaker()
+
+    try:
+        ws = db.query(Workspace).filter(Workspace.name == workspace_name.strip()).first()
+        if not ws:
+            raise WorkspaceNotFound(f"Workspace '{workspace_name}' does not exist.")
+
+        docs = db.query(Document).filter(Document.workspace_id == ws.id).all()
+        chunks = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == ws.id).order_by(DocumentChunk.document_id, DocumentChunk.chunk_index).all()
+        from .store import OperatorAudit
+        audits = db.query(OperatorAudit).filter(OperatorAudit.workspace_id == ws.id).order_by(OperatorAudit.timestamp.desc()).all()
+
+        manifest_docs = [
+            {
+                "id": d.id,
+                "filename": d.filename,
+                "file_hash": d.file_hash,
+                "doc_type": d.doc_type,
+                "mime": d.mime,
+                "total_pages": d.total_pages,
+                "total_chunks": d.total_chunks,
+                "ingested_at": d.ingested_at.isoformat() if d.ingested_at else None
+            }
+            for d in docs
+        ]
+
+        manifest_chunks = [
+            {
+                "chunk_id": c.id,
+                "document_id": c.document_id,
+                "chunk_index": c.chunk_index,
+                "page_number": c.page_number,
+                "locator": c.locator,
+                "source_hash": c.source_hash,
+                "char_start": c.char_start,
+                "char_end": c.char_end,
+                "citation": c.citation
+            }
+            for c in chunks
+        ]
+
+        audit_entries = []
+        for a in audits:
+            det = None
+            if a.details:
+                try:
+                    det = json.loads(a.details)
+                except Exception:
+                    det = a.details
+            audit_entries.append({
+                "id": a.id,
+                "action": a.action,
+                "document_id": a.document_id,
+                "confirmation_token": a.confirmation_token,
+                "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+                "details": det
+            })
+
+        bundle = {
+            "export_type": "LEGAL_HOLD_BUNDLE",
+            "schema_version": "1.0",
+            "workspace_id": ws.id,
+            "workspace_name": ws.name,
+            "is_legal_hold": getattr(ws, "is_legal_hold", False),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "total_documents": len(docs),
+            "total_chunks": len(chunks),
+            "total_audits": len(audits),
+            "documents": manifest_docs,
+            "chunks": manifest_chunks,
+            "audit_ledger": audit_entries
+        }
+
+        canonical_json = json.dumps(bundle, sort_keys=True)
+        bundle["bundle_checksum_sha256"] = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+        if output_path:
+            out_file = Path(output_path).resolve()
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_file, "w", encoding="utf-8") as f:
+                json.dump(bundle, f, indent=2)
+            bundle["saved_path"] = str(out_file)
+
+        return bundle
+    finally:
+        db.close()
+

@@ -17,7 +17,8 @@
 | **INV-7** | **Idempotent Content Hashing** | Redundant ingestion inflates vector database, corrupts statistics, or duplicates chunks | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_07_idempotent_hashing_deduplication` | ✅ PASS |
 | **INV-8** | **Dual-Engine Vector Interop** | Code crashes on SQLite due to pgvector type mismatches or lacks offline portability | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_08_universal_vector_dual_engine` | ✅ PASS |
 | **INV-9** | **Resilient 8-State Ledger** | Process crash during ingestion leaves orphaned rows, unindexed chunks, or untracked state | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_09_resilient_state_machine_ledger` | ✅ PASS |
-| **INV-10** | **Operator-Token-Gated Purge** | Unauthenticated callers delete documents or reparse without cryptographically verified audit | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_10_operator_token_gated_destruction` | ✅ PASS |
+| **INV-10** | **Operator-Token-Gated Purge** | Unauthenticated callers delete documents or reparse without cryptographically verified audit | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_10_operator_token_gated_destruction`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_operator_audit_append_only_immutability` | ✅ PASS |
+| **INV-11** | **Legal Hold Preservation Gating** | Spoliation of evidence, unauthorized document mutation, or deletion during active legal hold | `tests/unit/test_nexus_properties.py::TestNexusProperties::test_legal_hold_blocks_client_mutations`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_legal_hold_http_423_locked_gating`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_export_legal_hold_bundle_integrity` | ✅ PASS |
 
 ---
 
@@ -104,8 +105,17 @@
 
 ### INV-10: Operator-Token-Gated Document Destruction & Auditing
 * **Requirement**: Destructive actions (document deletion, reindexing/reparsing, workspace purging) must be authenticated and cryptographically logged.
-* **Behavior**: If `NexusConfig.operator_token` is set, calls to `delete_document` or `reparse` without matching tokens raise `AuthenticationError` (HTTP 401/403). Every authorized destructive mutation records an immutable entry in the `OperatorAudit` table.
+* **Behavior**: If `NexusConfig.operator_token` is set, calls to `delete_document` or `reparse` without matching tokens raise `AuthenticationError` (HTTP 401/403). Every authorized destructive mutation records an immutable entry in the `OperatorAudit` table enforced by SQLAlchemy event listeners that strictly block `UPDATE` and `DELETE`.
 * **Verification Command**:
   ```bash
-  pytest tests/test_invariants.py -k "test_inv_10_operator_token_gated_destruction"
+  pytest tests/unit/test_nexus_properties.py -k "test_operator_audit_append_only_immutability"
   ```
+
+### INV-11: Legal Hold Preservation Gating & Export Bundles
+* **Requirement**: Entities under active legal hold (`Workspace.is_legal_hold == True`) are strictly non-deletable and immutable to prevent evidentiary spoliation.
+* **Behavior**: Any attempt to delete documents, reparse documents, or purge workspaces under active legal hold raises `LegalHoldActiveError` and returns `HTTP 423 Locked`. Workspaces can export a tamper-evident, signed JSON audit bundle (`export_legal_hold_bundle()`) containing full document manifests, locators, chunk hashes, and operator audit records verified with a root SHA-256 checksum.
+* **Verification Command**:
+  ```bash
+  pytest tests/unit/test_nexus_properties.py -k "test_legal_hold"
+  ```
+

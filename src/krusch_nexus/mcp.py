@@ -360,10 +360,11 @@ def nexus_reparse(
             "error": f"nexus_reparse is an operator-only action. You must supply confirmation_token='{expected}' to proceed."
         })
 
+    op_token = operator_token or os.getenv("NEXUS_OPERATOR_TOKEN")
     try:
         report = get_client().reparse(
             document_id,
-            operator_token=operator_token,
+            operator_token=op_token,
             confirmation_token=confirmation_token
         )
         return json.dumps(report.model_dump(), indent=2)
@@ -395,10 +396,11 @@ def nexus_delete_document(
             "error": f"nexus_delete_document is a destructive operator action. You must supply confirmation_token='{expected}' to proceed."
         })
 
+    op_token = operator_token or os.getenv("NEXUS_OPERATOR_TOKEN")
     try:
         success = get_client().delete_document(
             document_id,
-            operator_token=operator_token,
+            operator_token=op_token,
             confirmation_token=confirmation_token
         )
         if success:
@@ -454,6 +456,103 @@ def nexus_import_workspace(tarball_path: str, target_workspace: Optional[str] = 
     try:
         res = get_client().import_workspace(tarball_path=tarball_path, target_workspace=target_workspace)
         return json.dumps(res, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_set_legal_hold(
+    workspace_name: str,
+    legal_hold: bool = True,
+    operator_token: Optional[str] = None
+) -> str:
+    """
+    Place or release a legal hold on a workspace.
+    When a workspace is under active legal hold, document deletion, reparsing, and workspace purging are strictly blocked.
+    
+    Args:
+        workspace_name: Name of the workspace.
+        legal_hold: True to activate legal hold, False to release.
+        operator_token: Optional operator token if configured.
+    """
+    if not workspace_name or not workspace_name.strip():
+        return json.dumps({"status": "error", "error": "workspace_name is required."})
+
+    op_token = operator_token or os.getenv("NEXUS_OPERATOR_TOKEN")
+    try:
+        res = get_client().set_legal_hold(
+            workspace=workspace_name.strip(),
+            legal_hold=legal_hold,
+            operator_token=op_token
+        )
+        return json.dumps(res, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_export_legal_hold_bundle(
+    workspace_name: str,
+    output_path: Optional[str] = None
+) -> str:
+    """
+    Generate a cryptographic, tamper-evident Legal Hold bundle for a workspace.
+    Includes full document manifests, SHA-256 content hashes, chunk locators, and operator audit records.
+    
+    Args:
+        workspace_name: Name of the workspace.
+        output_path: Optional destination filepath to write bundle JSON.
+    """
+    if not workspace_name or not workspace_name.strip():
+        return json.dumps({"status": "error", "error": "workspace_name is required."})
+
+    try:
+        bundle = get_client().export_legal_hold_bundle(
+            workspace=workspace_name.strip(),
+            output_path=output_path
+        )
+        return json.dumps(bundle, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def nexus_purge_workspace(
+    workspace_name: str,
+    confirmation_token: Optional[str] = None,
+    operator_token: Optional[str] = None
+) -> str:
+    """
+    Purge an entire workspace and all its documents, chunks, and ingest runs.
+    OPERATOR ACTION: Requires typed confirmation_token='CONFIRM_PURGE_<workspace_name>'.
+    Strictly blocked if workspace is under active legal hold.
+    
+    Args:
+        workspace_name: Name of the workspace to purge.
+        confirmation_token: Typed confirmation token matching 'CONFIRM_PURGE_<workspace_name>'.
+        operator_token: Optional operator token if configured.
+    """
+    if not workspace_name or not workspace_name.strip():
+        return json.dumps({"status": "error", "error": "workspace_name is required."})
+
+    ws = workspace_name.strip()
+    expected = f"CONFIRM_PURGE_{ws}"
+    if confirmation_token != expected:
+        return json.dumps({
+            "status": "error",
+            "error": f"nexus_purge_workspace is a destructive operator action. You must supply confirmation_token='{expected}' to proceed."
+        })
+
+    op_token = operator_token or os.getenv("NEXUS_OPERATOR_TOKEN")
+    try:
+        success = get_client().purge_workspace(
+            workspace=ws,
+            confirmation_token=confirmation_token,
+            operator_token=op_token
+        )
+        if success:
+            return json.dumps({"status": "purged", "workspace": ws})
+        return json.dumps({"status": "not_found", "message": f"Workspace '{ws}' not found"})
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
 

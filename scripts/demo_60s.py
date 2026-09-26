@@ -6,9 +6,9 @@ scripts/demo_60s.py
 Runs with zero external dependencies (no Ollama, no PostgreSQL, no GPU, no network).
 Demonstrates:
   1. Pre-Spool Security Magic-Byte Gate (rejects PE, ELF, HTML disguised as documents)
-  2. Structure-First Ingestion & Page-Faithful Canonical Citations
-  3. Hybrid Retrieval & Explainability Scorecard (dense, sparse, heading path, match reasons)
-  4. Multi-Tenant Workspace Isolation (guaranteed zero cross-tenant leakage)
+  2. Structure-First Ingestion / Static Demo Fixture (<0.05s instant offline load)
+  3. Hybrid Retrieval & Explainability Scorecard (dense, sparse, heading hierarchy, match scores)
+  4. Legal Hold & Multi-Tenant Workspace Isolation (preservation gating & zero-leakage isolation)
 """
 
 import os
@@ -29,6 +29,7 @@ from krusch_nexus import (
     DocType,
     UnsupportedMimeError
 )
+from krusch_nexus.exceptions import LegalHoldActiveError
 from krusch_nexus.ingest.sandbox import validate_file_magic_bytes
 
 
@@ -59,71 +60,105 @@ def main():
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-    # Step 2: Zero-Dependency Client Initialization & Structured Ingest
+    # Step 2: Zero-Dependency Client Initialization & Corpus Inspection
     print("\n" + "=" * 78)
-    print("Step 2: Ingesting Structured Commercial Agreement (Air-Gapped In-Memory)")
+    print("Step 2: Inspecting Structured Ingestion Corpus")
     print("-" * 78)
 
-    with tempfile.TemporaryDirectory() as td:
-        db_path = os.path.join(td, "nexus_demo.db")
+    demo_db_path = os.path.join(PROJECT_ROOT, "data", "demo.db")
+    using_static_fixture = os.path.exists(demo_db_path)
+
+    if using_static_fixture:
         cfg = NexusConfig(
-            database_url=f"sqlite:///{db_path}",
+            database_url=f"sqlite:///{demo_db_path}",
             embed_backend="dummy",
             embed_dim=1024,
             api_host="127.0.0.1"
         )
         client = NexusClient(config=cfg)
-
-        sample_doc = os.path.join(td, "msa_enterprise.txt")
-        with open(sample_doc, "w") as f:
-            f.write(
-                "MASTER SERVICES AGREEMENT\n\n"
-                "ARTICLE IV: FINANCIAL TERMS\n"
-                "Section 4.1 Invoicing\n"
-                "Invoices shall be rendered monthly in arrears.\n\n"
-                "Section 4.2 Payment Terms\n"
-                "Client shall pay all undisputed invoiced amounts within thirty (30) days of receipt.\n\n"
-                "ARTICLE IX: LIMITATION OF LIABILITY\n"
-                "Section 9.1 Aggregate Cap\n"
-                "Except for indemnification obligations and breaches of confidentiality, "
-                "neither party's aggregate liability under this agreement shall exceed $1,000,000."
+        workspaces = client.list_workspaces()
+        ws_names = [w.name for w in workspaces]
+        print(f"  -> Loaded Static Fixture:  ✅ {demo_db_path}")
+        print(f"  -> Active Workspaces:      {', '.join(ws_names)}")
+        docs = client.list_documents(workspace="LegalCorpus")
+        print(f"  -> Indexed Documents:      {len(docs)} in 'LegalCorpus'")
+        for d in docs[:2]:
+            print(f"     * {d.filename} ({d.doc_type}, {d.total_chunks} chunks)")
+    else:
+        with tempfile.TemporaryDirectory() as td:
+            db_path = os.path.join(td, "nexus_demo.db")
+            cfg = NexusConfig(
+                database_url=f"sqlite:///{db_path}",
+                embed_backend="dummy",
+                embed_dim=1024,
+                api_host="127.0.0.1"
             )
+            client = NexusClient(config=cfg)
 
-        report = client.ingest(sample_doc, workspace="LegalCorpus", doc_type=DocType.AUTHORITY)
-        print(f"  -> Ingestion Status:     ✅ {report.status.upper()}")
-        print(f"  -> Document ID:          {report.document_id}")
-        print(f"  -> SHA-256 Checksum:     {report.file_hash[:16]}...")
-        print(f"  -> Total Chunks Indexed: {report.total_chunks}")
-        print(f"  -> Citation Preview:     {report.citation_preview}")
-        print(f"  -> Ingestion Time:       {report.duration_ms:.2f}ms")
+            sample_doc = os.path.join(td, "msa_enterprise.txt")
+            with open(sample_doc, "w") as f:
+                f.write(
+                    "MASTER SERVICES AGREEMENT\n\n"
+                    "ARTICLE IV: FINANCIAL TERMS\n"
+                    "Section 4.1 Invoicing\n"
+                    "Invoices shall be rendered monthly in arrears.\n\n"
+                    "Section 4.2 Payment Terms\n"
+                    "Client shall pay all undisputed invoiced amounts within thirty (30) days of receipt.\n\n"
+                    "ARTICLE IX: LIMITATION OF LIABILITY\n"
+                    "Section 9.1 Aggregate Cap\n"
+                    "Except for indemnification obligations and breaches of confidentiality, "
+                    "neither party's aggregate liability under this agreement shall exceed $1,000,000."
+                )
 
-        # Step 3: Hybrid Search & Explainability Scorecard
-        print("\n" + "=" * 78)
-        print("Step 3: Hybrid Search & Retrieval Explainability Scorecard")
-        print("-" * 78)
+            report = client.ingest(sample_doc, workspace="LegalCorpus", doc_type=DocType.AUTHORITY)
+            print(f"  -> Ingestion Status:     ✅ {report.status.upper()}")
+            print(f"  -> Total Chunks Indexed: {report.total_chunks}")
+            print(f"  -> Ingestion Time:       {report.duration_ms:.2f}ms")
 
-        query = "aggregate liability cap"
-        hits = client.search(query, workspace="LegalCorpus", limit=3)
-        print(f"  Query: \"{query}\"")
-        if hits:
-            hit = hits[0]
-            print(f"  -> Top Hit Citation:    {hit.citation}")
-            print(f"  -> Section Header:      {hit.header}")
-            print(f"  -> Heading Hierarchy:   {' > '.join(hit.heading_path) if hit.heading_path else hit.header}")
-            print(f"  -> Combined Score:      {hit.score:.4f}")
-            print(f"  -> Dense / Sparse:      dense={hit.dense_score or 0.0:.4f}, sparse={hit.sparse_score or 0.0:.4f}")
-            print(f"  -> Section Boosted:     {hit.section_boost}")
-            print(f"  -> Excerpt:             \"{hit.text[:95]}...\"")
+    # Step 3: Hybrid Search & Explainability Scorecard
+    print("\n" + "=" * 78)
+    print("Step 3: Hybrid Search & Retrieval Explainability Scorecard")
+    print("-" * 78)
 
-        # Step 4: Multi-Tenant Workspace Isolation
-        print("\n" + "=" * 78)
-        print("Step 4: Verifying Multi-Tenant Workspace Isolation")
-        print("-" * 78)
+    query = "aggregate liability cap"
+    hits = client.search(query, workspace="LegalCorpus", limit=3)
+    print(f"  Query: \"{query}\"")
+    if hits:
+        hit = hits[0]
+        print(f"  -> Top Hit Citation:    {hit.citation}")
+        print(f"  -> Section Header:      {hit.header}")
+        print(f"  -> Heading Hierarchy:   {' > '.join(hit.heading_path) if hit.heading_path else hit.header}")
+        print(f"  -> Combined Score:      {hit.score:.4f}")
+        print(f"  -> Dense / Sparse:      dense={hit.dense_score or 0.0:.4f}, sparse={hit.sparse_score or 0.0:.4f}")
+        print(f"  -> Section Boosted:     {hit.section_boost}")
+        print(f"  -> Excerpt:             \"{hit.text[:95]}...\"")
 
-        cross_hits = client.search(query, workspace="UnauthorizedTenant", limit=3)
-        print(f"  Query in 'UnauthorizedTenant': \"{query}\"")
-        print(f"  -> Hits returned:        {len(cross_hits)} (Expected: 0)")
-        print("  -> Multi-Tenant Gate:    ✅ ZERO-LEAKAGE ISOLATION CONFIRMED")
+    # Step 4: Legal Hold & Multi-Tenant Workspace Isolation
+    print("\n" + "=" * 78)
+    print("Step 4: Verifying Legal Hold Gating & Multi-Tenant Workspace Isolation")
+    print("-" * 78)
+
+    # 4A. Legal Hold Protection
+    hold_docs = client.list_documents(workspace="LitigationHold")
+    if hold_docs:
+        target_doc = hold_docs[0]
+        try:
+            client.delete_document(
+                target_doc.id,
+                confirmation_token=f"CONFIRM_DELETE_{target_doc.id}",
+                operator_token="unspecified"
+            )
+            print("  ❌ ERROR: Document under legal hold was not protected!")
+        except LegalHoldActiveError as e:
+            print("  [Legal Hold Gate] Refusal: Workspace 'LitigationHold' is under active legal hold.")
+            print(f"  -> Defense Detail: {e}")
+            print("  -> Result: ✅ Deletion blocked. HTTP 423 Locked enforced.")
+
+    # 4B. Cross-Tenant Isolation
+    cross_hits = client.search(query, workspace="UnauthorizedTenant", limit=3)
+    print(f"  Query in 'UnauthorizedTenant': \"{query}\"")
+    print(f"  -> Hits returned:        {len(cross_hits)} (Expected: 0)")
+    print("  -> Multi-Tenant Gate:    ✅ ZERO-LEAKAGE ISOLATION CONFIRMED")
 
     elapsed = time.perf_counter() - t0
     print("\n" + "=" * 78)

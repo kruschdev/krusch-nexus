@@ -23,7 +23,8 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Index,
-    text
+    text,
+    event
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -90,6 +91,7 @@ class Workspace(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
+    is_legal_hold = Column(Boolean, default=False, server_default='false', nullable=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     documents = relationship("Document", back_populates="workspace", cascade="all, delete-orphan")
@@ -240,6 +242,17 @@ class OperatorAudit(Base):
     confirmation_token = Column(String(100), nullable=False)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     details = Column(Text, nullable=True)  # JSON-encoded details
+
+
+@event.listens_for(OperatorAudit, "before_update")
+def receive_before_update(mapper, connection, target):
+    raise PermissionError("OperatorAudit records are append-only immutable and cannot be modified.")
+
+
+@event.listens_for(OperatorAudit, "before_delete")
+def receive_before_delete(mapper, connection, target):
+    raise PermissionError("OperatorAudit records are append-only immutable and cannot be deleted.")
+
 
 
 # ─── Database Engine & Session Management ─────────────────────────────────────

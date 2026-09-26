@@ -1,11 +1,11 @@
 # KruschNexus
 
-> **Status**: v0.2.3 — usable spine, small corpus
+> **Status**: v0.2.4 — 130 passing tests, legal hold preservation, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Version: 0.2.3](https://img.shields.io/badge/version-0.2.3-green.svg)](spec.md)
+[![Version: 0.2.4](https://img.shields.io/badge/version-0.2.4-green.svg)](docs/INVARIANTS.md)
 
 ---
 

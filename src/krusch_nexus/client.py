@@ -21,7 +21,14 @@ from .models import (
     DocumentInfo,
     DocType
 )
-from .exceptions import WorkspaceNotFound, WorkspaceRequiredError, ParseError, AuthenticationError
+from .exceptions import (
+    WorkspaceNotFound,
+    WorkspaceRequiredError,
+    ParseError,
+    AuthenticationError,
+    LegalHoldActiveError,
+    ConfigurationError
+)
 from .store import (
     get_engine,
     get_session_factory,
@@ -175,6 +182,10 @@ class NexusClient:
             if not doc:
                 raise ParseError(f"Document ID {document_id} not found.")
 
+            ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
+            if ws and getattr(ws, "is_legal_hold", False):
+                raise LegalHoldActiveError(f"CANNOT_REPARSE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
+
             source_path = doc.original_path
             if not source_path or not os.path.exists(source_path):
                 ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
@@ -242,6 +253,10 @@ class NexusClient:
             doc = db.query(Document).filter(Document.id == document_id).first()
             if not doc:
                 return False
+
+            ws = db.query(Workspace).filter(Workspace.id == doc.workspace_id).first()
+            if ws and getattr(ws, "is_legal_hold", False):
+                raise LegalHoldActiveError(f"CANNOT_DELETE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
 
             ws_id = doc.workspace_id
             doc_filename = doc.filename
@@ -459,6 +474,7 @@ class NexusClient:
                     id=w.id,
                     name=w.name,
                     description=w.description,
+                    is_legal_hold=getattr(w, "is_legal_hold", False),
                     document_count=count,
                     created_at=w.created_at.isoformat() if w.created_at else None
                 ))
@@ -510,6 +526,102 @@ class NexusClient:
         """
         from .workspace import export_workspace
         return export_workspace(
+            workspace_name=workspace,
+            output_path=output_path,
+            config=self.config,
+            engine=self.engine
+        )
+
+    def set_legal_hold(
+        self,
+        workspace: str,
+        legal_hold: bool = True,
+        operator_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Toggle legal hold status on a workspace. Operator action."""
+        if self.config.operator_token:
+            if not operator_token or not secrets.compare_digest(operator_token, self.config.operator_token):
+                raise AuthenticationError("Operator authorization required to change legal hold status.")
+
+        db = self._get_db()
+        try:
+            ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
+            if not ws:
+                raise WorkspaceNotFound(f"Workspace '{workspace}' does not exist.")
+
+            ws.is_legal_hold = bool(legal_hold)
+            try:
+                audit = OperatorAudit(
+                    action="set_legal_hold",
+                    workspace_id=ws.id,
+                    confirmation_token=operator_token or "unspecified",
+                    details=json.dumps({"workspace": ws.name, "legal_hold": ws.is_legal_hold})
+                )
+                db.add(audit)
+            except Exception as ae:
+                logger.warning(f"Could not queue OperatorAudit record: {ae}")
+
+            db.commit()
+            return {
+                "workspace": ws.name,
+                "is_legal_hold": ws.is_legal_hold,
+                "status": "LEGAL_HOLD_ACTIVE" if ws.is_legal_hold else "LEGAL_HOLD_RELEASED"
+            }
+        finally:
+            db.close()
+
+    def purge_workspace(
+        self,
+        workspace: str,
+        confirmation_token: Optional[str] = None,
+        operator_token: Optional[str] = None
+    ) -> bool:
+        """
+        Purge an entire workspace and all its documents, chunks, and ingest runs.
+        Requires confirmation_token='CONFIRM_PURGE_<workspace>'.
+        Strictly forbidden if workspace is under active legal hold.
+        """
+        expected = f"CONFIRM_PURGE_{workspace.strip()}"
+        if confirmation_token != expected:
+            raise ConfigurationError(f"purge_workspace requires confirmation_token='{expected}' to proceed.")
+
+        if self.config.operator_token:
+            if not operator_token or not secrets.compare_digest(operator_token, self.config.operator_token):
+                raise AuthenticationError("Operator authorization required to purge workspace.")
+
+        db = self._get_db()
+        try:
+            ws = db.query(Workspace).filter(Workspace.name == workspace.strip()).first()
+            if not ws:
+                return False
+
+            if getattr(ws, "is_legal_hold", False):
+                raise LegalHoldActiveError(f"CANNOT_PURGE_LEGAL_HOLD_ACTIVE: Workspace '{ws.name}' is under active legal hold.")
+
+            ws_id = ws.id
+            ws_name = ws.name
+
+            try:
+                audit = OperatorAudit(
+                    action="purge_workspace",
+                    workspace_id=ws_id,
+                    confirmation_token=confirmation_token or operator_token or "unspecified",
+                    details=json.dumps({"workspace": ws_name})
+                )
+                db.add(audit)
+            except Exception as ae:
+                logger.warning(f"Could not queue OperatorAudit record: {ae}")
+
+            db.delete(ws)
+            db.commit()
+            return True
+        finally:
+            db.close()
+
+    def export_legal_hold_bundle(self, workspace: str, output_path: Optional[str] = None) -> Dict[str, Any]:
+        """Generate a signed cryptographic Legal Hold bundle."""
+        from .workspace import export_legal_hold_bundle
+        return export_legal_hold_bundle(
             workspace_name=workspace,
             output_path=output_path,
             config=self.config,

@@ -419,8 +419,10 @@ class WorkspaceInfo(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    is_legal_hold: bool = False
     document_count: int = 0
     created_at: Optional[str] = None
+
 
 
 class DocumentInfo(BaseModel):

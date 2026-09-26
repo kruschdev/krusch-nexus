@@ -19,6 +19,7 @@ build/
 
 # Databases & Local Storage
 *.db
+!data/demo.db
 *.sqlite
 *.sqlite3
 pgdata/

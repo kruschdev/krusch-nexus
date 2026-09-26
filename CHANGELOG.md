@@ -5,6 +5,40 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-09-26
+
+### Summary
+Comprehensive architectural, compliance, and evaluation hardening bringing KruschNexus to complete four-way parity across the Krusch Sovereign Intelligence Platform (KruschBiz, KruschLaw, KruschBizLaw, KruschNexus; 515 passing tests across fleet). Adds legal hold state machine with HTTP 423 Locked gating, append-only immutable `OperatorAudit` ledger with SQLAlchemy event listeners, cryptographic `export_legal_hold_bundle()` generating tamper-evident signed JSON manifests with SHA-256 root checksums, static zero-dependency SQLite demo database fixture (`data/demo.db`) with `data/CORPUS_LICENSE.md`, property-based mutation test suite `tests/unit/test_nexus_properties.py`, 60-second headless demonstration runner (`scripts/demo_60s.py` executing across security, static corpus load, hybrid explainability, legal hold gating, and tenant isolation in 0.063s), FastMCP tool additions (`nexus_set_legal_hold`, `nexus_export_legal_hold_bundle`, `nexus_purge_workspace`), REST API twin routes (`POST /v1/workspaces/{name}/legal-hold`, `GET /v1/workspaces/{name}/export-hold-bundle`, `DELETE /v1/workspaces/{name}`), and formalized `INV-11` in `docs/INVARIANTS.md`.
+
+### Added
+- **Legal Hold State Machine (`is_legal_hold`)**:
+  - Added indexed boolean column `Workspace.is_legal_hold` (default False).
+  - Mutating operations (`delete_document`, `reparse`, `purge_workspace`) strictly blocked when `is_legal_hold == True`, raising typed `LegalHoldActiveError`.
+  - Mapped to `HTTP 423 Locked` in REST API via custom exception handler.
+- **Append-Only Immutable Audit Ledger (`OperatorAudit`)**:
+  - SQLAlchemy `before_update` and `before_delete` event listeners on `OperatorAudit` model raising `PermissionError` to prevent evidentiary tampering or deletion.
+- **Cryptographic Legal Hold Export Bundles (`export_legal_hold_bundle()`)**:
+  - Exports complete workspace manifests (documents, chunk locators, SHA-256 content hashes, structured citations, and operator audit entries).
+  - Calculates tamper-evident SHA-256 checksum over canonical JSON structure for judicial and compliance verification.
+- **Static Demo Database Fixture (`data/demo.db`) & Provenance License (`data/CORPUS_LICENSE.md`)**:
+  - Zero-dependency pre-seeded SQLite fixture featuring `LegalCorpus` (commercial MSA, municipal rent ordinance, and defense memorandum) and `LitigationHold` (subpoena order under active hold).
+  - Deterministic 1024-dimension unit pseudo-embeddings enabling offline hybrid search without Ollama or network.
+  - Provenance license establishing zero client data, public domain EDGAR/statute derivations, and MIT/CC-BY-4.0 licensing.
+- **FastMCP Tool Expansion**:
+  - `nexus_set_legal_hold(workspace_name, legal_hold, operator_token)`: Activate or release preservation hold.
+  - `nexus_export_legal_hold_bundle(workspace_name, output_path)`: Export signed cryptographic audit bundle.
+  - `nexus_purge_workspace(workspace_name, confirmation_token, operator_token)`: Operator-guarded workspace purge requiring typed confirmation token.
+- **REST API HTTP Twin Endpoints**:
+  - `POST /v1/workspaces/{name}/legal-hold`: Toggle legal hold with operator token verification.
+  - `GET /v1/workspaces/{name}/export-hold-bundle`: Retrieve cryptographic legal hold bundle.
+  - `DELETE /v1/workspaces/{name}`: Purge workspace with typed confirmation token.
+- **Property-Based Mutation Test Suite (`tests/unit/test_nexus_properties.py`)**:
+  - 6 property tests covering legal hold failure modes, HTTP 423 Locked API responses, bundle SHA-256 verification, `OperatorAudit` immutability, chunker span bounds and monotonicity, and FastMCP tool execution.
+- **Formalized Core Invariant INV-11 (`docs/INVARIANTS.md`)**:
+  - Added INV-11 (Legal Hold Preservation Gating & Export Bundles) with automated test verification mapping.
+- **60-Second Headless Demonstration Runner (`scripts/demo_60s.py`)**:
+  - Demonstrates pre-spool magic-byte gate, instant static fixture load (<0.01s), hybrid retrieval scorecard, legal hold gating, and cross-tenant zero leakage in 0.063s.
+
 ## [0.2.3] - 2026-09-22
 
 ### Summary

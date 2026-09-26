@@ -90,3 +90,9 @@ class AuthenticationError(NexusError):
 class ModelDimensionDriftError(NexusError):
     """Raised when query vector dimension does not match document embedding dimension."""
     pass
+
+
+class LegalHoldActiveError(NexusError):
+    """Raised when an operation attempts to mutate, reparse, or delete a document or workspace under active legal hold."""
+    pass
+
