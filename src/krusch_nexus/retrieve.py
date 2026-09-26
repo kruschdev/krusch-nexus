@@ -64,6 +64,7 @@ class BoundedLRUCache:
 
 
 _QUERY_EMBED_CACHE = BoundedLRUCache(maxsize=1000)
+_CHUNK_VECTOR_CACHE = BoundedLRUCache(maxsize=100000)
 
 
 def hash_query(q: str) -> str:
@@ -161,7 +162,8 @@ def retrieve(
     config: Optional[NexusConfig] = None,
     rerank: bool = False,
     rerank_fn: Optional[Any] = None,
-    rerank_candidates: int = 30
+    rerank_candidates: int = 30,
+    include_low_ocr: bool = False
 ) -> List[SearchHit]:
     """
     Execute hybrid vector + full-text search with strict workspace tenant key,
@@ -206,6 +208,7 @@ def retrieve(
     filter_doc_id = resolved_filters.get("doc_id")
     filter_filename = resolved_filters.get("filename")
     filter_header_regex = resolved_filters.get("header_regex")
+    active_include_low_ocr = bool(include_low_ocr or resolved_filters.get("include_low_ocr", False))
 
     # Extract inline query operators: -term, doc_type:, page:, header:
     negative_terms: List[str] = []
@@ -272,6 +275,8 @@ def retrieve(
     if filter_filename is not None:
         sql_filter_clauses.append("AND filename = :filter_filename")
         sql_params["filter_filename"] = filter_filename
+    if not active_include_low_ocr:
+        sql_filter_clauses.append("AND (content NOT LIKE '%low OCR confidence quarantined%')")
 
     sql_filter_str = " ".join(sql_filter_clauses)
 
@@ -347,22 +352,72 @@ def retrieve(
                 q_base = q_base.filter(DocumentChunk.document_id == filter_doc_id)
             if filter_filename is not None:
                 q_base = q_base.filter(DocumentChunk.filename == filter_filename)
+            if not active_include_low_ocr:
+                q_base = q_base.filter(~DocumentChunk.content.ilike("%low OCR confidence quarantined%"))
 
-            scored_dense = []
-            for c in q_base.all():
-                if c.embedding is not None:
-                    emb = c.embedding
-                    if isinstance(emb, str):
-                        try:
-                            emb = json.loads(emb)
-                        except Exception:
-                            continue
-                    if isinstance(emb, (list, tuple)) and len(emb) == len(query_vector):
-                        sim = sum(a * b for a, b in zip(query_vector, emb))
+            chunk_ids = []
+            vec_list = []
+            missing_tuples = []
+
+            # Project lightweight (id, source_hash) pairs first (avoids reading megabytes of JSON text from disk)
+            candidate_pairs = q_base.with_entities(DocumentChunk.id, DocumentChunk.source_hash).all()
+            for c_id, s_hash in candidate_pairs:
+                parsed_vec = _CHUNK_VECTOR_CACHE.get(s_hash)
+                if parsed_vec is not None:
+                    if len(parsed_vec) == len(query_vector):
+                        chunk_ids.append(c_id)
+                        vec_list.append(parsed_vec)
+                else:
+                    missing_tuples.append((c_id, s_hash))
+
+            if missing_tuples:
+                # Batch load only missing vectors from DB
+                batch_size = 1000
+                missing_id_map = {cid: shash for cid, shash in missing_tuples}
+                missing_id_list = list(missing_id_map.keys())
+                for b_start in range(0, len(missing_id_list), batch_size):
+                    b_ids = missing_id_list[b_start:b_start + batch_size]
+                    for m_id, m_emb in db.query(DocumentChunk.id, DocumentChunk.embedding).filter(DocumentChunk.id.in_(b_ids)).all():
+                        if m_emb is not None:
+                            parsed = None
+                            if isinstance(m_emb, str):
+                                try:
+                                    parsed = json.loads(m_emb)
+                                except Exception:
+                                    continue
+                            elif isinstance(m_emb, (list, tuple)):
+                                parsed = m_emb
+                            if parsed is not None:
+                                m_hash = missing_id_map.get(m_id)
+                                if m_hash:
+                                    _CHUNK_VECTOR_CACHE[m_hash] = parsed
+                                if len(parsed) == len(query_vector):
+                                    chunk_ids.append(m_id)
+                                    vec_list.append(parsed)
+
+            scored_dense_tuples = []
+            if vec_list:
+                try:
+                    import numpy as np
+                    mat = np.array(vec_list, dtype=np.float32)
+                    q_arr = np.array(query_vector, dtype=np.float32)
+                    sims = np.dot(mat, q_arr)
+                    for idx, sim in enumerate(sims):
                         if sim >= min_sim_threshold:
-                            scored_dense.append((c, float(sim)))
-            scored_dense.sort(key=lambda x: x[1], reverse=True)
-            dense_results = scored_dense[:dense_limit]
+                            scored_dense_tuples.append((chunk_ids[idx], float(sim)))
+                except ImportError:
+                    for c_id, v in zip(chunk_ids, vec_list):
+                        sim = sum(a * b for a, b in zip(query_vector, v))
+                        if sim >= min_sim_threshold:
+                            scored_dense_tuples.append((c_id, float(sim)))
+
+            scored_dense_tuples.sort(key=lambda x: x[1], reverse=True)
+            top_dense = scored_dense_tuples[:dense_limit]
+            top_ids = [t[0] for t in top_dense]
+            chunk_map = {c.id: c for c in db.query(DocumentChunk).filter(DocumentChunk.id.in_(top_ids)).all()} if top_ids else {}
+            for c_id, score in top_dense:
+                if c_id in chunk_map:
+                    dense_results.append((chunk_map[c_id], score))
 
     # 3. FTS in workspace (utilizing stored tsv_content GIN index on PostgreSQL)
     sparse_results: List[Tuple[DocumentChunk, float]] = []
@@ -415,15 +470,22 @@ def retrieve(
             q_base = q_base.filter(DocumentChunk.document_id == filter_doc_id)
         if filter_filename is not None:
             q_base = q_base.filter(DocumentChunk.filename == filter_filename)
+        if not active_include_low_ocr:
+            q_base = q_base.filter(~DocumentChunk.content.ilike("%low OCR confidence quarantined%"))
 
-        scored = []
-        for c in q_base.all():
-            full = (c.content + " " + (c.header or "") + " " + (c.locator or "")).lower()
+        scored_tuples = []
+        for c_id, c_head, c_loc, c_cnt in q_base.with_entities(DocumentChunk.id, DocumentChunk.header, DocumentChunk.locator, DocumentChunk.content).all():
+            full = ((c_cnt or "") + " " + (c_head or "") + " " + (c_loc or "")).lower()
             m = sum(1 for t in toks if t in full)
             if m > 0:
-                scored.append((c, float(m)))
-        scored.sort(key=lambda x: x[1], reverse=True)
-        sparse_results = scored[:sparse_limit]
+                scored_tuples.append((c_id, float(m)))
+        scored_tuples.sort(key=lambda x: x[1], reverse=True)
+        top_sparse = scored_tuples[:sparse_limit]
+        top_s_ids = [t[0] for t in top_sparse]
+        sparse_chunk_map = {c.id: c for c in db.query(DocumentChunk).filter(DocumentChunk.id.in_(top_s_ids)).all()} if top_s_ids else {}
+        for c_id, score in top_sparse:
+            if c_id in sparse_chunk_map:
+                sparse_results.append((sparse_chunk_map[c_id], score))
 
     # Filter out chunks matching negative terms (-term)
     if negative_terms:
@@ -567,6 +629,8 @@ def retrieve(
 
     for c_id in sorted_ids:
         chunk = obj_map[c_id]
+        if not active_include_low_ocr and "low OCR confidence quarantined" in chunk.content:
+            continue
         if chunk.source_hash in seen_hashes:
             continue
 

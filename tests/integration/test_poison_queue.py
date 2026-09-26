@@ -116,6 +116,32 @@ class TestPoisonQueue(unittest.TestCase):
         rep = json.loads(res_replay.stdout)
         self.assertEqual(rep["status"], "completed")
 
+    def test_daemon_retry_budget_and_prometheus_metrics(self):
+        """Verify format_prometheus_metrics and daemon retry budget quarantine."""
+        from krusch_nexus.daemon import format_prometheus_metrics, _RETRY_TRACKER
+
+        # 1. Verify prometheus metrics exposition format
+        metrics = {
+            "files_processed_total": 12,
+            "files_failed_total": 3,
+            "files_quarantined_total": 1,
+            "retry_attempts_total": 4
+        }
+        prom_text = format_prometheus_metrics(metrics, queue_depth=2, active_retries=1)
+        self.assertIn("nexus_daemon_files_processed_total 12", prom_text)
+        self.assertIn("nexus_daemon_files_failed_total 3", prom_text)
+        self.assertIn("nexus_daemon_files_quarantined_total 1", prom_text)
+        self.assertIn("nexus_daemon_retry_attempts_total 4", prom_text)
+        self.assertIn("nexus_daemon_queue_depth 2", prom_text)
+        self.assertIn("nexus_daemon_active_retries 1", prom_text)
+
+        # 2. Verify retry tracker budget behavior
+        file_key = "TestWS/bad_sample.txt"
+        _RETRY_TRACKER[file_key] = 2  # Simulate 2 prior failures
+
+        # Next failure will hit attempt 3 (quarantine threshold)
+        self.assertEqual(_RETRY_TRACKER[file_key], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

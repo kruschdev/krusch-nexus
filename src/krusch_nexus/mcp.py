@@ -264,6 +264,7 @@ def nexus_search_corpus(
     page: Optional[int] = None,
     doc_id: Optional[int] = None,
     filename: Optional[str] = None,
+    include_low_ocr: bool = False,
     token: Optional[str] = None
 ) -> str:
     """
@@ -278,6 +279,7 @@ def nexus_search_corpus(
         page: Optional physical page number predicate (exact SQL filter).
         doc_id: Optional document ID predicate (exact SQL filter).
         filename: Optional source filename predicate (exact SQL filter).
+        include_low_ocr: Optional boolean to include quarantined low-confidence OCR pages (default False).
         token: Optional API token for workspace authorization when ACLs are configured.
     """
     if not workspace_name or not workspace_name.strip():
@@ -299,13 +301,16 @@ def nexus_search_corpus(
             search_filters["doc_id"] = doc_id
         if filename is not None:
             search_filters["filename"] = filename
+        if include_low_ocr:
+            search_filters["include_low_ocr"] = True
 
         hits = get_client().search(
             query=query,
             workspace=ws,
             doc_type=doc_type,
             limit=limit,
-            filters=search_filters if search_filters else None
+            filters=search_filters if search_filters else None,
+            include_low_ocr=include_low_ocr
         )
         results = []
         for h in hits:

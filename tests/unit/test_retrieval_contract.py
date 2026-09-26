@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import NexusClient, NexusConfig, DocType
+from krusch_nexus import NexusClient, NexusConfig, DocType, SearchFilter
 from krusch_nexus.store import init_db, get_engine, SearchTrace, get_db_session
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
@@ -279,4 +279,36 @@ class TestRetrievalContract(unittest.TestCase):
         # 3. Valid complex regex pattern: executes safely without ReDoS
         res = self.nexus.search("lease", workspace="RetrievalTest", filters={"header_regex": r"(?:Section|Article)\s+\d+"})
         self.assertIsInstance(res, list)
+
+    def test_include_low_ocr_filtering(self):
+        """Verify low-confidence OCR quarantined chunks are excluded by default and included with flag."""
+        # 1. Ingest a document containing low OCR confidence quarantined page text
+        quarantine_file = os.path.join(self.temp_dir, "quarantined_notice.txt")
+        with open(quarantine_file, "w", encoding="utf-8") as f:
+            f.write("Notice of Inspection\n[Scanned page 1 - low OCR confidence quarantined]\nUnreadable smear artifact.")
+
+        self.nexus.ingest(quarantine_file, workspace="RetrievalTest", doc_type=DocType.GENERAL)
+
+        # 2. Search without include_low_ocr (default False): must NOT return the quarantined chunk
+        hits_default = self.nexus.search("quarantined", workspace="RetrievalTest", include_low_ocr=False)
+        self.assertFalse(any("quarantined" in (h.filename or "") for h in hits_default), "Quarantined file must be excluded by default")
+        self.assertFalse(any("low ocr confidence quarantined" in h.text.lower() for h in hits_default))
+
+        # Explicit filename filter with include_low_ocr=False: must return 0
+        hits_filtered_fn = self.nexus.search("quarantined", workspace="RetrievalTest", filters={"filename": "quarantined_notice.txt"}, include_low_ocr=False)
+        self.assertEqual(len(hits_filtered_fn), 0, "Quarantined document must return 0 hits when include_low_ocr=False")
+
+        # 3. Search with SearchFilter(include_low_ocr=False): must NOT return the quarantined chunk
+        hits_filter_false = self.nexus.search("quarantined", workspace="RetrievalTest", filters=SearchFilter(filename="quarantined_notice.txt", include_low_ocr=False))
+        self.assertEqual(len(hits_filter_false), 0, "SearchFilter(include_low_ocr=False) must exclude quarantined pages")
+
+        # 4. Search with include_low_ocr=True: MUST return the quarantined chunk
+        hits_included = self.nexus.search("quarantined", workspace="RetrievalTest", filters={"filename": "quarantined_notice.txt"}, include_low_ocr=True)
+        self.assertGreater(len(hits_included), 0, "Quarantined low-OCR pages must be returned when include_low_ocr=True")
+        self.assertIn("quarantined", hits_included[0].text.lower())
+        self.assertEqual(hits_included[0].filename, "quarantined_notice.txt")
+
+        # 5. Search with filters dict {"include_low_ocr": True}
+        hits_dict = self.nexus.search("quarantined", workspace="RetrievalTest", filters={"filename": "quarantined_notice.txt", "include_low_ocr": True})
+        self.assertGreater(len(hits_dict), 0, "filters dict include_low_ocr=True must return quarantined pages")
 

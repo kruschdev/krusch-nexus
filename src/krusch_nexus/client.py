@@ -510,7 +510,8 @@ class NexusClient:
         filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
         mode: str = "hybrid",
         rerank: bool = False,
-        rerank_fn: Optional[Any] = None
+        rerank_fn: Optional[Any] = None,
+        include_low_ocr: bool = False
     ) -> List[SearchHit]:
         """
         Execute hybrid vector + full-text search across a workspace with optional cross-encoder reranking.
@@ -535,6 +536,9 @@ class NexusClient:
             else:
                 resolved_filters = {}
 
+            if include_low_ocr:
+                resolved_filters["include_low_ocr"] = True
+
             return retrieve(
                 query=query,
                 workspace_id=ws.id,
@@ -546,7 +550,8 @@ class NexusClient:
                 config=self.config,
                 mode=mode,
                 rerank=rerank,
-                rerank_fn=rerank_fn
+                rerank_fn=rerank_fn,
+                include_low_ocr=include_low_ocr
             )
         finally:
             db.close()
@@ -560,7 +565,8 @@ class NexusClient:
         filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
         mode: str = "hybrid",
         rerank: bool = False,
-        rerank_fn: Optional[Any] = None
+        rerank_fn: Optional[Any] = None,
+        include_low_ocr: bool = False
     ) -> Dict[str, Any]:
         """
         Run hybrid retrieval diagnostics and return a detailed scoring scorecard.
@@ -575,7 +581,8 @@ class NexusClient:
             filters=filters,
             mode=mode,
             rerank=rerank,
-            rerank_fn=rerank_fn
+            rerank_fn=rerank_fn,
+            include_low_ocr=include_low_ocr
         )
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
 

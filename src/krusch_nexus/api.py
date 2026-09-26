@@ -351,6 +351,7 @@ class SearchRequest(BaseModel):
     filters: Optional[SearchFilter] = None
     mode: str = Field(default="hybrid", description="Search mode: hybrid, vector_only, fts_only, rrf+rerank")
     rerank: bool = Field(default=False, description="Enable cross-encoder reranking pass")
+    include_low_ocr: bool = Field(default=False, description="Include quarantined low-confidence OCR pages in search results")
 
 
 @app.post("/v1/search", response_model=List[SearchHit])
@@ -371,7 +372,8 @@ def search_corpus(req: SearchRequest, token: str = Depends(verify_api_token)):
         limit=req.limit,
         filters=req.filters,
         mode=req.mode,
-        rerank=req.rerank
+        rerank=req.rerank,
+        include_low_ocr=req.include_low_ocr
     )
     return hits
 

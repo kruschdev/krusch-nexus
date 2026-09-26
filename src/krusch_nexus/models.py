@@ -356,6 +356,7 @@ class SearchFilter(BaseModel):
     filename: Optional[str] = None
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    include_low_ocr: bool = False
 
 
 class SearchHit(BaseModel):

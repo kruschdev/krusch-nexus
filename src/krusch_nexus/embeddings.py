@@ -140,7 +140,11 @@ def _save_to_persistent_cache(records: List[tuple], model: str, db=None):
     if db is not None:
         try:
             from .store import EmbedCache
+            seen_in_batch = set()
             for h, vec in records:
+                if h in seen_in_batch:
+                    continue
+                seen_in_batch.add(h)
                 try:
                     existing = db.query(EmbedCache).filter(
                         EmbedCache.text_hash == h,

@@ -42,6 +42,37 @@ async def _run_periodic_reaper(staging_dir: str, timeout_seconds: float = 600.0)
 _RETRY_TRACKER: dict = {}
 
 
+def format_prometheus_metrics(metrics: dict, queue_depth: int = 0, active_retries: int = 0) -> str:
+    """Format daemon metrics into standard Prometheus text exposition format."""
+    lines = [
+        "# HELP nexus_daemon_files_processed_total Total successfully processed files",
+        "# TYPE nexus_daemon_files_processed_total counter",
+        f"nexus_daemon_files_processed_total {metrics.get('files_processed_total', 0)}",
+        "",
+        "# HELP nexus_daemon_files_failed_total Total failed file processing attempts",
+        "# TYPE nexus_daemon_files_failed_total counter",
+        f"nexus_daemon_files_failed_total {metrics.get('files_failed_total', 0)}",
+        "",
+        "# HELP nexus_daemon_files_quarantined_total Total files quarantined into dead-letter poison queue",
+        "# TYPE nexus_daemon_files_quarantined_total counter",
+        f"nexus_daemon_files_quarantined_total {metrics.get('files_quarantined_total', 0)}",
+        "",
+        "# HELP nexus_daemon_retry_attempts_total Total retry attempts across all files",
+        "# TYPE nexus_daemon_retry_attempts_total counter",
+        f"nexus_daemon_retry_attempts_total {metrics.get('retry_attempts_total', 0)}",
+        "",
+        "# HELP nexus_daemon_queue_depth Current pending files in watch folder",
+        "# TYPE nexus_daemon_queue_depth gauge",
+        f"nexus_daemon_queue_depth {queue_depth}",
+        "",
+        "# HELP nexus_daemon_active_retries Number of files currently undergoing retry backoff",
+        "# TYPE nexus_daemon_active_retries gauge",
+        f"nexus_daemon_active_retries {active_retries}",
+        ""
+    ]
+    return "\n".join(lines)
+
+
 async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConfig] = None):
     """
     Continuous watch daemon monitoring watch_dir with:
@@ -49,7 +80,7 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
     - Separate OCR vs Embed queue bounding
     - Background stale-lock reaper
     - Idempotent retries with max 3 attempts before quarantine
-    - Poison file isolation
+    - Poison file isolation and Prometheus metrics
     """
     conf = config or NexusConfig.from_env()
     target_watch_dir = watch_dir or conf.watch_dir or get_default_watch_dir()
@@ -70,20 +101,37 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
     reaper_task = asyncio.create_task(_run_periodic_reaper(staging_dir, timeout_seconds=conf.stale_lock_timeout_seconds))
 
     daemon_status_path = Path(target_watch_dir) / ".daemon_status.json"
+    daemon_metrics_path = Path(target_watch_dir) / ".daemon_metrics.prom"
+    daemon_metrics = {
+        "files_processed_total": 0,
+        "files_failed_total": 0,
+        "files_quarantined_total": 0,
+        "retry_attempts_total": 0
+    }
     daemon_state = {
         "watch_dir": str(target_watch_dir),
         "queue_depth": 0,
         "current_file": None,
         "last_processed_file": None,
         "last_failure": None,
+        "metrics": daemon_metrics,
+        "active_retries": {},
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
 
     def _sync_status():
         try:
+            daemon_state["active_retries"] = dict(_RETRY_TRACKER)
             daemon_state["updated_at"] = datetime.now(timezone.utc).isoformat()
             with open(daemon_status_path, "w", encoding="utf-8") as f:
                 json.dump(daemon_state, f, indent=2)
+            prom_text = format_prometheus_metrics(
+                daemon_metrics,
+                queue_depth=daemon_state.get("queue_depth", 0),
+                active_retries=len(_RETRY_TRACKER)
+            )
+            with open(daemon_metrics_path, "w", encoding="utf-8") as f:
+                f.write(prom_text)
         except Exception:
             pass
 
@@ -93,11 +141,17 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
         _sync_status()
         attempts = _RETRY_TRACKER.get(file_key, 0) + 1
         _RETRY_TRACKER[file_key] = attempts
+        if attempts > 1:
+            daemon_metrics["retry_attempts_total"] += 1
 
         if attempts > 3:
             logger.error(f"File '{fname}' in '{ws_name}' exceeded max attempts (3). Quarantining.")
-            daemon_state["last_failure"] = {"file": file_key, "error": "MaxRetriesExceeded", "time": datetime.now(timezone.utc).isoformat()}
-            _sync_status()
+            daemon_metrics["files_quarantined_total"] += 1
+            daemon_state["last_failure"] = {
+                "file": file_key,
+                "error": "MaxRetriesExceeded",
+                "time": datetime.now(timezone.utc).isoformat()
+            }
             failed_dir = Path(staging_dir).parent / ".failed" / ws_name
             failed_dir.mkdir(parents=True, exist_ok=True)
             dest = failed_dir / f"quarantined_{fname}"
@@ -105,11 +159,20 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
                 if os.path.exists(source_path):
                     shutil.move(source_path, str(dest))
                 with open(failed_dir / f"quarantined_{fname}.error.json", "w", encoding="utf-8") as f:
-                    import json
-                    json.dump({"error": "MaxRetriesExceeded", "attempts": attempts, "status": "quarantined"}, f, indent=2)
+                    json.dump({
+                        "error_class": "MaxRetriesExceeded",
+                        "error_message": f"Processing failed after {attempts} attempts. Permanently quarantined.",
+                        "attempts": attempts,
+                        "status": "quarantined",
+                        "filename": fname,
+                        "workspace": ws_name,
+                        "quarantined_at": datetime.now(timezone.utc).isoformat()
+                    }, f, indent=2)
             except Exception as q_err:
                 logger.warning(f"Could not quarantine poison file: {q_err}")
             _RETRY_TRACKER.pop(file_key, None)
+            daemon_state["current_file"] = None
+            _sync_status()
             return
 
         async with ocr_semaphore:
@@ -125,21 +188,42 @@ async def run_daemon(watch_dir: Optional[str] = None, config: Optional[NexusConf
                 logger.debug(f"Could not lock file {fname} into staging: {e}")
                 return
 
+            should_archive = (attempts >= 3)
             report = await asyncio.to_thread(
                 pipeline.process_file,
                 filepath=part_path,
                 workspace_name=ws_name,
-                archive_source=True,
+                archive_source=should_archive,
                 filename=fname
             )
             if report.status == "completed":
                 _RETRY_TRACKER.pop(file_key, None)
+                daemon_metrics["files_processed_total"] += 1
                 daemon_state["last_processed_file"] = file_key
                 daemon_state["current_file"] = None
                 _sync_status()
             elif report.status == "failed":
-                daemon_state["last_failure"] = {"file": file_key, "error": report.error, "time": datetime.now(timezone.utc).isoformat()}
+                daemon_metrics["files_failed_total"] += 1
+                daemon_state["last_failure"] = {
+                    "file": file_key,
+                    "error": report.error,
+                    "time": datetime.now(timezone.utc).isoformat()
+                }
                 daemon_state["current_file"] = None
+
+                if attempts < 3:
+                    # Restore part_path back to source_path for retry on next daemon sweep
+                    try:
+                        if os.path.exists(part_path):
+                            shutil.move(part_path, source_path)
+                            logger.info(f"File '{fname}' attempt {attempts}/3 failed ({report.error}); restored to watch folder for retry.")
+                    except Exception as rest_err:
+                        logger.warning(f"Could not restore '{fname}' to watch folder: {rest_err}")
+                else:
+                    daemon_metrics["files_quarantined_total"] += 1
+                    _RETRY_TRACKER.pop(file_key, None)
+                    logger.error(f"File '{fname}' permanently quarantined to .failed/ after attempt {attempts}/3.")
+
                 _sync_status()
 
     try:

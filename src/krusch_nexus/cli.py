@@ -308,7 +308,8 @@ def cmd_search(args):
         doc_type=args.doc_type,
         limit=args.limit,
         mode=getattr(args, "mode", "hybrid"),
-        filters={"include_superseded": getattr(args, "include_superseded", False)}
+        filters={"include_superseded": getattr(args, "include_superseded", False)},
+        include_low_ocr=getattr(args, "include_low_ocr", False)
     )
 
     if not hits:
@@ -651,6 +652,7 @@ def main():
     p_search.add_argument("--doc-type", "-t", type=str, default=None, help="Filter by document type")
     p_search.add_argument("--mode", "-m", choices=["hybrid", "vector_only", "fts_only"], default="hybrid", help="Search mode")
     p_search.add_argument("--include-superseded", action="store_true", help="Include superseded document versions")
+    p_search.add_argument("--include-low-ocr", action="store_true", help="Include quarantined low-confidence OCR pages in search results")
     p_search.set_defaults(func=cmd_search)
 
     # 3. Explain
