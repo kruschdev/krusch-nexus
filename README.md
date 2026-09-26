@@ -1,6 +1,6 @@
 # KruschNexus
 
-> **Status**: v0.2.4 — 130 passing tests, legal hold preservation, append-only immutable audit trail
+> **Status**: v0.2.4 — 149 passing tests, legal hold preservation, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
