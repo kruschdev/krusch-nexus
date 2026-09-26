@@ -17,7 +17,7 @@ import unittest
 
 from krusch_nexus.ingest import IngestPipeline, reap_stale_locks
 from krusch_nexus.models import NexusConfig, IngestState
-from krusch_nexus.store import init_db, get_engine, get_db_session, IngestRun, Document
+from krusch_nexus.store import init_db, get_engine, get_db_session, IngestRun
 
 
 class TestStateMachine(unittest.TestCase):

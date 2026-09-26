@@ -7,14 +7,12 @@ Reports Recall@5, Citation Accuracy, and MRR separately.
 """
 
 import os
-import re
-import math
 import shutil
 import tempfile
 import unittest
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
-from krusch_nexus import NexusClient, NexusConfig, SearchHit, DocType
+from krusch_nexus import NexusClient, NexusConfig, DocType
 from krusch_nexus.store import init_db, get_engine
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")

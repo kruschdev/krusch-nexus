@@ -5,6 +5,8 @@ Deterministic OCR execution and unified policy dataclass.
 """
 
 import os
+import re
+import functools
 import shutil
 import tempfile
 import subprocess
@@ -43,10 +45,6 @@ class OCRResult(tuple):
         self.blocks = blocks
         self.image_path = image_path
 
-
-
-import functools
-import re
 
 
 @functools.lru_cache(maxsize=1)

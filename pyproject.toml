@@ -55,3 +55,23 @@ norecursedirs = ["scratch", ".agent", "mcp_env", ".git"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".venv",
+    "__pycache__",
+    "alembic",
+    "scratch",
+    ".agent"
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E712", "W293"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402", "F401", "F841"]
+"scripts/*" = ["E402", "F401"]
+

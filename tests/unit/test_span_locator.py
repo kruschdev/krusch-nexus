@@ -9,13 +9,12 @@ Unit tests for span-true citation spine:
 
 import os
 import re
-import json
 import shutil
 import tempfile
 import unittest
 
 from krusch_nexus import NexusClient, NexusConfig, DocType
-from krusch_nexus.store import init_db, get_engine, get_db_session, DocumentChunk
+from krusch_nexus.store import init_db, get_engine
 from krusch_nexus.parsers.pdf import parse_pdf, BATES_REGEX, EXHIBIT_STAMP_REGEX, FAX_STAMP_REGEX
 from krusch_nexus.chunking import chunk_document_pages
 

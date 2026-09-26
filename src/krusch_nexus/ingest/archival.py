@@ -4,7 +4,6 @@ KruschNexus Archival & Poison Isolation (archival.py)
 Post-commit content-addressed file archival and failure isolation with redacted error sidecars.
 """
 
-import os
 import json
 import time
 import shutil

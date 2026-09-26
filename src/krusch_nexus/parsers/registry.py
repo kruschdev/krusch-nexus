@@ -9,7 +9,7 @@ import json
 import hashlib
 import zipfile
 import logging
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Dict, Any
 
 from ..models import PageData, ParserResult, StructuredLocator
 from .ocr import OCRPolicy
@@ -80,7 +80,7 @@ def detect_file_mime(file_path: str, filename: str) -> str:
         lines = [line.strip() for line in text_sample.splitlines() if line.strip()][:5]
         if len(lines) >= 2 and all("," in line or "\t" in line for line in lines):
             delimiter = "," if lines[0].count(",") >= lines[0].count("\t") else "\t"
-            counts = [l.count(delimiter) for l in lines]
+            counts = [ln.count(delimiter) for ln in lines]
             if len(set(counts)) == 1 and counts[0] > 0:
                 return "text/csv"
     except Exception:

@@ -7,14 +7,13 @@ and content-addressed source documents to ensure zero database lock-in.
 """
 
 import os
-import io
 import tarfile
 import json
 import logging
 import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from .models import NexusConfig
 from .exceptions import WorkspaceNotFound, WorkspaceRequiredError, PathSandboxError, NexusError

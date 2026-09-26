@@ -17,7 +17,6 @@ from .models import (
     IngestReport,
     SearchHit,
     SearchFilter,
-    Citation,
     WorkspaceInfo,
     DocumentInfo,
     DocType
@@ -30,7 +29,6 @@ from .store import (
     Workspace,
     Document,
     DocumentChunk,
-    IngestRun,
     OperatorAudit
 )
 from .embeddings import get_embedding

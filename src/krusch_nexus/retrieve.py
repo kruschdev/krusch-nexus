@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_
 
-from .models import SearchHit, Citation, StructuredLocator, NexusConfig, format_citation
+from .models import SearchHit, StructuredLocator, NexusConfig, format_citation
 from .store import DocumentChunk, Workspace, SearchTrace, Document
 from .exceptions import WorkspaceRequiredError, ModelDimensionDriftError, NexusError
 
@@ -267,7 +267,7 @@ def retrieve(
             # SQLite fallback: in-memory dot-product cosine similarity
             q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
             if not include_superseded:
-                q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded == None))
+                q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded.is_(None)))
             if active_doc_type:
                 q_base = q_base.filter(DocumentChunk.doc_type == active_doc_type)
             if filter_page is not None:
@@ -335,7 +335,7 @@ def retrieve(
         toks = [t.lower() for t in re.findall(r'\w+', effective_query) if len(t) > 2]
         q_base = db.query(DocumentChunk).filter(DocumentChunk.workspace_id == workspace_id)
         if not include_superseded:
-            q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded == None))
+            q_base = q_base.filter(or_(DocumentChunk.is_superseded == False, DocumentChunk.is_superseded.is_(None)))
         if active_doc_type:
             q_base = q_base.filter(DocumentChunk.doc_type == active_doc_type)
         if filter_page is not None:

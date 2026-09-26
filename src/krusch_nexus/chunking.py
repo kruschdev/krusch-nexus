@@ -14,7 +14,7 @@ import hashlib
 import logging
 from typing import List, Dict, Any, Optional, Set, Tuple
 
-from .models import PageData, DocType, Citation, StructuredLocator, format_citation
+from .models import PageData, DocType, StructuredLocator, format_citation
 
 logger = logging.getLogger("krusch_nexus.chunking")
 

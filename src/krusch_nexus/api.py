@@ -41,8 +41,7 @@ from .exceptions import (
     UnsupportedMimeError,
     PathSandboxError,
     WorkspaceRequiredError,
-    AuthenticationError,
-    ParseError
+    AuthenticationError
 )
 from .client import NexusClient
 from .store import init_db, Workspace

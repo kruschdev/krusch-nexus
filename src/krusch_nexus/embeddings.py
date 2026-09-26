@@ -12,11 +12,10 @@ import json
 import sqlite3
 import hashlib
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 import httpx
 
 from .models import NexusConfig
-from .exceptions import EmbeddingUnavailable
 
 logger = logging.getLogger("krusch_nexus.embeddings")
 

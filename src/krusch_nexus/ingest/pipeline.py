@@ -11,11 +11,9 @@ content-addressed disk archival, path sandboxing, and poison file isolation.
 
 import os
 import time
-import json
 import logging
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 
 from ..models import (
     NexusConfig,
@@ -42,7 +40,7 @@ from ..store import (
 from ..parsers import parse_document, compute_file_hash
 from ..chunking import chunk_document_pages, Chunk
 from ..embeddings import get_embeddings_batch
-from .sandbox import validate_safe_path, sanitize_filename, ALLOWED_EXT
+from .sandbox import validate_safe_path, sanitize_filename, validate_file_magic_bytes, ALLOWED_EXT
 from .archival import archive_success, handle_failure
 from .persist import cleanup_uncommitted_chunks, resolve_document_lineage, commit_document
 
@@ -126,6 +124,19 @@ class IngestPipeline:
         ext = os.path.splitext(orig_filename)[1].lower()
         if ext not in ALLOWED_EXT:
             err = UnsupportedMimeError(f"Unsupported file format '{ext}' for file '{orig_filename}'")
+            handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="", archive=archive_source, engine=self.engine)
+            return IngestReport(
+                status="failed",
+                filename=orig_filename,
+                workspace=workspace_name,
+                file_hash="",
+                error=f"{err.__class__.__name__}: {str(err)}"
+            )
+
+        # Pre-spool magic-byte verification (reject executables and polyglots)
+        try:
+            validate_file_magic_bytes(filepath_str)
+        except UnsupportedMimeError as err:
             handle_failure(filepath_str, orig_filename, workspace_name, err, start_time, file_hash="", archive=archive_source, engine=self.engine)
             return IngestReport(
                 status="failed",

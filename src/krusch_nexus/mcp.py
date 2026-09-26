@@ -9,7 +9,7 @@ destructive operations.
 import os
 import json
 import logging
-from typing import Optional, List
+from typing import Optional
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError:
@@ -17,9 +17,12 @@ except ImportError:
         """Fallback FastMCP stub when mcp library is absent from environment."""
         def __init__(self, name: str = "KruschNexusMCP", *args, **kwargs):
             self.name = name
+            self._tools = {}
+            self._tool_manager = type("_ToolManager", (), {"_tools": self._tools})()
 
         def tool(self, *args, **kwargs):
             def decorator(f):
+                self._tools[f.__name__] = f
                 return f
             return decorator
 
@@ -30,7 +33,7 @@ except ImportError:
             )
 
 from .client import NexusClient
-from .models import DocType, NexusConfig
+from .models import DocType
 
 logger = logging.getLogger("krusch_nexus.mcp")
 
@@ -415,7 +418,9 @@ def nexus_export_workspace(workspace: str, output_path: Optional[str] = None, to
         output_path: Optional destination filepath.
         token: Optional API token for workspace authorization.
     """
-    ws = _enforce_workspace(workspace)
+    if not workspace or not workspace.strip():
+        return json.dumps({"status": "error", "error": "workspace is required."})
+    ws = workspace.strip()
     err = verify_workspace_access(ws, token)
     if err:
         return json.dumps({"status": "error", "error": err})

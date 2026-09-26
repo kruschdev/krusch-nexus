@@ -8,8 +8,9 @@ Strictly enforces workspace isolation.
 
 import os
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Optional, Generator, List, Dict, Any
+from typing import Optional, Dict, Any
 from sqlalchemy import (
     create_engine,
     Column,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     Index,
     text
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 from .exceptions import ConfigurationError
 
@@ -32,6 +33,47 @@ try:
     from pgvector.sqlalchemy import Vector
 except ImportError:
     Vector = None
+
+from sqlalchemy.types import TypeDecorator
+
+class UniversalVector(TypeDecorator):
+    """
+    Dual-engine vector type:
+    - PostgreSQL: Uses pgvector.sqlalchemy.Vector(dim) natively.
+    - SQLite / other: Stores as JSON-serialized text seamlessly.
+    """
+    impl = Text
+    cache_ok = True
+
+    def __init__(self, dim=1024, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql" and Vector is not None:
+            return dialect.type_descriptor(Vector(self.dim))
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql" and Vector is not None:
+            return value
+        if isinstance(value, (list, tuple)):
+            return json.dumps(value)
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql" and Vector is not None:
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+        return value
 
 try:
     from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -122,7 +164,7 @@ class DocumentChunk(Base):
     bbox = Column(Text, nullable=True)  # JSON-encoded [left, top, width, height]
     is_superseded = Column(Boolean, default=False, server_default='false', index=True)
     tsv_content = Column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True) if TSVECTOR is not None else Column(Text, nullable=True)
-    embedding = Column(Vector(1024), nullable=True) if Vector else Column(Text, nullable=True)
+    embedding = Column(UniversalVector(1024), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     document = relationship("Document", back_populates="chunks")
@@ -236,8 +278,6 @@ def get_session_factory(engine=None):
     eng = engine or get_engine()
     return sessionmaker(autocommit=False, autoflush=False, bind=eng)
 
-
-from contextlib import contextmanager
 
 @contextmanager
 def get_db_session(engine=None, workspace_id: Optional[int] = None):

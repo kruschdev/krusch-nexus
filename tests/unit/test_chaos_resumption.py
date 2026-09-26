@@ -12,9 +12,8 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import NexusClient, NexusConfig, DocType
+from krusch_nexus import NexusClient, NexusConfig
 from krusch_nexus.store import init_db, get_engine, Document, DocumentChunk, get_db_session
-from krusch_nexus.exceptions import TooLargeError
 
 
 class TestChaosResumption(unittest.TestCase):

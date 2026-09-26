@@ -9,7 +9,6 @@ Enforces:
 4. Frozen Pydantic schemas (SearchHit v1, IngestReport v1) with JSON schema validation.
 """
 
-import pytest
 import krusch_nexus
 
 
@@ -153,7 +152,7 @@ def test_ingest_report_schema_contract():
 
 def test_format_citation_honesty():
     """Assert format_citation never emits 'p. None' and formats unpaged locators honestly."""
-    from krusch_nexus import format_citation, Citation, StructuredLocator
+    from krusch_nexus import format_citation, StructuredLocator
 
     # 1. Paged format (PDF)
     cit_paged = format_citation(filename="lease.pdf", page_number=4, header="Article IV")
@@ -228,7 +227,7 @@ def test_workspace_export_import_roundtrip(tmp_path):
     """Assert workspace can be exported to .tar.gz and cleanly imported into a new workspace."""
     import tarfile
     from krusch_nexus import NexusClient, NexusConfig
-    from krusch_nexus.store import Workspace, Document, DocumentChunk
+    from krusch_nexus.store import Workspace, Document
 
     db_path = str(tmp_path / "export_test.db")
     cfg = NexusConfig(database_url=f"sqlite:///{db_path}")
@@ -273,7 +272,6 @@ def test_workspace_export_import_roundtrip(tmp_path):
 
 def test_contract_zero_drift():
     """Assert __version__ in package is the single source of truth across README, pyproject.toml, spec, AGENTS.md, MCP, and OpenAPI."""
-    import re
     from pathlib import Path
     import krusch_nexus
     from krusch_nexus.mcp import mcp

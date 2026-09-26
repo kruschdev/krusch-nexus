@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import NexusClient, NexusConfig, DocType, SearchFilter
+from krusch_nexus import NexusClient, NexusConfig, DocType
 from krusch_nexus.store import init_db, get_engine, SearchTrace, get_db_session
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
@@ -132,8 +132,8 @@ class TestRetrievalContract(unittest.TestCase):
         from krusch_nexus.exceptions import ModelDimensionDriftError
         from krusch_nexus.retrieve import retrieve
 
-        # Mock embedding function returning 768d instead of configured 1024d
-        mock_bad_embed = lambda q: [0.1] * 768
+        def mock_bad_embed(q):
+            return [0.1] * 768
 
         with get_db_session(self.engine) as sess:
             from krusch_nexus.store import Workspace

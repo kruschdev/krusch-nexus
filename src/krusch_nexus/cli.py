@@ -19,8 +19,7 @@ import shutil
 import socket
 import argparse
 import subprocess
-from urllib.parse import urlparse
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from .client import NexusClient
 from .models import NexusConfig, DocType
@@ -343,7 +342,7 @@ def cmd_explain(args):
         return 0
 
     print("=" * 70)
-    print(f"  KruschNexus Retrieval Scorecard — Diagnostics & Explainability")
+    print("  KruschNexus Retrieval Scorecard — Diagnostics & Explainability")
     print("=" * 70)
     print(f"Query:       {scorecard['query']}")
     print(f"Workspace:   {scorecard['workspace']}")
@@ -383,7 +382,7 @@ def cmd_parse(args):
             print(json.dumps(c))
     else:
         print("=" * 60)
-        print(f"  Nexus Library Mode — Standalone Document Analysis")
+        print("  Nexus Library Mode — Standalone Document Analysis")
         print("=" * 60)
         print(f"File:        {parser_result.filename}")
         print(f"Format/MIME: {parser_result.mime}")
@@ -423,7 +422,7 @@ def cmd_daemon(args):
     conf = NexusConfig.from_env()
     if args.watch_dir:
         conf.watch_dir = args.watch_dir
-    print(f"Starting Nexus Ingestion Daemon...")
+    print("Starting Nexus Ingestion Daemon...")
     asyncio.run(run_daemon(watch_dir=args.watch_dir, config=conf))
     return 0
 

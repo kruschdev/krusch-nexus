@@ -24,7 +24,7 @@ from krusch_nexus.client import NexusClient
 from krusch_nexus.exceptions import PathSandboxError
 from krusch_nexus.cli import run_doctor_checks
 import krusch_nexus.api as api_module
-from krusch_nexus.mcp import set_client, nexus_search_corpus, nexus_list_workspaces
+from krusch_nexus.mcp import set_client, nexus_search_corpus
 
 
 class TestIsolationComprehensive(unittest.TestCase):

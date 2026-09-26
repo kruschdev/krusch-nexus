@@ -12,10 +12,8 @@ import os
 import unittest
 from krusch_nexus.parsers import (
     parse_docx,
-    parse_html,
     parse_eml,
     parse_pdf,
-    parse_plain_or_code,
     extract_html_text,
     detect_file_mime,
     OCRPolicy

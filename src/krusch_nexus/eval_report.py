@@ -12,13 +12,11 @@ Generates a machine-readable eval_report.json containing:
 import os
 import sys
 import json
-import time
+import math
 import subprocess
 from datetime import datetime, timezone
 from typing import Dict, Any, List
 
-from .client import NexusClient
-from .models import NexusConfig, DocType
 from .store import init_db, get_engine
 from .parsers.ocr import try_tesseract_ocr
 
@@ -61,8 +59,6 @@ def compute_wer(reference: str, hypothesis: str) -> float:
         dp = new_dp
     return min(1.0, dp[-1] / float(len(ref_words)))
 
-
-import math
 
 
 def compute_ndcg_at_k(relevance_ranks: List[int], k: int = 5) -> float:
@@ -123,10 +119,8 @@ def generate_evaluation_report(output_path: str = "eval_report.json") -> Dict[st
     report_timestamp = datetime.now(timezone.utc).isoformat()
 
     db_url = "sqlite:///:memory:"
-    config = NexusConfig(database_url=db_url, allowed_ingest_roots=[fixtures_dir])
     engine = get_engine(db_url)
     init_db(engine)
-    client = NexusClient(config)
 
     # 1. OCR Benchmark Evaluation (Parser Quality)
     ocr_benchmarks = []

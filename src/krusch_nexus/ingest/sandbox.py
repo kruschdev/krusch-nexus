@@ -12,9 +12,9 @@ import logging
 import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Union
 
-from ..exceptions import PathSandboxError
+from ..exceptions import PathSandboxError, UnsupportedMimeError
 
 logger = logging.getLogger("krusch_nexus.ingest.sandbox")
 
@@ -171,3 +171,39 @@ def sanitize_filename(filename: str) -> str:
     """Strip traversal tokens and hazardous characters from filename."""
     base = os.path.basename(filename)
     return "".join(c for c in base if c.isalnum() or c in "._- ")
+
+
+def validate_file_magic_bytes(file_path: Union[str, Path]) -> None:
+    """
+    Validate file header magic bytes prior to spooling or parsing.
+    Rejects executable payloads (PE, ELF, Mach-O) and polyglot files disguised as documents.
+    """
+    p = Path(file_path)
+    if not p.is_file() or p.stat().st_size == 0:
+        return
+
+    ext = p.suffix.lower()
+    with open(p, "rb") as f:
+        header = f.read(512)
+
+    # 1. Deny executable binaries across all extensions
+    if header.startswith(b"MZ"):
+        raise UnsupportedMimeError(f"Security Rejection: Windows PE executable binary detected: '{p.name}'")
+    if header.startswith(b"\x7fELF"):
+        raise UnsupportedMimeError(f"Security Rejection: Linux ELF executable binary detected: '{p.name}'")
+    if header[:4] in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe"):
+        raise UnsupportedMimeError(f"Security Rejection: Mach-O executable binary detected: '{p.name}'")
+
+    # 2. Deny HTML or script masquerading as PDF
+    if ext == ".pdf":
+        header_lower = header.lower()
+        if (
+            b"<html" in header_lower
+            or b"<!doctype" in header_lower
+            or b"<script" in header_lower
+            or b"<?php" in header_lower
+        ):
+            raise UnsupportedMimeError(f"Security Rejection: Script/HTML masquerading as PDF: '{p.name}'")
+        if b"%PDF-" not in header[:1024]:
+            raise UnsupportedMimeError(f"Format Rejection: Invalid or corrupted PDF header: '{p.name}'")
+

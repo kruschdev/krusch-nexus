@@ -18,12 +18,10 @@ from krusch_nexus import (
     NexusClient,
     NexusConfig,
     DocType,
-    EncryptedPdfError,
-    UnsupportedMimeError,
-    ParseError
+    EncryptedPdfError
 )
-from krusch_nexus.parsers import parse_html, parse_pdf, extract_html_text
-from krusch_nexus.chunking import compute_chunk_hash, chunk_document_pages
+from krusch_nexus.parsers import parse_html, parse_pdf
+from krusch_nexus.chunking import chunk_document_pages
 from krusch_nexus.models import PageData
 from krusch_nexus.store import init_db, get_engine
 

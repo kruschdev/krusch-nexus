@@ -7,11 +7,12 @@ and runs a background stale-lock reaper to prevent deadlocks from crashes.
 """
 
 import os
-import sys
 import time
 import shutil
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 

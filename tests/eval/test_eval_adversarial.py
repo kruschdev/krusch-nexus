@@ -14,11 +14,9 @@ import os
 import shutil
 import tempfile
 import unittest
-from typing import List, Dict, Any, Optional
 
-from krusch_nexus import NexusClient, NexusConfig, DocType, WarningCode
+from krusch_nexus import NexusClient, NexusConfig, DocType
 from krusch_nexus.store import init_db, get_engine
-from krusch_nexus.exceptions import EncryptedPdfError
 from krusch_nexus.parsers.ocr import try_tesseract_ocr
 
 FIXTURES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
