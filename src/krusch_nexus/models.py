@@ -290,6 +290,8 @@ class IngestReport(BaseModel):
     ocr_confidence: Dict[int, float] = Field(default_factory=dict)
     ocr_mean_confidence: Optional[float] = None
     duration_ms: float = 0.0
+    duration_breakdown_ms: Dict[str, float] = Field(default_factory=dict)
+    ocr_trigger_reasons: Dict[int, str] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
     error: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

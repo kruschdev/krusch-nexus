@@ -83,17 +83,25 @@ def commit_document(
     config: Any,
     version: int = 1,
     run_rec: Optional[IngestRun] = None,
-    start_time: float = 0.0
+    start_time: float = 0.0,
+    duration_breakdown: Optional[Dict[str, float]] = None
 ) -> Tuple[Document, IngestReport]:
     """
     Execute single atomic transaction committing Document, DocumentChunks,
     and updating the IngestRun ledger.
     """
+    import time
+    t_commit_start = time.time()
     total_pages = parser_result.total_pages
     ocr_pages = [p.index for p in parser_result.pages if p.ocr_applied and p.index is not None]
     ocr_conf_dict: Dict[int, float] = {
         p.index: p.confidence for p in parser_result.pages
         if p.ocr_applied and p.index is not None and p.confidence is not None
+    }
+    ocr_trigger_dict: Dict[int, str] = {
+        p.index: p.extra.get("ocr_trigger_reason", "none")
+        for p in parser_result.pages
+        if p.index is not None
     }
     mean_ocr_conf = (sum(ocr_conf_dict.values()) / len(ocr_conf_dict)) if ocr_conf_dict else None
     resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
@@ -181,6 +189,9 @@ def commit_document(
 
     import time
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
+    commit_ms = round((time.time() - t_commit_start) * 1000, 2)
+    full_breakdown = dict(duration_breakdown or {})
+    full_breakdown["db_commit"] = commit_ms
     first_cit = chunks[0].citation if chunks else orig_filename
 
     report = IngestReport(
@@ -200,6 +211,8 @@ def commit_document(
         ocr_confidence=ocr_conf_dict,
         ocr_mean_confidence=mean_ocr_conf,
         duration_ms=elapsed_ms,
+        duration_breakdown_ms=full_breakdown,
+        ocr_trigger_reasons=ocr_trigger_dict,
         warnings=parser_result.warnings,
         citation_preview=first_cit
     )

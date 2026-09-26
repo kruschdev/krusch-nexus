@@ -45,6 +45,13 @@
       "title": "Duration Ms",
       "type": "number"
     },
+    "duration_breakdown_ms": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Duration Breakdown Ms",
+      "type": "object"
+    },
     "error": {
       "anyOf": [
         {
@@ -90,6 +97,13 @@
       },
       "title": "Ocr Pages",
       "type": "array"
+    },
+    "ocr_trigger_reasons": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Ocr Trigger Reasons",
+      "type": "object"
     },
     "pages": {
       "default": 0,

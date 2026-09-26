@@ -277,6 +277,7 @@ class IngestPipeline:
             if simulate_crash_at == "during_ocr":
                 raise SystemExit("Chaos crash: killed during OCR")
 
+            t_parse_start = time.time()
             parser_result: ParserResult = parse_document(
                 file_path=filepath_str,
                 filename=orig_filename,
@@ -285,6 +286,8 @@ class IngestPipeline:
                 ocr_lang=self.config.ocr_lang,
                 timeout=self.config.subprocess_timeout
             )
+            t_parse_end = time.time()
+            parse_ms = round((t_parse_end - t_parse_start) * 1000, 2)
 
             total_pages = parser_result.total_pages
             if total_pages > self.config.max_page_count:
@@ -294,6 +297,7 @@ class IngestPipeline:
 
             # 4. Stage: CHUNKED (Citation-first structure chunking)
             current_state = IngestState.CHUNKED
+            t_chunk_start = time.time()
             chunks: List[Chunk] = chunk_document_pages(
                 pages=parser_result.pages,
                 filename=orig_filename,
@@ -308,6 +312,8 @@ class IngestPipeline:
                 chunker_version="1.0",
                 embed_model=self.config.embed_model
             )
+            t_chunk_end = time.time()
+            chunk_ms = round((t_chunk_end - t_chunk_start) * 1000, 2)
 
             if not chunks:
                 raise ParseError(f"No usable content chunks could be generated for '{orig_filename}'")
@@ -334,6 +340,7 @@ class IngestPipeline:
             run_rec.state = IngestState.EMBEDDED.value
             db.commit()
 
+            t_embed_start = time.time()
             chunk_texts = [c.text for c in chunks]  # Embed raw text only!
             embeddings: List[List[float]] = []
             embed_batch_size = self.config.embed_batch_size
@@ -349,6 +356,8 @@ class IngestPipeline:
                 embeddings.extend(b_vecs)
                 if simulate_crash_at == "during_embed_batch":
                     raise SystemExit("Chaos crash: killed during embed batch")
+            t_embed_end = time.time()
+            embed_ms = round((t_embed_end - t_embed_start) * 1000, 2)
 
             if simulate_crash_after_state == IngestState.EMBEDDED:
                 raise SystemExit("Worker killed after EMBEDDED")
@@ -356,6 +365,12 @@ class IngestPipeline:
             # 6. Stage: COMMITTED (Atomic single-transaction commit with lineage resolution)
             current_state = IngestState.COMMITTED
             doc_version = resolve_document_lineage(db, workspace.id, orig_filename, file_hash)
+
+            stage_breakdown = {
+                "parse": parse_ms,
+                "chunk": chunk_ms,
+                "embed": embed_ms
+            }
 
             new_doc, report = commit_document(
                 db=db,
@@ -371,7 +386,8 @@ class IngestPipeline:
                 config=self.config,
                 version=doc_version,
                 run_rec=run_rec,
-                start_time=start_time
+                start_time=start_time,
+                duration_breakdown=stage_breakdown
             )
 
             # 7. Stage: ARCHIVED (Only move file AFTER DB commit has succeeded!)
