@@ -530,15 +530,20 @@ class NexusConfig(BaseModel):
     token_workspaces: Dict[str, List[str]] = Field(
         default_factory=lambda: json.loads(os.getenv("NEXUS_TOKEN_WORKSPACES", "{}")) if os.getenv("NEXUS_TOKEN_WORKSPACES") else {}
     )
+    model_checksum: Optional[str] = None
+    reranker_backend: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_RERANKER_BACKEND", "none").lower()
+    )
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":
-        # 1. Enforce air-gap: EMBEDDING_PROVIDER / embed_backend must be local (ollama or dummy) unless ALLOW_CLOUD=1
-        if (self.embedding_provider not in ("ollama", "dummy") or self.embed_backend not in ("ollama", "dummy")) and not self.allow_cloud:
-            bad_provider = self.embedding_provider if self.embedding_provider not in ("ollama", "dummy") else self.embed_backend
+        # 1. Enforce air-gap: EMBEDDING_PROVIDER / embed_backend must be local air-gapped unless ALLOW_CLOUD=1
+        allowed_local = ("ollama", "dummy", "in_process", "fastembed", "sentence_transformers")
+        if (self.embedding_provider not in allowed_local or self.embed_backend not in allowed_local) and not self.allow_cloud:
+            bad_provider = self.embedding_provider if self.embedding_provider not in allowed_local else self.embed_backend
             raise AirGapViolationError(
                 f"Insecure embedding provider '{bad_provider}' rejected. "
-                "KruschNexus requires local 'ollama' or 'dummy' to guarantee an air-gapped corpus. "
+                "KruschNexus requires local air-gapped backends (ollama, fastembed, sentence_transformers, dummy). "
                 "Set ALLOW_CLOUD=1 and install cloud extras if external egress is explicitly intended."
             )
 

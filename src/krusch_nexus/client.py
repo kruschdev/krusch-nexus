@@ -370,10 +370,12 @@ class NexusClient:
         doc_type: Optional[str] = None,
         limit: int = 5,
         filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
-        mode: str = "hybrid"
+        mode: str = "hybrid",
+        rerank: bool = False,
+        rerank_fn: Optional[Any] = None
     ) -> List[SearchHit]:
         """
-        Execute hybrid vector + full-text search across a workspace.
+        Execute hybrid vector + full-text search across a workspace with optional cross-encoder reranking.
         Returns ranked SearchHit models with canonical citations and explainability metadata.
         """
         if not workspace or not workspace.strip():
@@ -404,7 +406,9 @@ class NexusClient:
                 limit=limit,
                 filters=resolved_filters,
                 config=self.config,
-                mode=mode
+                mode=mode,
+                rerank=rerank,
+                rerank_fn=rerank_fn
             )
         finally:
             db.close()
@@ -416,7 +420,9 @@ class NexusClient:
         doc_type: Optional[str] = None,
         limit: int = 5,
         filters: Optional[Union[SearchFilter, Dict[str, Any]]] = None,
-        mode: str = "hybrid"
+        mode: str = "hybrid",
+        rerank: bool = False,
+        rerank_fn: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Run hybrid retrieval diagnostics and return a detailed scoring scorecard.
@@ -429,7 +435,9 @@ class NexusClient:
             doc_type=doc_type,
             limit=limit,
             filters=filters,
-            mode=mode
+            mode=mode,
+            rerank=rerank,
+            rerank_fn=rerank_fn
         )
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
 

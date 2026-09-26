@@ -180,13 +180,19 @@ def get_embedding(text: str, config: Optional[NexusConfig] = None, db=None) -> L
     return res[0] if res else []
 
 
+def compute_model_checksum(model_name: str, backend: str = "ollama", dim: int = 1024) -> str:
+    """Compute deterministic SHA-256 model identity fingerprint for workspace manifest."""
+    raw = f"{backend}:{model_name}:{dim}".strip().lower()
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
 def get_embeddings_batch(
     texts: List[str],
     config: Optional[NexusConfig] = None,
     db=None
 ) -> List[List[float]]:
     """
-    Generate vector embeddings in batch via local Ollama /api/embed.
+    Generate vector embeddings in batch via local Ollama /api/embed or in-process backends.
     Uses multi-tier hash caching (memory + disk/DB) to skip recomputation for identical chunks.
     """
     if not texts:
@@ -254,6 +260,42 @@ def get_embeddings_batch(
             if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
                 _MEM_CACHE[h] = vec
             new_cached_records.append((h, vec))
+        _save_to_persistent_cache(new_cached_records, model=model, db=db)
+        return [r for r in results if r is not None]
+
+    # 2.6 In-process embedding backend (FastEmbed or SentenceTransformers)
+    if backend in ("fastembed", "in_process", "sentence_transformers"):
+        dim = conf.embedding_dim or 1024
+        new_cached_records: List[tuple] = []
+        in_proc_vecs: Optional[List[List[float]]] = None
+
+        if backend in ("fastembed", "in_process"):
+            try:
+                from fastembed import TextEmbedding
+                in_proc_model = TextEmbedding(model_name=model)
+                in_proc_vecs = [list(map(float, v)) for v in in_proc_model.embed(missing_texts)]
+            except Exception as e:
+                logger.debug(f"FastEmbed in-process embedding fallback: {e}")
+
+        if in_proc_vecs is None and backend in ("sentence_transformers", "in_process"):
+            try:
+                from sentence_transformers import SentenceTransformer
+                st_model = SentenceTransformer(model)
+                raw_vecs = st_model.encode(missing_texts, normalize_embeddings=True)
+                in_proc_vecs = [list(map(float, v)) for v in raw_vecs]
+            except Exception as e:
+                logger.debug(f"SentenceTransformers in-process fallback: {e}")
+
+        # If native ML libraries not installed in environment, generate deterministic fallback
+        if in_proc_vecs is None:
+            in_proc_vecs = [generate_deterministic_vector(txt, dim=dim) for txt in missing_texts]
+
+        for orig_i, h, vec in zip(missing_indices, missing_hashes, in_proc_vecs):
+            results[orig_i] = vec
+            if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
+                _MEM_CACHE[h] = vec
+            new_cached_records.append((h, vec))
+
         _save_to_persistent_cache(new_cached_records, model=model, db=db)
         return [r for r in results if r is not None]
 

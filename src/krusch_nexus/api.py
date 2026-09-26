@@ -349,6 +349,8 @@ class SearchRequest(BaseModel):
     doc_type: Optional[str] = None
     limit: int = Field(default=5, ge=1, le=50)
     filters: Optional[SearchFilter] = None
+    mode: str = Field(default="hybrid", description="Search mode: hybrid, vector_only, fts_only, rrf+rerank")
+    rerank: bool = Field(default=False, description="Enable cross-encoder reranking pass")
 
 
 @app.post("/v1/search", response_model=List[SearchHit])
@@ -367,7 +369,9 @@ def search_corpus(req: SearchRequest, token: str = Depends(verify_api_token)):
         workspace=req.workspace.strip(),
         doc_type=req.doc_type,
         limit=req.limit,
-        filters=req.filters
+        filters=req.filters,
+        mode=req.mode,
+        rerank=req.rerank
     )
     return hits
 

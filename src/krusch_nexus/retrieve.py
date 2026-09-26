@@ -84,6 +84,65 @@ def normalize_citation_token(token: str) -> str:
     return t.strip()
 
 
+def compute_local_rerank_scores(
+    query: str,
+    texts: List[str],
+    backend: str = "none",
+    model_name: Optional[str] = None,
+    rerank_fn: Optional[Any] = None
+) -> List[float]:
+    """
+    Compute local air-gapped cross-encoder / reranking relevance scores for (query, doc_text) pairs.
+    Returns a list of float scores in [0.0, 1.0] corresponding to input texts.
+    Falls back gracefully to deterministic lexical-overlap scoring when neural weights are unmounted.
+    """
+    if not texts:
+        return []
+    if rerank_fn is not None:
+        try:
+            return [float(s) for s in rerank_fn(query, texts)]
+        except Exception as e:
+            logger.warning(f"Custom rerank_fn failed: {e}")
+
+    backend_clean = (backend or "none").lower().strip()
+
+    # Sentence Transformers CrossEncoder
+    if backend_clean in ("cross_encoder", "sentence_transformers"):
+        try:
+            import math
+            from sentence_transformers import CrossEncoder
+            model_id = model_name or "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            ce = CrossEncoder(model_id)
+            pairs = [[query, t] for t in texts]
+            raw_scores = ce.predict(pairs)
+            return [1.0 / (1.0 + math.exp(-float(s))) for s in raw_scores]
+        except Exception as e:
+            logger.debug(f"SentenceTransformers CrossEncoder fallback: {e}")
+
+    # FastEmbed TextCrossEncoder
+    if backend_clean == "fastembed":
+        try:
+            from fastembed import TextCrossEncoder
+            model_id = model_name or "Xenova/ms-marco-MiniLM-L-6-v2"
+            ce = TextCrossEncoder(model_name=model_id)
+            scores = list(ce.rerank(query, texts))
+            return [float(s) for s in scores]
+        except Exception as e:
+            logger.debug(f"FastEmbed CrossEncoder fallback: {e}")
+
+    # Deterministic lexical+overlap airgap fallback (normalized 0.0 - 1.0)
+    q_words = set(re.findall(r'\w+', query.lower()))
+    scores = []
+    for t in texts:
+        t_words = set(re.findall(r'\w+', t.lower()))
+        if not q_words or not t_words:
+            scores.append(0.0)
+        else:
+            jaccard = len(q_words & t_words) / float(len(q_words | t_words))
+            scores.append(round(jaccard, 4))
+    return scores
+
+
 def retrieve(
     query: str,
     workspace_id: int,
@@ -99,12 +158,15 @@ def retrieve(
     phrase_boost: Optional[float] = None,
     mode: str = "hybrid",
     filters: Optional[Dict[str, Any]] = None,
-    config: Optional[NexusConfig] = None
+    config: Optional[NexusConfig] = None,
+    rerank: bool = False,
+    rerank_fn: Optional[Any] = None,
+    rerank_candidates: int = 30
 ) -> List[SearchHit]:
     """
     Execute hybrid vector + full-text search with strict workspace tenant key,
-    exact quote phrase boosting, statutory section query parsing, explainability metadata,
-    and librarian filter support.
+    exact quote phrase boosting, statutory section query parsing, cross-encoder reranking,
+    explainability metadata, and librarian filter support.
     """
     start_time = time.time()
     if not workspace_id or workspace_id <= 0:
@@ -123,10 +185,19 @@ def retrieve(
 
     # Normalize debug search modes
     norm_mode = mode.lower().strip()
-    if norm_mode in ("lexical", "lexical_only", "fts"):
+    if norm_mode in ("lexical", "lexical_only", "fts", "fts-only", "fts_only"):
         mode = "fts_only"
-    elif norm_mode in ("vector", "vector_only", "dense"):
+    elif norm_mode in ("vector", "vector_only", "vector-only", "dense"):
         mode = "vector_only"
+    elif norm_mode in ("hybrid", "hybrid-rrf", "hybrid_rrf", "rrf"):
+        mode = "hybrid"
+    elif norm_mode in ("rerank", "rrf+rerank", "rrf_rerank", "cross_encoder"):
+        mode = "rrf+rerank"
+
+    should_rerank = rerank or (mode == "rrf+rerank") or (
+        conf.reranker_backend not in ("none", "", "false", "0")
+        and mode not in ("vector_only", "fts_only")
+    )
 
     # Filters (SQL-level predicates)
     resolved_filters = dict(filters or {})
@@ -408,7 +479,7 @@ def retrieve(
 
     # 5. Exact Quoted Phrase Boosting ("liquidated damages")
     MAX_TOTAL_BOOST = 0.12  # Capped boosts so section mention cannot drown better semantic hit
-    if mode in ("hybrid", "rrf_boosts"):
+    if mode in ("hybrid", "rrf_boosts", "rrf+rerank"):
         if quoted_phrases:
             for c_id, chunk in obj_map.items():
                 content_low = chunk.content.lower()
@@ -462,8 +533,34 @@ def retrieve(
             if not compiled_header_regex.search(full_h):
                 rrf.pop(c_id, None)
 
-    # 8. Deduplicate Near-Identical Chunks (same source_hash or >85% overlap)
+    # 8. Cross-Encoder Rerank Stage & Near-Duplicate Deduplication
     sorted_ids = sorted(rrf.keys(), key=lambda x: rrf[x], reverse=True)
+    rerank_scores_map: Dict[int, float] = {}
+    rerank_ranks_map: Dict[int, int] = {}
+
+    if should_rerank and sorted_ids:
+        rerank_target_ids = sorted_ids[:rerank_candidates]
+        candidate_texts = [obj_map[cid].content for cid in rerank_target_ids]
+        raw_rerank_scores = compute_local_rerank_scores(
+            query=effective_query,
+            texts=candidate_texts,
+            backend=conf.reranker_backend,
+            rerank_fn=rerank_fn
+        )
+        for cid, r_score in zip(rerank_target_ids, raw_rerank_scores):
+            rerank_scores_map[cid] = float(r_score)
+
+        # Re-sort candidates primarily by cross-encoder score, breaking ties by RRF rank
+        reranked_target_ids = sorted(
+            rerank_target_ids,
+            key=lambda cid: (rerank_scores_map.get(cid, 0.0), rrf.get(cid, 0.0)),
+            reverse=True
+        )
+        for r_rank, cid in enumerate(reranked_target_ids, 1):
+            rerank_ranks_map[cid] = r_rank
+
+        sorted_ids = reranked_target_ids + sorted_ids[rerank_candidates:]
+
     deduped_ids: List[int] = []
     seen_hashes: set = set()
     seen_words: List[set] = []
@@ -498,6 +595,8 @@ def retrieve(
         struct_loc = StructuredLocator.from_raw(page=c.page_number, locator_str=c.locator, header=c.header, char_span=span)
         cit = c.citation or format_citation(filename=c.filename or "", page_number=c.page_number, locator=c.locator, header=c.header, structured_locator=struct_loc)
 
+        score_val = round(rerank_scores_map[c_id], 5) if c_id in rerank_scores_map else round(rrf[c_id], 5)
+
         reasons = []
         if c_id in v_ranks:
             reasons.append(f"dense_rank_{v_ranks[c_id]}")
@@ -509,6 +608,8 @@ def retrieve(
             reasons.append("statutory_token_boost")
         if phrase_boosted.get(c_id):
             reasons.append("quoted_phrase_match")
+        if c_id in rerank_ranks_map:
+            reasons.append("cross_encoder_rerank")
 
         h_path = []
         if getattr(c, "heading_path", None):
@@ -524,10 +625,15 @@ def retrieve(
             "sparse_score": s_scores.get(c_id),
             "vector_rank": v_ranks.get(c_id),
             "fts_rank": f_ranks.get(c_id),
+            "rrf_score": round(rrf[c_id], 5),
             "section_boost": sec_boosted.get(c_id, False),
             "phrase_boost": phrase_boosted.get(c_id, False),
-            "final_score": round(rrf[c_id], 5)
+            "final_score": score_val
         }
+        if c_id in rerank_scores_map:
+            score_vec["rerank_score"] = round(rerank_scores_map[c_id], 5)
+            score_vec["rerank_rank"] = rerank_ranks_map.get(c_id)
+
         logger.debug(f"Search hit chunk {c_id} ({c.filename}) score vector: {score_vec}")
 
         hits.append(SearchHit(
@@ -537,7 +643,7 @@ def retrieve(
             locator=c.locator,
             structured_locator=struct_loc,
             heading_path=h_path,
-            score=round(rrf[c_id], 5),
+            score=score_val,
             text=c.content,
             document_id=c.document_id,
             chunk_id=c.id,
@@ -576,7 +682,8 @@ def retrieve(
                     b for b, flag in [
                         ("section_boost", sec_boosted.get(c_id)),
                         ("lexical_boost", lex_boosted.get(c_id)),
-                        ("phrase_boost", phrase_boosted.get(c_id))
+                        ("phrase_boost", phrase_boosted.get(c_id)),
+                        ("cross_encoder_rerank", c_id in rerank_ranks_map)
                     ] if flag
                 ]
                 for c_id in deduped_ids
