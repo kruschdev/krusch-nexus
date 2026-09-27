@@ -42,7 +42,13 @@ Comprehensive architectural, compliance, and evaluation hardening bringing Krusc
   - Implemented `suppress_blackout_redactions()` in `src/krusch_nexus/parsers/ocr.py` using horizontal density masking to prevent Leptonica block segmentation drops on redacted court orders.
   - Achieved **100.0% Citation Accuracy (26/26)**, **100.0% Span Precision (26/26)**, and **100.0% Recall@5 (26/26)** across all 7 parser families in `tests/eval/test_eval_heldout.py`.
   - Added physical page truth coordinate system separating `pdf_page` from printed page folios.
-  - Added bit-for-bit span and bounding-box roundtrip regression test on `sample_contract.pdf` in `tests/unit/test_span_locator.py` bringing unit/integration test count to 150 passing tests.
+  - Added bit-for-bit span and bounding-box roundtrip regression test on `sample_contract.pdf` in `tests/unit/test_span_locator.py`.
+- **Zero-Config Library Mode & Format-Honest Citation Headings**:
+  - `src/krusch_nexus/models.py`: Exempted `Item`, `Schedule`, `Clause`, `Appendix`, and `Paragraph` headings from spurious `§` prefixes in `format_citation()`.
+  - `src/krusch_nexus/__init__.py`: Exported top-level `parse_file()` and `parse_and_chunk_file()` functions for zero-config library usage without database or embedding setup.
+  - `src/krusch_nexus/client.py`: Added `parse()` and `parse_file()` library methods to `NexusClient`.
+  - `src/krusch_nexus/chunking.py`: Preserved bounding boxes and `printed_page` when long paragraphs are split into sentences.
+  - `tests/unit/test_span_locator.py`: Added 4 new regression test locks (`test_ocr_scan_span_and_bbox_roundtrip`, `test_format_honest_citation_exemptions`, `test_parse_file_and_parse_and_chunk_zero_config`, `test_client_parse_file_library_mode`), bringing KruschNexus test count to 154 passing tests (560 fleet total).
 
 ## [0.2.3] - 2026-09-22
 

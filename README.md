@@ -1,6 +1,6 @@
 # KruschNexus
 
-> **Status**: v0.2.4 — 150 passing tests, legal hold preservation, append-only immutable audit trail
+> **Status**: v0.2.4 — 154 passing tests, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -140,14 +140,16 @@ KruschNexus exports a frozen, versioned public API surface:
 
 ```python
 from krusch_nexus import (
-    NexusClient,       # Canonical client
-    NexusConfig,       # Configuration dataclass
-    SearchHit,         # Versioned search hit with explainability fuse
-    SearchFilter,      # Librarian predicates (page, header_regex, doc_id, doc_type)
-    IngestReport,      # Ingest provenance report (hash, pages, ocr_confidence, manifest)
-    StructuredLocator, # Structured locator model (kind, page, path, formatted)
-    DocType,           # Enum: AUTHORITY, WORK_PRODUCT, FACT_NARRATIVE, GENERAL
-    WarningCode        # Enum: ENCRYPTED_SKIPPED, OCR_EMPTY_PAGE, TRUNCATED, etc.
+    parse_file,            # Zero-config parse (no DB or embeddings)
+    parse_and_chunk_file,  # Zero-config parse & chunk with bounding boxes
+    NexusClient,           # Canonical client
+    NexusConfig,           # Configuration dataclass
+    SearchHit,             # Versioned search hit with explainability fuse
+    SearchFilter,          # Librarian predicates (page, header_regex, doc_id, doc_type)
+    IngestReport,          # Ingest provenance report (hash, pages, ocr_confidence, manifest)
+    StructuredLocator,     # Structured locator model (kind, page, path, formatted)
+    DocType,               # Enum: AUTHORITY, WORK_PRODUCT, FACT_NARRATIVE, GENERAL
+    WarningCode            # Enum: ENCRYPTED_SKIPPED, OCR_EMPTY_PAGE, TRUNCATED, etc.
 )
 ```
 

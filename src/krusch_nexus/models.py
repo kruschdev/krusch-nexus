@@ -159,6 +159,11 @@ def format_citation(
             and not s_lower.startswith("table")
             and not s_lower.startswith("exhibit")
             and not s_lower.startswith("attachment")
+            and not s_lower.startswith("item")
+            and not s_lower.startswith("schedule")
+            and not s_lower.startswith("clause")
+            and not s_lower.startswith("appendix")
+            and not s_lower.startswith("para")
         ):
             clean_sec = f"§ {s}"
         else:

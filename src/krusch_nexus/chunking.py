@@ -511,11 +511,13 @@ def chunk_document_pages(
         if para_len > max_chars:
             sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', para) if s.strip()]
             s_offset = c_start or 0
+            para_bbox = item[7] if len(item) > 7 else None
+            para_printed = item[8] if len(item) > 8 else None
             for s in sentences:
                 s_len = len(s)
                 if current_len + s_len + 2 > max_chars and current_items:
                     flush_current_chunk()
-                current_items.append((page_num, loc, s, conf, s_offset, s_offset + s_len, False))
+                current_items.append((page_num, loc, s, conf, s_offset, s_offset + s_len, False, para_bbox, para_printed))
                 current_len += s_len + 2
                 s_offset += s_len + 1
         elif current_len + para_len + 2 > max_chars and current_items:

@@ -145,6 +145,110 @@ class TestSpanLocator(unittest.TestCase):
         self.assertIsNotNone(hit.bbox)
         self.assertEqual(hit.bbox, [50.0, 113.38, 212.75, 11.1])
 
+    def test_ocr_scan_span_and_bbox_roundtrip(self):
+        """Assert OCR scanned page (scanned_page.pdf) preserves bounding boxes and exact slice roundtrip."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "scanned_page.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("scanned_page.pdf fixture not found")
+
+        report = self.client.ingest(pdf_fixture, workspace="SpanWorkspace", doc_type=DocType.AUTHORITY)
+        self.assertEqual(report.status, "completed")
+
+        hits = self.client.search("liquidated damages fifty thousand dollars", workspace="SpanWorkspace", limit=3)
+        self.assertGreater(len(hits), 0)
+
+        hit = hits[0]
+        self.assertEqual(hit.page_number, 1)
+        self.assertIn("p.1", hit.citation)
+
+        # Invariant: OCR bounding box is present with 4 non-negative coordinates
+        self.assertIsNotNone(hit.bbox)
+        self.assertEqual(len(hit.bbox), 4)
+        self.assertGreater(hit.bbox[2], 0)  # width
+        self.assertGreater(hit.bbox[3], 0)  # height
+
+        # Invariant: Character offsets slice the OCR page text bit-for-bit
+        from krusch_nexus.parsers import parse_document
+        res = parse_document(pdf_fixture, "scanned_page.pdf")
+        p1_text = res.pages[hit.page_number - 1].text
+        self.assertIsNotNone(hit.char_start)
+        self.assertIsNotNone(hit.char_end)
+        self.assertEqual(p1_text[hit.char_start:hit.char_end], hit.text)
+
+    def test_format_honest_citation_exemptions(self):
+        """Assert format_citation avoids spurious § prefixes on Item, Schedule, Clause, Appendix, and Paragraph."""
+        from krusch_nexus.models import format_citation
+
+        # Exempt prefixes
+        self.assertEqual(
+            format_citation("10k.pdf", page_number=1, header="Item 8. Consolidated Financial Statements"),
+            "10k.pdf p.1 Item 8. Consolidated Financial Statements"
+        )
+        self.assertEqual(
+            format_citation("lease.pdf", page_number=3, header="Schedule B: Permitted Exceptions"),
+            "lease.pdf p.3 Schedule B: Permitted Exceptions"
+        )
+        self.assertEqual(
+            format_citation("contract.pdf", page_number=5, header="Clause 14.1 Liquidated Damages"),
+            "contract.pdf p.5 Clause 14.1 Liquidated Damages"
+        )
+        self.assertEqual(
+            format_citation("specs.pdf", page_number=2, header="Appendix A Technical Requirements"),
+            "specs.pdf p.2 Appendix A Technical Requirements"
+        )
+        self.assertEqual(
+            format_citation("filing.pdf", page_number=4, header="Paragraph 12 Statement of Facts"),
+            "filing.pdf p.4 Paragraph 12 Statement of Facts"
+        )
+
+        # Non-exempt headings should retain § prefix
+        self.assertEqual(
+            format_citation("code.txt", page_number=None, header="1950.5 Security Deposits"),
+            "code.txt § 1950.5 Security Deposits"
+        )
+        self.assertEqual(
+            format_citation("memo.docx", page_number=None, header="Confidential Information Defined"),
+            "memo.docx § Confidential Information Defined"
+        )
+
+    def test_parse_file_and_parse_and_chunk_zero_config(self):
+        """Assert top-level parse_file and parse_and_chunk_file operate without database or config setup."""
+        import krusch_nexus
+
+        pdf_fixture = os.path.join(FIXTURES_DIR, "sample_contract.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("sample_contract.pdf fixture not found")
+
+        # 1. parse_file: Zero-config parsing
+        res = krusch_nexus.parse_file(pdf_fixture)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.filename, "sample_contract.pdf")
+        self.assertEqual(len(res.pages), 2)
+        self.assertGreater(len(res.pages[0].blocks), 0)
+        self.assertIsNotNone(res.pages[0].blocks[0].bbox)
+
+        # 2. parse_and_chunk_file: Zero-config chunking with provenance
+        res2, chunks = krusch_nexus.parse_and_chunk_file(pdf_fixture)
+        self.assertEqual(len(res2.pages), 2)
+        self.assertGreater(len(chunks), 0)
+        self.assertIn("citation", chunks[0])
+        self.assertIn("p.1", chunks[0]["citation"])
+        self.assertIsNotNone(chunks[0]["bbox"])
+        self.assertIsNotNone(chunks[0]["source_hash"])
+
+    def test_client_parse_file_library_mode(self):
+        """Assert client.parse() and client.parse_file() parse documents without database mutations."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "sample_contract.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("sample_contract.pdf fixture not found")
+
+        res = self.client.parse(pdf_fixture)
+        self.assertEqual(res.filename, "sample_contract.pdf")
+        self.assertEqual(len(res.pages), 2)
+
+        res2 = self.client.parse_file(pdf_fixture)
+        self.assertEqual(res2.filename, "sample_contract.pdf")
+
 
 if __name__ == "__main__":
     unittest.main()

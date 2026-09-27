@@ -116,6 +116,41 @@ class NexusClient:
 
     ingest_file = ingest
 
+    def parse(
+        self,
+        filepath: str,
+        ocr_threshold: Optional[int] = None,
+        ocr_dpi: Optional[int] = None,
+        ocr_lang: Optional[str] = None,
+        timeout: Optional[float] = None
+    ) -> Any:
+        """
+        Library mode: Parse a local document into PageData objects with blocks and bounding boxes
+        using client configuration without database or embedding operations.
+        """
+        from .parsers import parse_document
+        from .ingest.sandbox import validate_safe_path, sanitize_filename
+
+        safe_path = validate_safe_path(
+            filepath,
+            allowed_roots=self.config.allowed_ingest_roots,
+            allow_temp_dirs=True
+        )
+        filepath_str = str(safe_path)
+        orig_filename = sanitize_filename(os.path.basename(filepath_str))
+
+        return parse_document(
+            file_path=filepath_str,
+            filename=orig_filename,
+            ocr_threshold=ocr_threshold or self.config.ocr_threshold_chars,
+            ocr_dpi=ocr_dpi or self.config.ocr_dpi,
+            ocr_lang=ocr_lang or self.config.ocr_lang,
+            timeout=timeout or self.config.subprocess_timeout,
+            pdf_backend=self.config.pdf_backend
+        )
+
+    parse_file = parse
+
     def parse_and_chunk(
         self,
         filepath: str,
