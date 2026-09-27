@@ -199,30 +199,24 @@ def try_tesseract_ocr(
                     current_line_confs: List[float] = []
                     current_key: Optional[Tuple[int, int, int]] = None
 
+                    raw_lines: List[dict] = []
+
                     def _flush_line():
                         if not current_line_words:
                             return
-                        l_text = " ".join(current_line_words)
-                        l_bbox = None
-                        if current_line_boxes:
-                            min_l = min(b[0] for b in current_line_boxes)
-                            min_t = min(b[1] for b in current_line_boxes)
-                            max_r = max(b[0] + b[2] for b in current_line_boxes)
-                            max_b = max(b[1] + b[3] for b in current_line_boxes)
-                            scale = 72.0 / float(policy.dpi)
-                            l_bbox = [
-                                round(min_l * scale, 2),
-                                round(min_t * scale, 2),
-                                round((max_r - min_l) * scale, 2),
-                                round((max_b - min_t) * scale, 2)
-                            ]
+                        min_l = min(b[0] for b in current_line_boxes)
+                        min_t = min(b[1] for b in current_line_boxes)
+                        max_r = max(b[0] + b[2] for b in current_line_boxes)
+                        max_b = max(b[1] + b[3] for b in current_line_boxes)
                         l_conf = (sum(current_line_confs) / (100.0 * len(current_line_confs))) if current_line_confs else None
-                        blocks.append(ContentBlock(
-                            text=l_text,
-                            block_type="paragraph",
-                            bbox=l_bbox,
-                            confidence=l_conf
-                        ))
+                        raw_lines.append({
+                            "text": " ".join(current_line_words),
+                            "left": min_l,
+                            "top": min_t,
+                            "width": max_r - min_l,
+                            "height": max_b - min_t,
+                            "conf": l_conf
+                        })
 
                     for row in lines[1:]:
                         parts = row.split('\t')
@@ -242,7 +236,9 @@ def try_tesseract_ocr(
                                     confs.append(conf)
                                     words.append(w_text)
                                     key = (block_num, par_num, line_num)
-                                    if current_key is not None and key != current_key:
+                                    gap = (left - (current_line_boxes[-1][0] + current_line_boxes[-1][2])) if current_line_boxes else 0
+                                    # Split line on hierarchical key change OR if horizontal gap between words exceeds column gutter
+                                    if (current_key is not None and key != current_key) or (current_line_boxes and gap > max(60.0, 3.5 * height)):
                                         _flush_line()
                                         current_line_words = []
                                         current_line_boxes = []
@@ -255,6 +251,52 @@ def try_tesseract_ocr(
                                 continue
 
                     _flush_line()
+
+                    # Two-column layout detection and column reading order resolution
+                    if raw_lines:
+                        scale = 72.0 / float(policy.dpi)
+                        lefts = [r["left"] for r in raw_lines]
+                        min_l, max_l = min(lefts), max(lefts)
+                        col_split = (min_l + max_l) / 2.0
+                        min_col_margin = 40.0 * (float(policy.dpi) / 72.0)
+
+                        left_col = [r for r in raw_lines if (r["left"] + r["width"] / 2.0) < col_split]
+                        right_col = [r for r in raw_lines if (r["left"] + r["width"] / 2.0) >= col_split]
+
+                        is_two_column = len(left_col) >= 3 and len(right_col) >= 3 and (col_split - min_l > min_col_margin)
+                        if is_two_column:
+                            col2_top = min(r["top"] for r in right_col)
+                            col1_bottom = max(r["top"] + r["height"] for r in left_col)
+                            col2_bottom = max(r["top"] + r["height"] for r in right_col)
+                            common_bottom = min(col1_bottom, col2_bottom)
+
+                            top_banners = [r for r in left_col if (r["top"] + r["height"]) <= col2_top]
+                            bottom_footers = [r for r in raw_lines if r["top"] >= common_bottom and r not in top_banners]
+
+                            left_body = [r for r in left_col if r not in top_banners and r not in bottom_footers]
+                            right_body = [r for r in right_col if r not in top_banners and r not in bottom_footers]
+
+                            top_banners.sort(key=lambda r: (r["top"], r["left"]))
+                            left_body.sort(key=lambda r: r["top"])
+                            right_body.sort(key=lambda r: r["top"])
+                            bottom_footers.sort(key=lambda r: (r["top"], r["left"]))
+
+                            ordered_records = top_banners + left_body + right_body + bottom_footers
+                        else:
+                            ordered_records = sorted(raw_lines, key=lambda r: (r["top"], r["left"]))
+
+                        for rec in ordered_records:
+                            blocks.append(ContentBlock(
+                                text=rec["text"],
+                                block_type="paragraph",
+                                bbox=[
+                                    round(rec["left"] * scale, 2),
+                                    round(rec["top"] * scale, 2),
+                                    round(rec["width"] * scale, 2),
+                                    round(rec["height"] * scale, 2)
+                                ],
+                                confidence=rec["conf"]
+                            ))
 
                     mean_conf = (sum(confs) / (100.0 * len(confs))) if confs else None
                     if mean_conf is not None and mean_conf < policy.confidence_floor:

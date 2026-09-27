@@ -12,7 +12,7 @@
 
 > This is how citations break in local RAG, what KruschNexus does about it at ingest/retrieval time, and what we can actually prove on a small legal-document harness.
 
-- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, fail-closed empty returns below the similarity threshold ($< 0.45$), and cross-workspace isolation across 75 targeted test probes (158 passing unit and integration tests).
+- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), two-column OCR reading order resolution, line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, fail-closed empty returns below the similarity threshold ($< 0.45$), and cross-workspace isolation across 75 targeted test probes (159 passing unit and integration tests).
 - **What is designed but not broadly measured:** Arbitrary low-DPI phone camera scans and nested multi-level table cell grids.
 - **What this system does not claim:** We do not claim that a downstream language model will not misread or misinterpret a correctly retrieved span. Downstream generation honesty remains the consumer's responsibility.
 
@@ -231,6 +231,7 @@ KruschNexus v0.2.4 establishes a reproducible spine on a rigorous harness. Recen
 - **Resolved — Nested Table Line Bounding Boxes:** Poppler TSV line extraction indexes line boxes by full hierarchical `(block_num, par_num, line_num)` tuples with spacing-aware paragraph break detection, locking in all 12 distinct rows on `heldout_sec_10k_table.pdf` (`tests/unit/test_span_locator.py`).
 - **Resolved — Overlapping Stamp Segmentation:** Multi-line noise stack scanning and expanded regex matching cleanly segment clerk rubber stamps (`RECEIVED & FILED`), date stamps, and fax banners into typed `ContentBlock` instances (`fax_stamp`, `exhibit_stamp`, `header_footer`) without body text chunk pollution (`adversarial_fax_stamp.pdf`).
 - **Resolved — Large Binder Streaming Throughput:** Chunking pipeline refactored to streaming generators (`iter_page_elements` and `iter_chunk_document_pages`), bounding memory footprint to $O(1)$ across 100+ page binders (`tests/unit/test_chunking.py`).
+- **Resolved — Two-Column Reading Order Resolution:** Tesseract TSV line aggregation splits horizontal word gutters (`gap > max(60.0, 3.5 * height)`) and applies two-column reading order (`top_banners + left_body + right_body + bottom_footers`), resolving natural reading order and separating Column A and Column B bounding boxes on scanned two-column documents (`adversarial_twocolumn.pdf`, `heldout_twocolumn_newspaper.pdf`, `tests/unit/test_span_locator.py`).
 
 Our active evaluation frontiers remain:
 

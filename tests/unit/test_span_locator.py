@@ -310,6 +310,51 @@ class TestSpanLocator(unittest.TestCase):
             self.assertNotIn("SeP.222026", ch["text"])
             self.assertNotIn("RECEIVED", ch["text"])
 
+    def test_adversarial_twocolumn_reading_order_and_column_isolation(self):
+        """Assert two-column OCR PDF resolves column reading order and separates Column A from Column B."""
+        col_fixture = os.path.join(FIXTURES_DIR, "adversarial_twocolumn.pdf")
+        if not os.path.exists(col_fixture):
+            self.skipTest("adversarial_twocolumn.pdf fixture not found")
+
+        res, chunks = parse_and_chunk_file(col_fixture)
+        self.assertEqual(len(res.pages), 1)
+        p1 = res.pages[0]
+
+        # Must extract 9 distinct line blocks
+        self.assertEqual(len(p1.blocks), 9)
+
+        # Block 0: Top banner spanning across columns
+        b0 = p1.blocks[0]
+        self.assertIn("COMMERCIAL CODE", b0.text)
+
+        # Blocks 1-4: Column 1 lines (left-aligned at x ~ 19.2 points)
+        col1_blocks = p1.blocks[1:5]
+        for b in col1_blocks:
+            self.assertLess(b.bbox[0], 50.0, "Column 1 blocks must have left < 50 points")
+
+        self.assertIn("COLUMN", col1_blocks[0].text)
+        self.assertIn("Section 9", col1_blocks[1].text)
+        self.assertIn("Accession", col1_blocks[2].text)
+        self.assertIn("Account", col1_blocks[3].text)
+
+        # Blocks 5-8: Column 2 lines (right-aligned at x ~ 172 points)
+        col2_blocks = p1.blocks[5:9]
+        for b in col2_blocks:
+            self.assertGreater(b.bbox[0], 120.0, "Column 2 blocks must have left > 120 points")
+
+        self.assertIn("COMMENTS", col2_blocks[0].text)
+        self.assertIn("Comment 1", col2_blocks[1].text)
+        self.assertIn("Comment 2", col2_blocks[2].text)
+        self.assertIn("Comment3", col2_blocks[3].text)
+
+        # Assert no horizontal interleaving in extracted text: Column 1 text must appear before Column 2 text
+        col1_pos = p1.text.find("Accession")
+        col2_pos = p1.text.find("Comment 1")
+        self.assertGreater(col1_pos, 0)
+        self.assertGreater(col2_pos, 0)
+        self.assertLess(col1_pos, col2_pos, "Column 1 text must precede Column 2 comments in natural reading order")
+
 
 if __name__ == "__main__":
     unittest.main()
+
