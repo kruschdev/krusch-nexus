@@ -1,22 +1,22 @@
 {
   "schema_version": "1.0",
   "corpus_version": "0.2.4",
-  "generated_at": "2026-09-26T20:54:17.878815+00:00",
+  "generated_at": "2026-09-27T17:57:12.515385+00:00",
   "fixtures": {
     "adversarial_blank_scan.pdf": {
-      "sha256": "b1da7d4d02b0bee2db3f1256c023d7f48644c3eb1b0b33dab55c7cb0ce48d155",
+      "sha256": "3ebc18c55cf6f89011afd15da7b928ade5403b1120bccf070cec72ff91a4c337",
       "bytes": 9147
     },
     "adversarial_fax_stamp.pdf": {
-      "sha256": "b024750005a98b033641d4060a9b0a3d220ca600c399c7130f61fd83f7ca6395",
+      "sha256": "34aac9a19f1bda41a61a6524edee135334af0e3690cc9b77d5aa1d7539b46c38",
       "bytes": 51863
     },
     "adversarial_redline.docx": {
-      "sha256": "4a3a02a243981d35fb567fd8a71fc1ad0cfaa75449d54304500c5651065e8ac1",
+      "sha256": "75c72f9509fa4390e71b4dcdc9248703a3ef7c9fe7ec2eb5797d93ee28340376",
       "bytes": 1103
     },
     "adversarial_redline.pdf": {
-      "sha256": "5e5ace0211c481a06b886f36fa7c6828412fd32f6d2ae509974d2ae59ed96f80",
+      "sha256": "8d96ff7ebdc4448f2b0331d4fb7c6ad505c837b885d8ab1a5cb5bc37476d1eb1",
       "bytes": 43665
     },
     "adversarial_redline.txt": {
@@ -24,7 +24,7 @@
       "bytes": 492
     },
     "adversarial_twocolumn.pdf": {
-      "sha256": "681cfeeee5aac3eaf44570773f3a5c6202ad2fdbdfd8a36959cb2a65981aa565",
+      "sha256": "0b19aa8d86c9ce4b4e841eabaac84c7028c217affa7d762c96e6b5f4899a068a",
       "bytes": 59170
     },
     "adversarial_twocolumn.txt": {
@@ -43,6 +43,14 @@
       "sha256": "eeffa52dfc2e9777a58bb7a3ecea80616c0d312094fb24cc3cc5c1439eb6499c",
       "bytes": 402
     },
+    "heldout_borderless_financial.pdf": {
+      "sha256": "befad9a44734efcd07d125ef92033940402b603f28f88d215b083be4c665b6b7",
+      "bytes": 1039
+    },
+    "heldout_borderless_financial.txt": {
+      "sha256": "94695e652b4e8334cd390344c40d3e87eec02a3cdd2932f5c160c0619807418e",
+      "bytes": 377
+    },
     "heldout_bylaws.txt": {
       "sha256": "f034de929475c1865af66ed42c9c98245dd8f1a04dc3cf3b8020b349c2074ea0",
       "bytes": 660
@@ -56,11 +64,11 @@
       "bytes": 594
     },
     "heldout_medical_scan_150dpi.pdf": {
-      "sha256": "ecd90225a0ead24a69ce594ff6408e57ee2136abfc2e96bd750c68d5de7e4141",
+      "sha256": "2c50a24fb4adbac510ee0deb0d5aa271a3115daaabd4964c520401bda189ab0c",
       "bytes": 37090
     },
     "heldout_mixed_digital_scan.pdf": {
-      "sha256": "1fd6186dc2822aeaba01d23e5bcebee39448bc52d0755cf7580ff3784afefed1",
+      "sha256": "e35ef638f6d9da5b0f8a7c967d453e0118c5cbff09fe29447494a8ddc94fa1de",
       "bytes": 32956
     },
     "heldout_promissory_note.txt": {
@@ -68,7 +76,7 @@
       "bytes": 751
     },
     "heldout_redacted_order.pdf": {
-      "sha256": "a225174c27ad9c4151a1702431d3d9ba924710982699fd539f03f10ea2c53502",
+      "sha256": "c35f3dd007b81f07f69fb588855405323c32254c3cc1f041c7a0960be3885b25",
       "bytes": 47974
     },
     "heldout_sec_10k_table.pdf": {
@@ -84,7 +92,7 @@
       "bytes": 610
     },
     "heldout_twocolumn_newspaper.pdf": {
-      "sha256": "3c19ab57a353bb0003ea4b74e780805dc37325634c5f515f4357879f29edc9f0",
+      "sha256": "75d65015099831027011de3dab4ae57d0db5bafa7affd24da4d7071b340ba68e",
       "bytes": 63200
     },
     "malicious_payload.exe": {
@@ -92,7 +100,7 @@
       "bytes": 14
     },
     "mixed_sample.pdf": {
-      "sha256": "7664b15651dbc4f4e23d4a9776688a9bedabd9160e9e828d6579462c19cb4b99",
+      "sha256": "d1ec9ea2adfa96a6787b3449f6fa766835e01eced912d8ca66aaadfb95f2ac2b",
       "bytes": 21830
     },
     "municipal_code.txt": {
@@ -100,7 +108,7 @@
       "bytes": 654
     },
     "policy_manual.docx": {
-      "sha256": "cb30af3e316d7356048ee398535801265e2c6109b5d4016bc5a0821af8b1ffca",
+      "sha256": "09fe45c945f1b4f713de0640571c894599ecabe7f9f6b9c3e40c7dd6eba7072e",
       "bytes": 1507
     },
     "sample_contract.pdf": {
@@ -108,7 +116,7 @@
       "bytes": 994
     },
     "scanned_page.pdf": {
-      "sha256": "02b09ef37be1514ba89ab3d915952abbb90545aed9d76ff55810022c9ba3ccd1",
+      "sha256": "9aaf2e8823a1cb5815828418c4fe097a546655797dc94a373118c339c3f86d52",
       "bytes": 20946
     },
     "script_injection.html": {

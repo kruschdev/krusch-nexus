@@ -228,6 +228,7 @@ class ContentBlock(BaseModel):
     confidence: Optional[float] = None
     char_start: Optional[int] = None
     char_end: Optional[int] = None
+    extra: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PageData(BaseModel):

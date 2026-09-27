@@ -179,13 +179,16 @@ def _extract_poppler_blocks(
     file_path: str,
     page_num: int,
     timeout: float
-) -> Tuple[str, List[ContentBlock]]:
+) -> Tuple[str, List[ContentBlock], List[Dict[str, Any]]]:
     """
     Extract digital text with bounding boxes using pdftotext -tsv.
-    Detects two-column layouts by x-coordinate distribution and preserves column reading order.
+    Detects two-column layouts and preserves natural reading order.
+    Extracts structured multi-column table grids (both delimited with '|' and borderless
+    gutter-aligned financial spreadsheets) with sub-line cell-level bounding boxes.
     Falls back to pdftotext -layout if TSV mode is unavailable or produces no lines.
     """
     blocks: List[ContentBlock] = []
+    tables: List[Dict[str, Any]] = []
     tsv_proc = None
     try:
         tsv_proc = subprocess.run(
@@ -202,7 +205,7 @@ def _extract_poppler_blocks(
     if tsv_proc and tsv_proc.returncode == 0 and tsv_proc.stdout.strip():
         lines = tsv_proc.stdout.splitlines()
         line_boxes: Dict[Tuple[int, int, int], Tuple[float, float, float, float]] = {}
-        line_words: Dict[Tuple[int, int, int], List[str]] = {}
+        line_words: Dict[Tuple[int, int, int], List[Dict[str, Any]]] = {}
 
         for row in lines[1:]:
             parts = row.split('\t')
@@ -222,7 +225,14 @@ def _extract_poppler_blocks(
                     elif level == 5:
                         w = parts[11].strip()
                         if w:
-                            line_words.setdefault(key, []).append(w)
+                            w_left = float(parts[6])
+                            w_top = float(parts[7])
+                            w_width = float(parts[8])
+                            w_height = float(parts[9])
+                            line_words.setdefault(key, []).append({
+                                "text": w,
+                                "bbox": [w_left, w_top, w_width, w_height]
+                            })
                 except (ValueError, IndexError):
                     continue
 
@@ -230,53 +240,210 @@ def _extract_poppler_blocks(
         for key in sorted(line_boxes.keys()):
             words = line_words.get(key, [])
             if words:
-                text_val = " ".join(words)
+                text_val = " ".join(w["text"] for w in words)
                 left, top, width, height = line_boxes[key]
                 line_records.append({
                     "left": left,
                     "top": top,
                     "width": width,
                     "height": height,
-                    "text": text_val
+                    "text": text_val,
+                    "words": words
                 })
 
         if line_records:
-            # Check for two-column layout: do lines separate into two distinct x clusters?
+            # Check for two-column prose layout vs multi-column table
             lefts = [r["left"] for r in line_records]
             min_l, max_l = min(lefts), max(lefts)
             col_split = (min_l + max_l) / 2.0
             left_col = [r for r in line_records if (r["left"] + r["width"] / 2.0) < col_split]
             right_col = [r for r in line_records if (r["left"] + r["width"] / 2.0) >= col_split]
 
-            # Detect two-column if both sides have significant content and don't strongly overlap
-            is_two_column = len(left_col) >= 3 and len(right_col) >= 3 and (col_split - min_l > 80)
+            # In a multi-column table, multiple records in left_col and right_col share exact vertical baselines.
+            # In genuine two-column prose, independent paragraphs do not synchronize baselines across columns.
+            shared_baselines = 0
+            for l_rec in left_col:
+                if any(abs(l_rec["top"] - r_rec["top"]) <= 2.5 for r_rec in right_col):
+                    shared_baselines += 1
+
+            is_two_column = (
+                len(left_col) >= 3 and len(right_col) >= 3
+                and (col_split - min_l > 80)
+                and (shared_baselines < 2)
+            )
+
             if is_two_column:
                 # Column 1 top-to-bottom, followed by Column 2 top-to-bottom
                 left_col.sort(key=lambda r: r["top"])
                 right_col.sort(key=lambda r: r["top"])
                 ordered_records = left_col + right_col
+                raw_baselines = [[r] for r in ordered_records]
             else:
-                ordered_records = sorted(line_records, key=lambda r: r["top"])
+                # Group records sharing a vertical baseline (within 2.5 pt) into rows
+                sorted_by_top = sorted(line_records, key=lambda r: r["top"])
+                raw_baselines = []
+                for r in sorted_by_top:
+                    placed = False
+                    for b in raw_baselines:
+                        if abs(b[0]["top"] - r["top"]) <= 2.5:
+                            b.append(r)
+                            placed = True
+                            break
+                    if not placed:
+                        raw_baselines.append([r])
+                for b in raw_baselines:
+                    b.sort(key=lambda r: r["left"])
 
             text_pieces = []
             prev_rec = None
-            for rec in ordered_records:
-                blocks.append(ContentBlock(
-                    text=rec["text"],
-                    block_type="paragraph",
-                    bbox=[round(rec["left"], 2), round(rec["top"], 2), round(rec["width"], 2), round(rec["height"], 2)]
-                ))
-                if prev_rec is None:
-                    text_pieces.append(rec["text"])
-                else:
-                    gap = rec["top"] - (prev_rec["top"] + prev_rec["height"])
-                    is_para_break = gap > 1.2 * prev_rec["height"] or gap < -prev_rec["height"]
-                    sep = "\n\n" if is_para_break else "\n"
-                    text_pieces.append(sep + rec["text"])
-                prev_rec = rec
+            current_table_rows = []
 
+            def flush_table():
+                nonlocal current_table_rows, tables
+                if len(current_table_rows) >= 2:
+                    t_idx = len(tables) + 1
+                    all_bboxes = [r["bbox"] for r in current_table_rows]
+                    t_left = min(b[0] for b in all_bboxes)
+                    t_top = min(b[1] for b in all_bboxes)
+                    t_right = max(b[0] + b[2] for b in all_bboxes)
+                    t_bottom = max(b[1] + b[3] for b in all_bboxes)
+                    t_bbox = [round(t_left, 2), round(t_top, 2), round(t_right - t_left, 2), round(t_bottom - t_top, 2)]
+
+                    md_lines = []
+                    for r in current_table_rows:
+                        row_cells_text = [c["text"] for c in r["cells"]]
+                        md_lines.append("| " + " | ".join(row_cells_text) + " |")
+                    if len(md_lines) > 1:
+                        cols_count = max(len(r["cells"]) for r in current_table_rows)
+                        sep_line = "| " + " | ".join(["---"] * cols_count) + " |"
+                        md_lines.insert(1, sep_line)
+
+                    tables.append({
+                        "table_id": f"Table {t_idx}",
+                        "bbox": t_bbox,
+                        "num_rows": len(current_table_rows),
+                        "num_cols": max(len(r["cells"]) for r in current_table_rows),
+                        "markdown": "\n".join(md_lines),
+                        "rows": current_table_rows
+                    })
+                current_table_rows = []
+
+            for b in raw_baselines:
+                if len(b) > 1:
+                    # Multi-segment borderless table row
+                    cells = []
+                    for seg in b:
+                        cells.append({
+                            "col_idx": len(cells),
+                            "text": seg["text"],
+                            "bbox": [round(seg["left"], 2), round(seg["top"], 2), round(seg["width"], 2), round(seg["height"], 2)]
+                        })
+                    r_left = min(c["bbox"][0] for c in cells)
+                    r_top = min(c["bbox"][1] for c in cells)
+                    r_right = max(c["bbox"][0] + c["bbox"][2] for c in cells)
+                    r_bottom = max(c["bbox"][1] + c["bbox"][3] for c in cells)
+                    r_bbox = [round(r_left, 2), round(r_top, 2), round(r_right - r_left, 2), round(r_bottom - r_top, 2)]
+                    row_text = " | ".join(c["text"] for c in cells)
+
+                    row_record = {
+                        "row_idx": len(current_table_rows),
+                        "text": row_text,
+                        "bbox": r_bbox,
+                        "cells": cells
+                    }
+                    current_table_rows.append(row_record)
+
+                    blocks.append(ContentBlock(
+                        text=row_text,
+                        block_type="table_row",
+                        bbox=r_bbox,
+                        extra={"cells": cells}
+                    ))
+
+                    rec_for_text = {"text": row_text, "left": r_left, "top": r_top, "height": r_bottom - r_top}
+                    if prev_rec is None:
+                        text_pieces.append(row_text)
+                    else:
+                        gap = rec_for_text["top"] - (prev_rec["top"] + prev_rec["height"])
+                        is_para_break = gap > 1.2 * prev_rec["height"] or gap < -prev_rec["height"]
+                        sep = "\n\n" if is_para_break else "\n"
+                        text_pieces.append(sep + row_text)
+                    prev_rec = rec_for_text
+
+                else:
+                    rec = b[0]
+                    # Check if internal pipe delimiter exists
+                    if "|" in rec["text"]:
+                        cell_words = []
+                        cur = []
+                        for w in rec["words"]:
+                            if w["text"] == "|":
+                                if cur:
+                                    cell_words.append(cur)
+                                    cur = []
+                            else:
+                                cur.append(w)
+                        if cur:
+                            cell_words.append(cur)
+
+                        cells = []
+                        for idx, cw in enumerate(cell_words):
+                            c_left = min(x["bbox"][0] for x in cw)
+                            c_top = min(x["bbox"][1] for x in cw)
+                            c_right = max(x["bbox"][0] + x["bbox"][2] for x in cw)
+                            c_bottom = max(x["bbox"][1] + x["bbox"][3] for x in cw)
+                            cells.append({
+                                "col_idx": idx,
+                                "text": " ".join(x["text"] for x in cw),
+                                "bbox": [round(c_left, 2), round(c_top, 2), round(c_right - c_left, 2), round(c_bottom - c_top, 2)]
+                            })
+
+                        r_bbox = [round(rec["left"], 2), round(rec["top"], 2), round(rec["width"], 2), round(rec["height"], 2)]
+                        row_record = {
+                            "row_idx": len(current_table_rows),
+                            "text": rec["text"],
+                            "bbox": r_bbox,
+                            "cells": cells
+                        }
+                        current_table_rows.append(row_record)
+
+                        blocks.append(ContentBlock(
+                            text=rec["text"],
+                            block_type="table_row",
+                            bbox=r_bbox,
+                            extra={"cells": cells}
+                        ))
+
+                        if prev_rec is None:
+                            text_pieces.append(rec["text"])
+                        else:
+                            gap = rec["top"] - (prev_rec["top"] + prev_rec["height"])
+                            is_para_break = gap > 1.2 * prev_rec["height"] or gap < -prev_rec["height"]
+                            sep = "\n\n" if is_para_break else "\n"
+                            text_pieces.append(sep + rec["text"])
+                        prev_rec = rec
+                    else:
+                        # Regular text block - flush any accumulated table
+                        flush_table()
+                        r_bbox = [round(rec["left"], 2), round(rec["top"], 2), round(rec["width"], 2), round(rec["height"], 2)]
+                        blocks.append(ContentBlock(
+                            text=rec["text"],
+                            block_type="paragraph",
+                            bbox=r_bbox
+                        ))
+
+                        if prev_rec is None:
+                            text_pieces.append(rec["text"])
+                        else:
+                            gap = rec["top"] - (prev_rec["top"] + prev_rec["height"])
+                            is_para_break = gap > 1.2 * prev_rec["height"] or gap < -prev_rec["height"]
+                            sep = "\n\n" if is_para_break else "\n"
+                            text_pieces.append(sep + rec["text"])
+                        prev_rec = rec
+
+            flush_table()
             combined_text = "".join(text_pieces)
-            return combined_text, blocks
+            return combined_text, blocks, tables
 
     # Fallback to standard -layout
     digital_text = ""
@@ -296,7 +463,7 @@ def _extract_poppler_blocks(
     except Exception:
         pass
 
-    return digital_text, blocks
+    return digital_text, blocks, tables
 
 
 def parse_pdf(
@@ -338,7 +505,7 @@ def parse_pdf(
     warnings: List[str] = []
 
     for page_num in range(1, total_pages + 1):
-        digital_text, page_blocks = _extract_poppler_blocks(pdftotext_bin, file_path, page_num, timeout)
+        digital_text, page_blocks, page_tables = _extract_poppler_blocks(pdftotext_bin, file_path, page_num, timeout)
 
         ocr_applied = False
         ocr_text: Optional[str] = None
@@ -370,6 +537,7 @@ def parse_pdf(
                 ocr_text = candidate_ocr
                 ocr_confidence = conf
                 page_blocks = ocr_blocks
+                page_tables = []
                 logger.info(f"High-res OCR applied to page {page_num} of '{filename}' ({len(candidate_ocr)} chars, conf: {conf})")
             elif conf is not None and conf < policy.confidence_floor:
                 warnings.append(WarningCode.LOW_OCR_CONFIDENCE.value)
@@ -394,6 +562,7 @@ def parse_pdf(
             digital_text=digital_text,
             ocr_text=ocr_text,
             blocks=page_blocks,
+            tables=page_tables,
             has_images=has_image_streams,
             ocr_applied=ocr_applied,
             confidence=ocr_confidence,

@@ -282,6 +282,85 @@ class TestSpanLocator(unittest.TestCase):
         self.assertIsNotNone(rnd_block)
         self.assertEqual(rnd_block.bbox, [50.0, 178.82, 332.08, 9.25])
 
+    def test_pdf_sec_10k_table_cell_grid_bboxes(self):
+        """Assert multi-column delimited financial table extracts structured table grid and sub-line cell bboxes."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "heldout_sec_10k_table.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("heldout_sec_10k_table.pdf fixture not found")
+
+        res = parse_pdf(pdf_fixture, "heldout_sec_10k_table.pdf")
+        self.assertEqual(len(res.pages), 1)
+        p1 = res.pages[0]
+
+        # Verify structured table presence
+        self.assertEqual(len(p1.tables), 1)
+        tbl = p1.tables[0]
+        self.assertEqual(tbl["num_rows"], 5)
+        self.assertEqual(tbl["num_cols"], 3)
+        self.assertEqual(tbl["bbox"], [50.0, 124.82, 332.08, 81.25])
+        self.assertIn("| Revenue: 2026: $84,250 | 2025: $72,100 | 2024: $61,500 |", tbl["markdown"])
+
+        # Check Revenue row cells and sub-line bounding boxes
+        rev_row = tbl["rows"][0]
+        cells = rev_row["cells"]
+        self.assertEqual(len(cells), 3)
+        self.assertEqual(cells[0]["text"], "Revenue: 2026: $84,250")
+        self.assertEqual(cells[0]["bbox"], [50.0, 124.82, 109.52, 9.25])
+        self.assertEqual(cells[1]["text"], "2025: $72,100")
+        self.assertEqual(cells[1]["bbox"], [167.68, 124.82, 63.94, 9.25])
+        self.assertEqual(cells[2]["text"], "2024: $61,500")
+        self.assertEqual(cells[2]["bbox"], [239.78, 124.82, 63.94, 9.25])
+
+        # Verify cells have strictly disjoint horizontal coordinate intervals
+        self.assertLess(cells[0]["bbox"][0] + cells[0]["bbox"][2], cells[1]["bbox"][0])
+        self.assertLess(cells[1]["bbox"][0] + cells[1]["bbox"][2], cells[2]["bbox"][0])
+
+        # Check ContentBlock extra carries the cell grid
+        rev_block = next((b for b in p1.blocks if "Revenue: 2026" in b.text), None)
+        self.assertIsNotNone(rev_block)
+        self.assertIn("cells", rev_block.extra)
+        self.assertEqual(len(rev_block.extra["cells"]), 3)
+        self.assertEqual(rev_block.extra["cells"][1]["text"], "2025: $72,100")
+
+    def test_pdf_borderless_financial_cell_grid_bboxes(self):
+        """Assert borderless financial table without pipes parses column gutters into aligned cell grids."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "heldout_borderless_financial.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("heldout_borderless_financial.pdf fixture not found")
+
+        res = parse_pdf(pdf_fixture, "heldout_borderless_financial.pdf")
+        self.assertEqual(len(res.pages), 1)
+        p1 = res.pages[0]
+
+        # Verify structured table presence
+        self.assertEqual(len(p1.tables), 1)
+        tbl = p1.tables[0]
+        self.assertEqual(tbl["num_rows"], 5)
+        self.assertEqual(tbl["num_cols"], 3)
+        self.assertEqual(tbl["bbox"], [50.0, 70.82, 247.94, 81.25])
+        self.assertIn("| Cash and cash equivalents | $14,250 | $11,800 |", tbl["markdown"])
+
+        # Check Cash row cells and sub-line bounding boxes
+        cash_row = tbl["rows"][0]
+        cells = cash_row["cells"]
+        self.assertEqual(len(cells), 3)
+        self.assertEqual(cells[0]["text"], "Cash and cash equivalents")
+        self.assertEqual(cells[0]["bbox"], [50.0, 70.82, 120.06, 9.25])
+        self.assertEqual(cells[1]["text"], "$14,250")
+        self.assertEqual(cells[1]["bbox"], [203.42, 70.82, 36.14, 9.25])
+        self.assertEqual(cells[2]["text"], "$11,800")
+        self.assertEqual(cells[2]["bbox"], [261.80, 70.82, 36.14, 9.25])
+
+        # Verify cells have strictly disjoint horizontal coordinate intervals
+        self.assertLess(cells[0]["bbox"][0] + cells[0]["bbox"][2], cells[1]["bbox"][0])
+        self.assertLess(cells[1]["bbox"][0] + cells[1]["bbox"][2], cells[2]["bbox"][0])
+
+        # Check that ContentBlock is tagged table_row with cell extra
+        cash_block = next((b for b in p1.blocks if "Cash and cash equivalents" in b.text), None)
+        self.assertIsNotNone(cash_block)
+        self.assertEqual(cash_block.block_type, "table_row")
+        self.assertEqual(len(cash_block.extra["cells"]), 3)
+
     def test_adversarial_fax_stamp_noise_segmentation(self):
         """Assert rubber stamps and fax headers are cleanly segmented into noise blocks without chunk body pollution."""
         fax_fixture = os.path.join(FIXTURES_DIR, "adversarial_fax_stamp.pdf")

@@ -81,6 +81,7 @@ class TestEvalAdversarial(unittest.TestCase):
             ("adversarial_redline.docx", DocType.WORK_PRODUCT),
             ("adversarial_fax_stamp.pdf", DocType.AUTHORITY),
             ("adversarial_blank_scan.pdf", DocType.AUTHORITY),
+            ("heldout_borderless_financial.pdf", DocType.WORK_PRODUCT),
         ]
 
         cls.reports = {}
@@ -122,6 +123,16 @@ class TestEvalAdversarial(unittest.TestCase):
         self.assertEqual(top.filename, "adversarial_redline.docx")
         self.assertIn("twelve (12) months", top.text)
         self.assertNotIn("six (6) months", top.text, "Deleted text must not leak into substantive chunk text")
+
+    def test_borderless_financial_table_retrieval(self):
+        """Verify borderless financial statement retrieves row with intact multi-column values without column shredding."""
+        hits = self.nexus.search("Cash and cash equivalents $14,250", workspace="AdversarialWorkspace", limit=3)
+        self.assertGreater(len(hits), 0)
+        top = hits[0]
+        self.assertEqual(top.filename, "heldout_borderless_financial.pdf")
+        self.assertIn("Cash and cash equivalents", top.text)
+        self.assertIn("$14,250", top.text)
+        self.assertIn("$11,800", top.text)
 
     def test_fax_stamp_pdf_retrieval(self):
         """Verify real scanned fax PDF with noise and red stamp retrieves indemnification terms."""

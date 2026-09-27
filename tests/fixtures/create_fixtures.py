@@ -318,6 +318,21 @@ def create_heldout_fixtures(target_dir: str):
     # Low resolution 150 DPI
     med_img.save(os.path.join(target_dir, "heldout_medical_scan_150dpi.pdf"), "PDF", resolution=150.0)
 
+    # 8b. Held-out Borderless Multi-Column Financial Balance Sheet PDF & TXT
+    borderless_balance_sheet_lines = [
+        "CONSOLIDATED BALANCE SHEETS",
+        "Three Years Ended December 31, 2026 (in millions)",
+        "Cash and cash equivalents            $14,250        $11,800",
+        "Marketable securities                $28,400        $24,100",
+        "Accounts receivable                   $8,950         $7,600",
+        "Inventories                           $4,120         $3,850",
+        "Total current assets                 $55,720        $47,350",
+    ]
+    with open(os.path.join(target_dir, "heldout_borderless_financial.pdf"), "wb") as f:
+        f.write(build_simple_digital_pdf([borderless_balance_sheet_lines]))
+    with open(os.path.join(target_dir, "heldout_borderless_financial.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(borderless_balance_sheet_lines))
+
     # 9. Held-out Redacted Court Protective Order PDF
     red_img = Image.new("RGB", (1200, 1600), color="white")
     r_draw = ImageDraw.Draw(red_img)
