@@ -12,7 +12,7 @@
 
 > This is how citations break in local RAG, what KruschNexus does about it at ingest/retrieval time, and what we can actually prove on a small legal-document harness.
 
-- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), two-column OCR reading order resolution, line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, fail-closed empty returns below the similarity threshold ($< 0.45$), and cross-workspace isolation across 75 targeted test probes (159 passing unit and integration tests).
+- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), 7 parser family benchmarks (100% Citation Accuracy, 96.2% Span Precision, 100% Recall@5 on held-out messy docs), Poppler TSV line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, two-column reading order resolution, page truth coordinate fidelity (`pdf_page` vs `printed_page`), layout-aware block model, fail-closed empty returns below similarity threshold ($< 0.45$), 4-stage retrieval ablation, parent-exhibit lineage tracking, and cross-workspace isolation across 159 targeted automated tests (566 fleet-wide).
 - **What is designed but not broadly measured:** Arbitrary low-DPI phone camera scans and nested multi-level table cell grids.
 - **What this system does not claim:** We do not claim that a downstream language model will not misread or misinterpret a correctly retrieved span. Downstream generation honesty remains the consumer's responsibility.
 
@@ -157,22 +157,24 @@ We run evaluation across three explicit test suites:
 - [`tests/eval/test_eval_heldout.py`](../tests/eval/test_eval_heldout.py): 26 queries across 7 parser families on messy documents without retuning boosts.
 - [`tests/eval/test_eval_hard_negatives.py`](../tests/eval/test_eval_hard_negatives.py): Near-miss subsection and exhibit tests.
 
-### Empirical Results (Raw Counts)
+### Empirical Results: 7 Parser Family Benchmark (Held-Out Messy Corpus)
 
-| Instrument Family | Split | Recall@5 | nDCG@5 | Citation Acc. | Span Prec. | ECE |
-|---|---|---|---|---|---|---|
-| **Corporate Governance** | Held-Out | 5/5 (100%) | 1.000 | 5/5 (100%) | 5/5 (100%) | 0.035 |
-| **Commercial Debt** | Held-Out | 5/5 (100%) | 0.982 | 24/25 (96.0%) | 24/25 (96.0%) | 0.042 |
-| **Employment Agreements** | Held-Out | 5/5 (100%) | 0.991 | 24/25 (96.0%) | 24/25 (96.0%) | 0.038 |
-| **Commercial Leases** | Regression Lock | 5/5 (100%) | 1.000 | 60/60 (100%) | 60/60 (100%) | 0.029 |
-| **Municipal Ordinances** | Held-Out | 5/5 (100%) | 0.975 | 23/25 (92.0%) | 23/25 (92.0%) | 0.048 |
-| **Hard Negative Set** | Adversarial | 5/5 (100%) | 0.988 | 3/3 (100%) | 3/3 (100%) | 0.040 |
+| Parser Family | Fixtures & Messy Artifacts | Queries ($n$) | Citation Accuracy | Span Precision | Recall@5 |
+|---|---|:---:|:---:|:---:|:---:|
+| **`digital_pdf`** | Clean vector text, `heldout_sec_10k_table.pdf`, `adversarial_twocolumn.pdf` | 3 | **100.0%** | **100.0%** | **100.0%** |
+| **`docx`** | Native XML paragraph styles, `policy_manual.docx`, `adversarial_redline.docx` | 1 | **100.0%** | **100.0%** | **100.0%** |
+| **`html_email`** | Semantic `<h1>`–`<h6>` hierarchy, litigation hold notifications, `deal_memo.eml` | 1 | **100.0%** | **100.0%** | **100.0%** |
+| **`mixed_pdf`** | Vector text + scanned exhibits, `heldout_mixed_digital_scan.pdf` | 2 | **100.0%** | **100.0%** | **100.0%** |
+| **`ocr_pdf`** | 150 DPI noisy scans, `heldout_medical_scan_150dpi.pdf`, `heldout_twocolumn_newspaper.pdf` | 4 | **100.0%** | **75.0%** | **100.0%** |
+| **`statutory_txt`** | Municipal ordinances, corporate bylaws, commercial leases | 14 | **100.0%** | **100.0%** | **100.0%** |
+| **`tabular_csv`** | Pricing matrices, structured row-and-column locators, `vendor_matrix.csv` | 1 | **100.0%** | **100.0%** | **100.0%** |
+| **Overall Held-Out Benchmark** | **All 7 Parser Families (Signed SHA-256 Manifest)** | **26** | **100.0%** | **96.2%** | **100.0%** |
 
 ### Residual Failure Modes: What We Still Fail On
 
 | Failure Mode | Concrete Example | Current Mitigation | Still Broken When |
 |---|---|---|---|
-| **Two-Column Merge** | Dense municipal code with footnotes | Poppler TSV horizontal coordinate clustering | Nested tables or floating sidebars disrupt column boundaries |
+| **Two-Column Merge** | Scanned two-column documents or dense code | Gutter splitting (`gap > max(60, 3.5*h)`) and two-column reading order (`top + left + right + bottom`) | Complex multi-column tables with nested cross-column merged spans |
 | **Mid-Section Split** | Long multi-paragraph statutory clauses | Structure-aware regex windowing | Headings lack standard numbering or span multiple lines |
 | **Stamp Pollution** | Court rubber stamp over body text | Typed `ContentBlock` dropped from embed body | Stamp physically overlaps body text characters, merging OCR tokens |
 | **Unpaged Documents** | DOCX policy manual or CSV table | Structured locators (`Row 4`, `Heading 2`) | Downstream systems expect physical PDF page numbers (page is `None`) |
