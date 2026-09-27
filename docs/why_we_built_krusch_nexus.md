@@ -4,7 +4,7 @@
 > **Author**: Kevin Ruschman  
 > **Date**: September 2026  
 > **Repository**: [github.com/kruschdev/krusch-nexus](https://github.com/kruschdev/krusch-nexus)  
-> **Status**: v0.2.3 — Usable Spine, Small Corpus  
+> **Status**: v0.2.4 — Usable Spine, Small Corpus  
 
 ---
 
@@ -20,7 +20,7 @@
 
 ## 1. The Failure Demo: One Document End-to-End
 
-To understand why citations break, consider a single real test fixture from the repository: [`sample_contract.pdf`](file:///home/krusch/homelab/projects/krusch-nexus/tests/fixtures/sample_contract.pdf).
+To understand why citations break, consider a single real test fixture from the repository: [`sample_contract.pdf`](../tests/fixtures/sample_contract.pdf).
 
 ### Step 1: Raw Page Text
 ```text
@@ -47,7 +47,7 @@ In a standard LangChain ingestion setup using `RecursiveCharacterTextSplitter(ch
 When an LLM retrieves this chunk, it has no record of whether Section 8.22 was on Page 1, Page 3, or in an exhibit. If prompted for a page citation, it must hallucinate one from context words.
 
 ### Step 3: What KruschNexus Emits
-Here is the actual serialized JSON emitted by KruschNexus (v0.2.3) for the query `"commercial office space Section 8.22"`:
+Here is the actual serialized JSON emitted by KruschNexus (v0.2.4) for the query `"commercial office space Section 8.22"`:
 ```json
 {
   "schema_version": "1.0",
@@ -69,7 +69,7 @@ Here is the actual serialized JSON emitted by KruschNexus (v0.2.3) for the query
 ```
 
 ### Step 4: The Round-Trip Check
-We verify this contract directly in [`tests/unit/test_span_locator.py`](file:///home/krusch/homelab/projects/krusch-nexus/tests/unit/test_span_locator.py):
+We verify this contract directly in [`tests/unit/test_span_locator.py`](../tests/unit/test_span_locator.py):
 ```python
 # Round-trip verification:
 raw_bytes = open("sample_contract.pdf", "rb").read()
@@ -101,7 +101,7 @@ Three specific defects in standard RAG pipelines destroy locator fidelity:
 2. **Retrieval quality (Measured & Incomplete):** The most relevant span was ranked first in the top-k results. We measure this empirically across test fixtures, but make no universal claims across unseen corpora.
 3. **Generation honesty (Consumer Responsibility):** A downstream language model will not misread, embellish, or fabricate facts from a valid span. This belongs strictly to the consumer's prompt and LLM layer.
 
-| Architecture Layer | LangChain Splitter + pgvector Cosine | KruschNexus (v0.2.3) |
+| Architecture Layer | LangChain Splitter + pgvector Cosine | KruschNexus (v0.2.4) |
 |---|---|---|
 | **Responsibility** | Full-stack wrapper (Chat UI + Prompts + Agent Loops + Vector Search) | **Dedicated Corpus Factory & Citation Spine**. Emits verified spans for other tools. |
 | **Citation Target** | Estimated page number from token index | **Physical Page, Character Offsets, & PDF Bounding Box** |
@@ -150,9 +150,9 @@ nexus search '"commercial office space" -warehouse doc_type:authority page:1' --
 
 We run evaluation across three explicit test suites:
 
-- [`tests/eval/test_eval_regression.py`](file:///home/krusch/homelab/projects/krusch-nexus/tests/eval/test_eval_regression.py): 60 queries locked against 6 frozen fixtures.
-- [`tests/eval/test_eval_heldout.py`](file:///home/krusch/homelab/projects/krusch-nexus/tests/eval/test_eval_heldout.py): 25 queries across 5 unseen legal instruments without retuning boosts.
-- [`tests/eval/test_eval_hard_negatives.py`](file:///home/krusch/homelab/projects/krusch-nexus/tests/eval/test_eval_hard_negatives.py): Near-miss subsection and exhibit tests.
+- [`tests/eval/test_eval_regression.py`](../tests/eval/test_eval_regression.py): 60 queries locked against 6 frozen fixtures.
+- [`tests/eval/test_eval_heldout.py`](../tests/eval/test_eval_heldout.py): 26 queries across 7 parser families on messy documents without retuning boosts.
+- [`tests/eval/test_eval_hard_negatives.py`](../tests/eval/test_eval_hard_negatives.py): Near-miss subsection and exhibit tests.
 
 ### Empirical Results (Raw Counts)
 

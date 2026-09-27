@@ -1,6 +1,6 @@
 # KruschNexus Security & Threat Model
 
-This document specifies the threat model, attack surface, defensive controls, and operational boundaries of **KruschNexus** (v0.2.3).
+This document specifies the threat model, attack surface, defensive controls, and operational boundaries of **KruschNexus** (v0.2.4).
 
 ---
 
