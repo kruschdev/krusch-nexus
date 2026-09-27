@@ -1,6 +1,6 @@
 # KruschNexus
 
-> **Status**: v0.2.4 — 159 passing tests, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
+> **Status**: v0.2.4 — 161 passing tests, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

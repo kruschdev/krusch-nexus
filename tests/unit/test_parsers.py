@@ -196,6 +196,37 @@ class TestParsers(unittest.TestCase):
         self.assertIn("poppler", doc.tool_versions)
         self.assertIn("tesseract", doc.tool_versions)
 
+    def test_docx_tracked_changes_redline(self):
+        """
+        Verify DOCX parser extracts native Word tracked changes (<w:del> and <w:ins>)
+        into PageData.extra['redline_changes'] while keeping body text clean of deleted runs.
+        """
+        docx_path = os.path.join(FIXTURES_DIR, "adversarial_redline.docx")
+        self.assertTrue(os.path.exists(docx_path), "adversarial_redline.docx fixture must exist")
+
+        doc = parse_docx(docx_path, "adversarial_redline.docx")
+        self.assertEqual(doc.total_pages, 1)
+        p0 = doc.pages[0]
+
+        # Verify substantive body text includes accepted insertion and excludes deleted text
+        self.assertIn("twelve (12) months", p0.text)
+        self.assertNotIn("six (6) months", p0.text)
+
+        # Verify PageData.extra contains structured redline change audit trail
+        self.assertIn("redline_changes", p0.extra)
+        changes = p0.extra["redline_changes"]
+        self.assertEqual(len(changes), 2)
+
+        del_change = next((c for c in changes if c["type"] == "deletion"), None)
+        self.assertIsNotNone(del_change)
+        self.assertEqual(del_change["text"], "six (6) months")
+        self.assertEqual(del_change["author"], "Outside Counsel")
+
+        ins_change = next((c for c in changes if c["type"] == "insertion"), None)
+        self.assertIsNotNone(ins_change)
+        self.assertEqual(ins_change["text"], "twelve (12) months")
+        self.assertEqual(ins_change["author"], "Compensation Committee")
+
 
 if __name__ == "__main__":
     unittest.main()

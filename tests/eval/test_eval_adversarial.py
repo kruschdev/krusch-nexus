@@ -78,6 +78,7 @@ class TestEvalAdversarial(unittest.TestCase):
         cls.adversarial_files = [
             ("adversarial_twocolumn.pdf", DocType.AUTHORITY),
             ("adversarial_redline.pdf", DocType.WORK_PRODUCT),
+            ("adversarial_redline.docx", DocType.WORK_PRODUCT),
             ("adversarial_fax_stamp.pdf", DocType.AUTHORITY),
             ("adversarial_blank_scan.pdf", DocType.AUTHORITY),
         ]
@@ -112,6 +113,15 @@ class TestEvalAdversarial(unittest.TestCase):
         self.assertEqual(top.filename, "adversarial_redline.pdf")
         self.assertTrue("1250000" in top.text or "1,250,000" in top.text)
         self.assertIn("Settlement Consideration", top.text)
+
+    def test_redline_docx_retrieval(self):
+        """Verify real redlined DOCX with tracked changes (<w:del> and <w:ins>) retrieves amended provision."""
+        hits = self.nexus.search("Section 5.1 Lump Sum Severance twelve months Base Salary", workspace="AdversarialWorkspace", limit=3)
+        self.assertGreater(len(hits), 0)
+        top = hits[0]
+        self.assertEqual(top.filename, "adversarial_redline.docx")
+        self.assertIn("twelve (12) months", top.text)
+        self.assertNotIn("six (6) months", top.text, "Deleted text must not leak into substantive chunk text")
 
     def test_fax_stamp_pdf_retrieval(self):
         """Verify real scanned fax PDF with noise and red stamp retrieves indemnification terms."""
