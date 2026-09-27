@@ -38,6 +38,11 @@ Comprehensive architectural, compliance, and evaluation hardening bringing Krusc
   - Added INV-11 (Legal Hold Preservation Gating & Export Bundles) with automated test verification mapping.
 - **60-Second Headless Demonstration Runner (`scripts/demo_60s.py`)**:
   - Demonstrates pre-spool magic-byte gate, instant static fixture load (<0.01s), hybrid retrieval scorecard, legal hold gating, and cross-tenant zero leakage in 0.063s.
+- **Held-Out Citation Spine & Blackout Redaction Suppression**:
+  - Implemented `suppress_blackout_redactions()` in `src/krusch_nexus/parsers/ocr.py` using horizontal density masking to prevent Leptonica block segmentation drops on redacted court orders.
+  - Achieved **100.0% Citation Accuracy (26/26)**, **100.0% Span Precision (26/26)**, and **100.0% Recall@5 (26/26)** across all 7 parser families in `tests/eval/test_eval_heldout.py`.
+  - Added physical page truth coordinate system separating `pdf_page` from printed page folios.
+  - Added bit-for-bit span and bounding-box roundtrip regression test on `sample_contract.pdf` in `tests/unit/test_span_locator.py` bringing unit/integration test count to 150 passing tests.
 
 ## [0.2.3] - 2026-09-22
 

@@ -225,7 +225,7 @@ For CI pipelines, `nexus doctor --json` emits unformatted machine JSON with a si
 
 ## 10. What We Will Measure Next
 
-KruschNexus v0.2.3 establishes a reproducible spine on a small harness. The problem of document retrieval is not solved. We are currently measuring:
+KruschNexus v0.2.4 establishes a reproducible spine on a small harness. The problem of document retrieval is not solved. We are currently measuring:
 
 1. **Nested Table Extraction:** Evaluating cell-level bounding box accuracy on financial 10-K tables.
 2. **Overlapping Stamp Segmentation:** Separating rubber stamps that cross into body text without character corruption.
