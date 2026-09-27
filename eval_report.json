@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "corpus_version": "0.2.4",
-  "generated_at": "2026-09-26T23:46:02.961651+00:00",
-  "commit": "deec20104d8a9a673d0e23dceb77b63bc2088a7b",
+  "generated_at": "2026-09-27T16:43:46.204835+00:00",
+  "commit": "fefaa626de572b59887ad9680ed3b77a97da3a2c",
   "release_gates": {
     "regression_recall_at_5": {
       "gate": 1.0,

@@ -151,6 +151,47 @@ class TestNexusClient(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertIn("SECTION 10.1", hits[0].citation)
 
+    def test_cli_parse_command(self):
+        """Verify CLI 'nexus parse' and 'nexus parse --jsonl' execute in library mode without database setup."""
+        import subprocess
+        import sys
+        import json
+
+        fixture_pdf = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures", "sample_contract.pdf")
+        if not os.path.exists(fixture_pdf):
+            self.skipTest("sample_contract.pdf fixture not found")
+
+        # Test human-readable CLI output
+        proc = subprocess.run(
+            [sys.executable, "-m", "krusch_nexus.cli", "parse", fixture_pdf],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Nexus Library Mode — Standalone Document Analysis", proc.stdout)
+        self.assertIn("Total Pages: 2", proc.stdout)
+        self.assertIn("Total Chunks: 2", proc.stdout)
+        self.assertIn("sample_contract.pdf p.1 Section 8.22 Permitted Use of Premises", proc.stdout)
+
+        # Test --jsonl CLI output
+        proc_jsonl = subprocess.run(
+            [sys.executable, "-m", "krusch_nexus.cli", "parse", "--jsonl", fixture_pdf],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        self.assertEqual(proc_jsonl.returncode, 0)
+        chunks = [json.loads(line) for line in proc_jsonl.stdout.strip().splitlines() if line.strip()]
+        self.assertEqual(len(chunks), 2)
+        c0 = chunks[0]
+        self.assertEqual(c0["citation"], "sample_contract.pdf p.1 Section 8.22 Permitted Use of Premises")
+        self.assertEqual(c0["page_number"], 1)
+        self.assertEqual(c0["char_start"], 0)
+        self.assertEqual(c0["char_end"], 66)
+        self.assertEqual(c0["bbox"], [50.0, 83.38, 212.75, 41.1])
+        self.assertTrue(c0["metadata"]["library_mode"])
+
 
 if __name__ == "__main__":
     unittest.main()

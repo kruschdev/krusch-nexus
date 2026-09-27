@@ -388,7 +388,7 @@ def cmd_parse(args):
         print(f"File:        {parser_result.filename}")
         print(f"Format/MIME: {parser_result.mime}")
         print(f"Total Pages: {parser_result.total_pages}")
-        print(f"Total Chunks:{len(chunks)}")
+        print(f"Total Chunks: {len(chunks)}")
         print("=" * 60)
         for i, c in enumerate(chunks[:5], start=1):
             print(f"\n[{i}] Citation: {c.get('citation')}")
