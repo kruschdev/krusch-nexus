@@ -197,8 +197,7 @@ def try_tesseract_ocr(
                     current_line_words: List[str] = []
                     current_line_boxes: List[Tuple[float, float, float, float]] = []
                     current_line_confs: List[float] = []
-                    current_line_num: Optional[int] = None
-                    current_block_num: Optional[int] = None
+                    current_key: Optional[Tuple[int, int, int]] = None
 
                     def _flush_line():
                         if not current_line_words:
@@ -230,6 +229,7 @@ def try_tesseract_ocr(
                         if len(parts) >= 12:
                             try:
                                 block_num = int(parts[2])
+                                par_num = int(parts[3])
                                 line_num = int(parts[4])
                                 left = float(parts[6])
                                 top = float(parts[7])
@@ -241,13 +241,13 @@ def try_tesseract_ocr(
                                 if conf >= 0 and w_text:
                                     confs.append(conf)
                                     words.append(w_text)
-                                    if current_line_num is not None and (line_num != current_line_num or (current_block_num is not None and block_num != current_block_num)):
+                                    key = (block_num, par_num, line_num)
+                                    if current_key is not None and key != current_key:
                                         _flush_line()
                                         current_line_words = []
                                         current_line_boxes = []
                                         current_line_confs = []
-                                    current_line_num = line_num
-                                    current_block_num = block_num
+                                    current_key = key
                                     current_line_words.append(w_text)
                                     current_line_boxes.append((left, top, width, height))
                                     current_line_confs.append(conf)

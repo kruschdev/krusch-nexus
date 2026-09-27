@@ -5,6 +5,7 @@ Verifies heading breadcrumb propagation, sentence splitting, and overlap preserv
 
 import unittest
 from krusch_nexus.parsers import ParsedPage
+from krusch_nexus.models import PageData
 from krusch_nexus.chunking import chunk_document_pages, detect_header_candidate
 
 
@@ -149,6 +150,36 @@ class TestChunking(unittest.TestCase):
         # 5. Non-statute query
         c5 = normalize_statute_citation("general contract terms for office lease")
         self.assertFalse(c5["matched"])
+
+    def test_streaming_large_binder_chunks(self):
+        """Assert iter_chunk_document_pages streams chunks across 100+ pages from a generator without list allocation."""
+        from krusch_nexus.chunking import iter_chunk_document_pages
+
+        def generate_100_pages():
+            for p in range(1, 101):
+                yield PageData(
+                    index=p,
+                    pdf_page=p,
+                    text=f"Section {p}.1 Production Record\n\nDiscovery production disclosure text for binder document page {p}."
+                )
+
+        # Stream chunks from page generator
+        chunk_iter = iter_chunk_document_pages(
+            pages=generate_100_pages(),
+            filename="discovery_binder_100p.pdf",
+            file_hash="dummy_binder_hash_100"
+        )
+
+        chunk_count = 0
+        seen_pages = set()
+        for c in chunk_iter:
+            chunk_count += 1
+            seen_pages.add(c.page_number)
+            self.assertIn("Section", c.header)
+            self.assertIn(f"Section {c.page_number}.1", c.text)
+
+        self.assertEqual(chunk_count, 100)
+        self.assertEqual(len(seen_pages), 100)
 
 
 if __name__ == "__main__":

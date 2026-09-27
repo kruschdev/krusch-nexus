@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from .client import NexusClient, Nexus
 from .workspace import export_workspace, import_workspace, export_legal_hold_bundle
+from .chunking import chunk_document_pages, iter_chunk_document_pages
 from .models import (
     NexusConfig,
     IngestRequest,
@@ -110,6 +111,8 @@ __all__ = [
     "Nexus",
     "parse_file",
     "parse_and_chunk_file",
+    "chunk_document_pages",
+    "iter_chunk_document_pages",
     "NexusConfig",
     "IngestRequest",
     "IngestReport",

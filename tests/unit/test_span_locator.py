@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import unittest
 
-from krusch_nexus import NexusClient, NexusConfig, DocType
+from krusch_nexus import NexusClient, NexusConfig, DocType, parse_and_chunk_file
 from krusch_nexus.store import init_db, get_engine
 from krusch_nexus.parsers.pdf import parse_pdf, BATES_REGEX, EXHIBIT_STAMP_REGEX, FAX_STAMP_REGEX
 from krusch_nexus.chunking import chunk_document_pages
@@ -281,6 +281,34 @@ class TestSpanLocator(unittest.TestCase):
         rnd_block = next((b for b in p1.blocks if "Research and Development" in b.text), None)
         self.assertIsNotNone(rnd_block)
         self.assertEqual(rnd_block.bbox, [50.0, 178.82, 332.08, 9.25])
+
+    def test_adversarial_fax_stamp_noise_segmentation(self):
+        """Assert rubber stamps and fax headers are cleanly segmented into noise blocks without chunk body pollution."""
+        fax_fixture = os.path.join(FIXTURES_DIR, "adversarial_fax_stamp.pdf")
+        if not os.path.exists(fax_fixture):
+            self.skipTest("adversarial_fax_stamp.pdf fixture not found")
+
+        res, chunks = parse_and_chunk_file(fax_fixture)
+        self.assertEqual(len(res.pages), 1)
+        p1 = res.pages[0]
+
+        # Verify noise blocks are categorized into typed ContentBlock instances
+        noise_types = {getattr(b, "block_type", "") for b in p1.blocks}
+        self.assertIn("fax_stamp", noise_types)
+        self.assertIn("exhibit_stamp", noise_types)
+        self.assertIn("header_footer", noise_types)
+
+        # Verify exactly 2 substantive contract chunks are produced (no bogus stamp-only chunks)
+        self.assertEqual(len(chunks), 2)
+        headers = [c["header"] for c in chunks]
+        self.assertIn("Section 12.4 Indemnification and Defense Obligations", headers)
+        self.assertIn("Section 125 Limitation of Liability", headers)
+
+        # Verify noise strings are excluded from substantive chunk text
+        for ch in chunks:
+            self.assertNotIn("FAX TRANSMISSION", ch["text"])
+            self.assertNotIn("SeP.222026", ch["text"])
+            self.assertNotIn("RECEIVED", ch["text"])
 
 
 if __name__ == "__main__":

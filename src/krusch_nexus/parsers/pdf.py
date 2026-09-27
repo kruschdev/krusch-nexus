@@ -85,7 +85,11 @@ def _pdf_contains_images(file_path: str) -> bool:
 
 BATES_REGEX = re.compile(r'^(?:[A-Z]{2,12}[-_\s]*\d{4,12}|[A-Z]{2,12}\s*#\s*\d{4,12})$', re.IGNORECASE)
 EXHIBIT_STAMP_REGEX = re.compile(
-    r'^(?:(?:EXHIBIT|(?:PLTF|DEF|GOV|STATE)\s+EX(?:HIBIT)?)\s*(?:#|NO\.?)?\s*[\w\.\-]+|FILED\s+(?:IN\s+CLERK\'?S\s+OFFICE|BY\s+COURT)?\s*[\d\/\-]+)$',
+    r'^(?:(?:EXHIBIT|(?:PLTF|DEF|GOV|STATE)\s+EX(?:HIBIT)?)\s*(?:#|NO\.?)?\s*[\w\.\-]+'
+    r'|FILED\s+(?:IN\s+CLERK\'?S\s+OFFICE|BY\s+COURT)?\s*[\d\/\-]+'
+    r'|(?:REC(?:EIV)?(?:ED)?[\s\W_gG&]*FILED|FILED[\s\W_gG&]*REC(?:EIV)?(?:ED)?)'
+    r'|(?:(?:REC(?:EIV)?(?:ED)?|FILED|ENTERED|SERVED|MAILED|POSTED)\b[\s&/]*)*(?:(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[\s\.,\-_]*\d{1,2}[\s\.,\-_]*\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})'
+    r'|(?:(?:REC(?:EIV)?(?:ED)?|FILED|ENTERED)[\s&/]*)+)$',
     re.IGNORECASE
 )
 FAX_STAMP_REGEX = re.compile(r'^(?:(?:TRANSMISSION|FAX|SENT|RCVD)\s*(?:OK|RECORD|REPORT|BY)?|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?\s*(?:FAX|PAGE)?)\b', re.IGNORECASE)
@@ -134,13 +138,13 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
             l_low = line.lower()
             l_strip = line.strip()
             is_bates = bool(BATES_REGEX.search(l_strip)) and len(l_strip) <= 30
-            is_exhibit = bool(EXHIBIT_STAMP_REGEX.search(l_strip)) and len(l_strip) <= 45
-            is_fax = bool(FAX_STAMP_REGEX.search(l_strip)) and len(l_strip) <= 50
-            is_conf = bool(CONFIDENTIAL_REGEX.search(l_low)) and len(l_strip) <= 60
+            is_exhibit = bool(EXHIBIT_STAMP_REGEX.search(l_strip)) and len(l_strip) <= 50
+            is_fax = bool(FAX_STAMP_REGEX.search(l_strip)) and len(l_strip) <= 120
+            is_conf = bool(CONFIDENTIAL_REGEX.search(l_low)) and len(l_strip) <= 80
             is_pacer = bool(PACER_DOCKET_REGEX.search(line)) and len(l_strip) <= 80
             is_pagenum = bool(PAGE_NUM_REGEX.search(l_low)) and len(l_strip) <= 20
 
-            is_top = (idx < 2) and (l_low in suppress_top or is_conf or is_pacer)
+            is_top = (idx < 4) and (l_low in suppress_top or is_conf or is_pacer)
             is_bottom = (idx >= len(lines) - 2) and (l_low in suppress_bottom or is_pagenum)
 
             if is_bates:

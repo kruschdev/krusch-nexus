@@ -12,7 +12,7 @@ Splits multi-page documents into structure-aware chunks while:
 import re
 import hashlib
 import logging
-from typing import List, Dict, Any, Optional, Set, Tuple
+from typing import List, Dict, Any, Optional, Set, Tuple, Iterator, Iterable
 
 from .models import PageData, DocType, StructuredLocator, format_citation
 
@@ -298,35 +298,13 @@ def union_bboxes(bboxes: List[List[float]]) -> Optional[List[float]]:
     return [round(min_x, 2), round(min_y, 2), round(max_r - min_x, 2), round(max_b - min_y, 2)]
 
 
-def chunk_document_pages(
-    pages: List[PageData],
-    filename: str,
-    file_hash: str,
-    max_chars: int = 1800,
-    overlap_chars: int = 150,
-    doc_type: DocType = DocType.GENERAL,
-    base_metadata: Optional[Dict[str, Any]] = None,
-    chunker_version: str = "1.0",
-    embed_model: str = "bge-large"
-) -> List[Chunk]:
+def iter_page_elements(
+    pages: Iterable[PageData]
+) -> Iterator[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]], Optional[str]]]:
     """
-    Split document pages into structure-aware chunks.
-    - Embed text is purely raw section text.
-    - source_hash is calculated strictly on raw_text.
-    - Heading stacks are tracked across the document.
-    - Overlap flows structurally across boundaries.
-    - Tracks char_start / char_end spatial offsets and PDF bounding boxes.
+    Stream flattened document element tuples across pages with spatial provenance:
+    (page_num, locator, text, confidence, char_start, char_end, is_header, bbox, printed_page)
     """
-    chunks: List[Chunk] = []
-    global_chunk_idx = 0
-    heading_stack: List[str] = []
-
-    base_meta = dict(base_metadata or {})
-    resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
-    base_meta["doc_type"] = resolved_doc_type
-
-    # Flatten all elements with provenance: (page_num, locator, text, confidence, char_start, char_end, is_header, bbox, printed_page)
-    elements: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]], Optional[str]]] = []
     for p in pages:
         p_text = p.text
         if not p_text.strip():
@@ -359,12 +337,12 @@ def chunk_document_pages(
             if hdr or (is_para_break and curr_lines):
                 if curr_lines:
                     comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
-                    elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg))
+                    yield (page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg)
                     curr_lines = []
                     curr_bboxes = []
                     c_start = None
                 if hdr:
-                    elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox, printed_pg))
+                    yield (page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox, printed_pg)
                 else:
                     c_start = match.start()
                     curr_lines.append(line)
@@ -382,10 +360,34 @@ def chunk_document_pages(
 
         if curr_lines:
             comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
-            elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg))
+            yield (page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg)
 
-    if not elements:
-        return []
+
+def iter_chunk_document_pages(
+    pages: Iterable[PageData],
+    filename: str,
+    file_hash: str,
+    max_chars: int = 1800,
+    overlap_chars: int = 150,
+    doc_type: DocType = DocType.GENERAL,
+    base_metadata: Optional[Dict[str, Any]] = None,
+    chunker_version: str = "1.0",
+    embed_model: str = "bge-large"
+) -> Iterator[Chunk]:
+    """
+    Stream structure-aware document chunks without loading entire binders into RAM:
+    - Embed text is purely raw section text.
+    - source_hash is calculated strictly on raw_text.
+    - Heading stacks are tracked across the document.
+    - Overlap flows structurally across boundaries.
+    - Tracks char_start / char_end spatial offsets and PDF bounding boxes.
+    """
+    global_chunk_idx = 0
+    heading_stack: List[str] = []
+
+    base_meta = dict(base_metadata or {})
+    resolved_doc_type = doc_type.value if isinstance(doc_type, DocType) else str(doc_type)
+    base_meta["doc_type"] = resolved_doc_type
 
     current_items: List[Tuple[Optional[int], Optional[str], str, Optional[float], Optional[int], Optional[int], bool, Optional[List[float]], Optional[str]]] = []
     current_len = 0
@@ -394,10 +396,10 @@ def chunk_document_pages(
     has_body_in_chunk = False
     has_operative_in_chunk = False
 
-    def flush_current_chunk(clear_overlap: bool = False):
+    def flush_current_chunk(clear_overlap: bool = False) -> Optional[Chunk]:
         nonlocal global_chunk_idx, current_items, current_len, overlap_item_count, has_body_in_chunk, has_operative_in_chunk
         if not current_items:
-            return
+            return None
 
         raw_chunk = "\n\n".join(item[2] for item in current_items).strip()
 
@@ -463,7 +465,6 @@ def chunk_document_pages(
             embed_model=embed_model
         )
         chunk_obj.heading_path = list(s_loc.path)
-        chunks.append(chunk_obj)
         global_chunk_idx += 1
 
         if clear_overlap:
@@ -472,7 +473,7 @@ def chunk_document_pages(
             overlap_item_count = 0
             has_body_in_chunk = False
             has_operative_in_chunk = False
-            return
+            return chunk_obj
 
         overlap_items = []
         accum = 0
@@ -489,15 +490,18 @@ def chunk_document_pages(
         current_len = sum(len(x[2]) for x in current_items) + 2 * max(0, len(current_items) - 1)
         has_body_in_chunk = any(not x[6] for x in current_items)
         has_operative_in_chunk = any(x[6] and bool(OPERATIVE_PATTERN.search(x[2]) or x[2].startswith('#')) for x in current_items)
+        return chunk_obj
 
-    for item in elements:
+    for item in iter_page_elements(pages):
         page_num, loc, para, conf, c_start, c_end, is_hdr, *rest = item
         first_line = para.split('\n')[0]
         detected = detect_header_candidate(first_line)
 
         # Flush on physical page boundary so hits on Page N strictly belong to Page N
         if current_items and current_items[0][0] is not None and page_num is not None and current_items[0][0] != page_num:
-            flush_current_chunk(clear_overlap=True)
+            flushed = flush_current_chunk(clear_overlap=True)
+            if flushed:
+                yield flushed
 
         if detected:
             is_operative = bool(OPERATIVE_PATTERN.search(first_line) or first_line.startswith('#'))
@@ -508,7 +512,9 @@ def chunk_document_pages(
                 elif current_items[0][0] != page_num:
                     should_flush = True
             if should_flush:
-                flush_current_chunk(clear_overlap=True)
+                flushed = flush_current_chunk(clear_overlap=True)
+                if flushed:
+                    yield flushed
             title = detected
             heading_stack = update_heading_stack(heading_stack, title)
             current_header = title
@@ -527,12 +533,16 @@ def chunk_document_pages(
             for s in sentences:
                 s_len = len(s)
                 if current_len + s_len + 2 > max_chars and current_items:
-                    flush_current_chunk()
+                    flushed = flush_current_chunk()
+                    if flushed:
+                        yield flushed
                 current_items.append((page_num, loc, s, conf, s_offset, s_offset + s_len, False, para_bbox, para_printed))
                 current_len += s_len + 2
                 s_offset += s_len + 1
         elif current_len + para_len + 2 > max_chars and current_items:
-            flush_current_chunk()
+            flushed = flush_current_chunk()
+            if flushed:
+                yield flushed
             current_items.append(item)
             current_len += para_len + 2
         else:
@@ -540,9 +550,41 @@ def chunk_document_pages(
             current_len += para_len + 2
 
     if current_items:
-        flush_current_chunk()
+        flushed = flush_current_chunk()
+        if flushed:
+            yield flushed
 
-    return chunks
+
+def chunk_document_pages(
+    pages: Iterable[PageData],
+    filename: str,
+    file_hash: str,
+    max_chars: int = 1800,
+    overlap_chars: int = 150,
+    doc_type: DocType = DocType.GENERAL,
+    base_metadata: Optional[Dict[str, Any]] = None,
+    chunker_version: str = "1.0",
+    embed_model: str = "bge-large"
+) -> List[Chunk]:
+    """
+    Split document pages into structure-aware chunks.
+    - Embed text is purely raw section text.
+    - source_hash is calculated strictly on raw_text.
+    - Heading stacks are tracked across the document.
+    - Overlap flows structurally across boundaries.
+    - Tracks char_start / char_end spatial offsets and PDF bounding boxes.
+    """
+    return list(iter_chunk_document_pages(
+        pages=pages,
+        filename=filename,
+        file_hash=file_hash,
+        max_chars=max_chars,
+        overlap_chars=overlap_chars,
+        doc_type=doc_type,
+        base_metadata=base_metadata,
+        chunker_version=chunker_version,
+        embed_model=embed_model
+    ))
 
 
 def deduplicate_chunks(chunks: List[Chunk], seen_hashes: Optional[Set[str]] = None) -> List[Chunk]:
