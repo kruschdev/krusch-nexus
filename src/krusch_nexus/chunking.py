@@ -342,6 +342,7 @@ def chunk_document_pages(
         c_start: Optional[int] = None
         c_end: Optional[int] = None
         curr_bboxes: List[List[float]] = []
+        prev_match_end: Optional[int] = None
 
         for match in re.finditer(r'[^\r\n]+', p_text):
             line = match.group(0).strip()
@@ -353,14 +354,23 @@ def chunk_document_pages(
             line_bbox = block_map.get(line)
             is_native = line in native_heading_set or line.startswith('#')
             hdr = line if is_native else detect_header_candidate(line)
-            if hdr:
+            is_para_break = prev_match_end is not None and (match.start() > prev_match_end + 1)
+
+            if hdr or (is_para_break and curr_lines):
                 if curr_lines:
                     comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None
                     elements.append((page_idx, p.locator, '\n'.join(curr_lines), p_conf, c_start, c_end, False, comb_bbox, printed_pg))
                     curr_lines = []
                     curr_bboxes = []
                     c_start = None
-                elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox, printed_pg))
+                if hdr:
+                    elements.append((page_idx, p.locator, line, p_conf, match.start(), match.end(), True, line_bbox, printed_pg))
+                else:
+                    c_start = match.start()
+                    curr_lines.append(line)
+                    if line_bbox:
+                        curr_bboxes.append(line_bbox)
+                    c_end = match.end()
             else:
                 if not curr_lines:
                     c_start = match.start()
@@ -368,6 +378,7 @@ def chunk_document_pages(
                 if line_bbox:
                     curr_bboxes.append(line_bbox)
                 c_end = match.end()
+            prev_match_end = match.end()
 
         if curr_lines:
             comb_bbox = union_bboxes(curr_bboxes) if curr_bboxes else None

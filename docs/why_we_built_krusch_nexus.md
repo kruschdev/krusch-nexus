@@ -51,18 +51,19 @@ Here is the actual serialized JSON emitted by KruschNexus (v0.2.4) for the query
 ```json
 {
   "schema_version": "1.0",
-  "citation": "sample_contract.pdf p.1 § COMMERCIAL LEASE AGREEMENT Section 8.22 Permitted Use of Premises",
+  "citation": "sample_contract.pdf p.1 Section 8.22 Permitted Use of Premises",
   "page_number": 1,
-  "header": "COMMERCIAL LEASE AGREEMENT Section 8.22 Permitted Use of Premises",
+  "header": "Section 8.22 Permitted Use of Premises",
   "heading_path": [
     "Page 1",
-    "COMMERCIAL LEASE AGREEMENT Section 8.22 Permitted Use of Premises"
+    "Commercial Lease Agreement",
+    "Section 8.22 Permitted Use of Premises"
   ],
   "char_start": 0,
-  "char_end": 65,
-  "bbox": [50.0, 113.38, 212.75, 11.1],
+  "char_end": 66,
+  "bbox": [50.0, 83.38, 212.75, 41.1],
   "match_reasons": ["dense_rank_1", "sparse_rank_1", "section_locator_match"],
-  "text": "COMMERCIAL LEASE AGREEMENT Section 8.22 Permitted Use of Premises",
+  "text": "COMMERCIAL LEASE AGREEMENT\n\nSection 8.22 Permitted Use of Premises",
   "score": 0.11279,
   "used_ocr": false
 }
@@ -76,8 +77,8 @@ We verify this contract directly in [`tests/unit/test_span_locator.py`](../tests
 extracted_text = parser_result.pages[hit.page_number - 1].text
 # Slice page text using exact retrieved character span bounds:
 assert extracted_text[hit.char_start:hit.char_end] == hit.text
-# Bounding box coordinates [50.0, 113.38, 212.75, 11.1] correspond to physical PDF points
-assert hit.bbox == [50.0, 113.38, 212.75, 11.1]
+# Bounding box coordinates [50.0, 83.38, 212.75, 41.1] correspond to physical PDF points
+assert hit.bbox == [50.0, 83.38, 212.75, 41.1]
 ```
 
 ### Step 5: Hard Negative Rejection

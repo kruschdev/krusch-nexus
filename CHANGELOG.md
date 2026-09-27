@@ -49,6 +49,10 @@ Comprehensive architectural, compliance, and evaluation hardening bringing Krusc
   - `src/krusch_nexus/client.py`: Added `parse()` and `parse_file()` library methods to `NexusClient`.
   - `src/krusch_nexus/chunking.py`: Preserved bounding boxes and `printed_page` when long paragraphs are split into sentences.
   - `tests/unit/test_span_locator.py`: Added 4 new regression test locks (`test_ocr_scan_span_and_bbox_roundtrip`, `test_format_honest_citation_exemptions`, `test_parse_file_and_parse_and_chunk_zero_config`, `test_client_parse_file_library_mode`), bringing KruschNexus test count to 154 passing tests (560 fleet total).
+- **Poppler TSV Multi-Row Extraction & Span Slice Parity**:
+  - `src/krusch_nexus/parsers/pdf.py`: Fixed Poppler TSV key collision where lines sharing `(par_num, line_num)` at `(0, 0)` overwrote previous rows and collapsed multi-line pages into a single block. Indexed line records by full hierarchical tuple `(block_num, par_num, line_num)` and implemented spacing-aware paragraph break detection (`gap > 1.2 * line_height`).
+  - `src/krusch_nexus/chunking.py`: Preserved paragraph breaks on blank lines during element accumulation, ensuring bit-for-bit character span slice parity (`extracted_text[hit.char_start:hit.char_end] == hit.text`) and accurate multi-line bounding box unions.
+  - `tests/unit/test_span_locator.py`: Added `test_pdf_sec_10k_table_line_bboxes` asserting that 12-row financial table (`heldout_sec_10k_table.pdf`) extracts all 12 distinct blocks with strictly increasing non-overlapping bounding boxes. KruschNexus test count expanded to 155 passing tests (561 fleet total).
 
 ## [0.2.3] - 2026-09-22
 

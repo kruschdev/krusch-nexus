@@ -128,6 +128,7 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
         if not lines:
             continue
         cleaned_lines = []
+        suppressed_set = set()
 
         for idx, line in enumerate(lines):
             l_low = line.lower()
@@ -144,18 +145,27 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
 
             if is_bates:
                 p.blocks.append(ContentBlock(text=line, block_type="bates_stamp"))
+                suppressed_set.add(l_strip)
             elif is_exhibit:
                 p.blocks.append(ContentBlock(text=line, block_type="exhibit_stamp"))
+                suppressed_set.add(l_strip)
             elif is_fax:
                 p.blocks.append(ContentBlock(text=line, block_type="fax_stamp"))
+                suppressed_set.add(l_strip)
             elif is_top or is_bottom:
                 p.blocks.append(ContentBlock(text=line, block_type="header_footer"))
+                suppressed_set.add(l_strip)
             else:
                 cleaned_lines.append(line)
 
-        new_text = "\n".join(cleaned_lines)
-        p.text = new_text
-        p.char_count = len(new_text)
+        if suppressed_set:
+            raw_lines = (p.text or "").splitlines()
+            rebuilt = [l for l in raw_lines if l.strip() not in suppressed_set]
+            new_text = "\n".join(rebuilt).strip()
+            p.text = new_text
+            p.char_count = len(new_text)
+        else:
+            p.char_count = len(p.text or "")
 
     return pages
 
@@ -187,17 +197,18 @@ def _extract_poppler_blocks(
 
     if tsv_proc and tsv_proc.returncode == 0 and tsv_proc.stdout.strip():
         lines = tsv_proc.stdout.splitlines()
-        line_boxes: Dict[Tuple[int, int], Tuple[float, float, float, float]] = {}
-        line_words: Dict[Tuple[int, int], List[str]] = {}
+        line_boxes: Dict[Tuple[int, int, int], Tuple[float, float, float, float]] = {}
+        line_words: Dict[Tuple[int, int, int], List[str]] = {}
 
         for row in lines[1:]:
             parts = row.split('\t')
             if len(parts) >= 12:
                 try:
                     level = int(parts[0])
+                    block_num = int(parts[3])
                     par_num = int(parts[2])
                     line_num = int(parts[4])
-                    key = (par_num, line_num)
+                    key = (block_num, par_num, line_num)
                     if level == 4:
                         left = float(parts[6])
                         top = float(parts[7])
@@ -243,13 +254,24 @@ def _extract_poppler_blocks(
             else:
                 ordered_records = sorted(line_records, key=lambda r: r["top"])
 
+            text_pieces = []
+            prev_rec = None
             for rec in ordered_records:
                 blocks.append(ContentBlock(
                     text=rec["text"],
                     block_type="paragraph",
                     bbox=[round(rec["left"], 2), round(rec["top"], 2), round(rec["width"], 2), round(rec["height"], 2)]
                 ))
-            combined_text = "\n".join(b.text for b in blocks)
+                if prev_rec is None:
+                    text_pieces.append(rec["text"])
+                else:
+                    gap = rec["top"] - (prev_rec["top"] + prev_rec["height"])
+                    is_para_break = gap > 1.2 * prev_rec["height"] or gap < -prev_rec["height"]
+                    sep = "\n\n" if is_para_break else "\n"
+                    text_pieces.append(sep + rec["text"])
+                prev_rec = rec
+
+            combined_text = "".join(text_pieces)
             return combined_text, blocks
 
     # Fallback to standard -layout

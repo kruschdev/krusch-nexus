@@ -141,9 +141,9 @@ class TestSpanLocator(unittest.TestCase):
         self.assertIsNotNone(hit.char_end)
         self.assertEqual(p1_text[hit.char_start:hit.char_end], hit.text)
 
-        # Invariant 3: Bounding box matches exact point coordinates
+        # Invariant 3: Bounding box matches exact point coordinates (union of title and section header)
         self.assertIsNotNone(hit.bbox)
-        self.assertEqual(hit.bbox, [50.0, 113.38, 212.75, 11.1])
+        self.assertEqual(hit.bbox, [50.0, 83.38, 212.75, 41.1])
 
     def test_ocr_scan_span_and_bbox_roundtrip(self):
         """Assert OCR scanned page (scanned_page.pdf) preserves bounding boxes and exact slice roundtrip."""
@@ -248,6 +248,39 @@ class TestSpanLocator(unittest.TestCase):
 
         res2 = self.client.parse_file(pdf_fixture)
         self.assertEqual(res2.filename, "sample_contract.pdf")
+
+    def test_pdf_sec_10k_table_line_bboxes(self):
+        """Assert multi-row financial table (heldout_sec_10k_table.pdf) extracts distinct line blocks and bboxes."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "heldout_sec_10k_table.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("heldout_sec_10k_table.pdf fixture not found")
+
+        res = parse_pdf(pdf_fixture, "heldout_sec_10k_table.pdf")
+        self.assertEqual(len(res.pages), 1)
+        p1 = res.pages[0]
+
+        # Verify that all 12 table and report lines are preserved as distinct blocks with individual bboxes
+        self.assertEqual(len(p1.blocks), 12)
+        for b in p1.blocks:
+            self.assertIsNotNone(b.bbox)
+            self.assertEqual(len(b.bbox), 4)
+            self.assertEqual(b.bbox[0], 50.0)  # Left margin
+            self.assertGreater(b.bbox[1], 0)   # Top coordinate
+            self.assertGreater(b.bbox[2], 0)   # Width
+            self.assertGreater(b.bbox[3], 0)   # Height
+
+        # Top coordinates must strictly increase down the page
+        tops = [b.bbox[1] for b in p1.blocks]
+        self.assertEqual(tops, sorted(tops))
+
+        # Check specific financial row bounding boxes
+        rev_block = next((b for b in p1.blocks if "Revenue: 2026" in b.text), None)
+        self.assertIsNotNone(rev_block)
+        self.assertEqual(rev_block.bbox, [50.0, 124.82, 253.72, 9.25])
+
+        rnd_block = next((b for b in p1.blocks if "Research and Development" in b.text), None)
+        self.assertIsNotNone(rnd_block)
+        self.assertEqual(rnd_block.bbox, [50.0, 178.82, 332.08, 9.25])
 
 
 if __name__ == "__main__":
