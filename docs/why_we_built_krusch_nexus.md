@@ -72,14 +72,16 @@ Here is the actual serialized JSON emitted by KruschNexus (v0.2.4) for the query
 We verify this contract directly in [`tests/unit/test_span_locator.py`](../tests/unit/test_span_locator.py):
 ```python
 # Round-trip verification:
-raw_bytes = open("sample_contract.pdf", "rb").read()
-# Slice raw text using extracted coordinates
+# Extract page text from parser:
+extracted_text = parser_result.pages[hit.page_number - 1].text
+# Slice page text using exact retrieved character span bounds:
 assert extracted_text[hit.char_start:hit.char_end] == hit.text
 # Bounding box coordinates [50.0, 113.38, 212.75, 11.1] correspond to physical PDF points
+assert hit.bbox == [50.0, 113.38, 212.75, 11.1]
 ```
 
 ### Step 5: Hard Negative Rejection
-If a query asks for `"Section 8.22.030(C)"` (a tenant relocation penalty from an Oakland municipal code fixture), KruschNexus does not match `Section 8.22` of the lease, despite sharing 85% of token characters. The section-aware parser differentiates between the parent statute and specific sub-clauses, returning an empty set if the exact subsection does not exist.
+If a query asks for `"Section 8.22.030(C)"` (a tenant relocation notice from an Oakland municipal code fixture), KruschNexus does not match `Section 8.22` of the lease with a false section boost, despite sharing 85% of token characters. The section-aware parser differentiates between parent statutes and specific sub-clauses, routing queries to exact subsection matches as tested in [`tests/eval/test_eval_hard_negatives.py`](../tests/eval/test_eval_hard_negatives.py).
 
 ---
 

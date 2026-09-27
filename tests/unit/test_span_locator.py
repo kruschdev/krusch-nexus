@@ -117,6 +117,34 @@ class TestSpanLocator(unittest.TestCase):
         self.assertIsNotNone(chunks[0].bbox, "Chunk bounding box must be populated from block union")
         self.assertEqual(len(chunks[0].bbox), 4)
 
+    def test_pdf_sample_contract_span_and_bbox_roundtrip(self):
+        """Assert SearchHit on sample_contract.pdf matches the documented contract in docs/why_we_built_krusch_nexus.md."""
+        pdf_fixture = os.path.join(FIXTURES_DIR, "sample_contract.pdf")
+        if not os.path.exists(pdf_fixture):
+            self.skipTest("sample_contract.pdf fixture not found")
+
+        report = self.client.ingest(pdf_fixture, workspace="SpanWorkspace", doc_type=DocType.AUTHORITY)
+        self.assertEqual(report.status, "completed")
+
+        hits = self.client.search("commercial office space Section 8.22", workspace="SpanWorkspace", limit=3)
+        self.assertGreater(len(hits), 0)
+
+        hit = hits[0]
+        # Invariant 1: Physical page is 1
+        self.assertEqual(hit.page_number, 1)
+        self.assertIn("p.1", hit.citation)
+
+        # Invariant 2: Character offsets exactly slice the extracted page text
+        res = parse_pdf(pdf_fixture, "sample_contract.pdf")
+        p1_text = res.pages[hit.page_number - 1].text
+        self.assertIsNotNone(hit.char_start)
+        self.assertIsNotNone(hit.char_end)
+        self.assertEqual(p1_text[hit.char_start:hit.char_end], hit.text)
+
+        # Invariant 3: Bounding box matches exact point coordinates
+        self.assertIsNotNone(hit.bbox)
+        self.assertEqual(hit.bbox, [50.0, 113.38, 212.75, 11.1])
+
 
 if __name__ == "__main__":
     unittest.main()
