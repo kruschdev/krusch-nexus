@@ -6,6 +6,7 @@ Strictly workspace-isolated. Zero LLM calls in search path.
 Records explainability metrics in optional search_traces table.
 """
 
+import os
 import re
 import json
 import time
@@ -310,7 +311,11 @@ def retrieve(
 
     # 2. Vector ANN in workspace (parameterized :qvec::vector without string interpolation)
     dense_results: List[Tuple[DocumentChunk, float]] = []
-    min_sim_threshold: float = 0.45
+    is_dummy_backend = (
+        getattr(conf, "embed_backend", None) in ("dummy", "precomputed", "mock")
+        or os.getenv("NEXUS_EMBED_BACKEND", "").lower() in ("dummy", "precomputed", "mock")
+    )
+    min_sim_threshold: float = 0.15 if (mode == "vector_only" or is_dummy_backend) else 0.45
     if query_vector and mode != "fts_only":
         if is_postgres:
             vec_literal = "[" + ",".join(str(f) for f in query_vector) + "]"
@@ -596,7 +601,7 @@ def retrieve(
                 rrf.pop(c_id, None)
 
     # 8. Cross-Encoder Rerank Stage & Near-Duplicate Deduplication
-    sorted_ids = sorted(rrf.keys(), key=lambda x: rrf[x], reverse=True)
+    sorted_ids = sorted(rrf.keys(), key=lambda x: (rrf[x], s_scores.get(x, 0.0), d_scores.get(x, 0.0)), reverse=True)
     rerank_scores_map: Dict[int, float] = {}
     rerank_ranks_map: Dict[int, int] = {}
 

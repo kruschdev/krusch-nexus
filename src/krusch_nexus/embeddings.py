@@ -33,17 +33,32 @@ def generate_deterministic_vector(text: str, dim: int = 1024) -> List[float]:
     """
     Generate deterministic, unit-normalized float vector for testing and CI.
     Enables full test execution without requiring a live Ollama host.
+    Produces positive cosine similarity for overlapping lexical tokens while
+    remaining zero-correlation for distinct/orthogonal texts.
     """
     import math
     clean = re.sub(r'\s+', ' ', text).strip()
-    seed = hashlib.sha256(clean.encode('utf-8')).digest()
-    vec = []
+    words = [w for w in re.findall(r'\w+', clean.lower()) if len(w) > 1]
+    if not words:
+        words = [clean.lower() or "_empty_"]
+
+    vec = [0.0] * dim
+    # 1. Full-text identity seed
+    full_seed = hashlib.sha256(clean.encode('utf-8')).digest()
     for i in range(dim):
-        h = hashlib.sha256(seed + i.to_bytes(4, "big")).digest()
-        val = (int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0
-        vec.append(val)
+        h = hashlib.sha256(full_seed + i.to_bytes(4, "big")).digest()
+        vec[i] += (int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0
+
+    # 2. Token-level seeds for semantic/lexical overlap in test environments
+    for w in words:
+        w_seed = hashlib.sha256(w.encode('utf-8')).digest()
+        for i in range(dim):
+            h = hashlib.sha256(w_seed + i.to_bytes(4, "big")).digest()
+            vec[i] += 2.0 * ((int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0)
+
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     return [round(x / norm, 6) for x in vec]
+
 
 
 
