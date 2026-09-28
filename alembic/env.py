@@ -57,7 +57,7 @@ def run_migrations_online() -> None:
                 connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
                 connection.commit()
             except Exception:
-                pass
+                connection.rollback()
 
         insp = inspect(connection)
         tables = set(insp.get_table_names())
