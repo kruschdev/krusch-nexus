@@ -4,7 +4,7 @@
 > **Author**: Kevin Ruschman  
 > **Date**: September 2026  
 > **Repository**: [github.com/kruschdev/krusch-nexus](https://github.com/kruschdev/krusch-nexus)  
-> **Status**: v0.2.4 — Usable Spine, Small Corpus  
+> **Status**: v0.2.5 — Usable Spine, Small Corpus  
 
 ---
 
@@ -12,7 +12,7 @@
 
 > This is how citations break in local RAG, what KruschNexus does about it at ingest/retrieval time, and what we can actually prove on a small legal-document harness.
 
-- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), 7 parser family benchmarks (100% Citation Accuracy, 96.2% Span Precision, 100% Recall@5 on held-out messy docs), Poppler TSV line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, two-column reading order resolution, tracked-changes redline isolation, cell-level table grids, borderless column gutter alignment, page truth coordinate fidelity (`pdf_page` vs `printed_page`), layout-aware block model, fail-closed empty returns below similarity threshold ($< 0.45$), 4-stage retrieval ablation, parent-exhibit lineage tracking, and cross-workspace isolation across 164 targeted automated tests (577 fleet-wide).
+- **What is proven:** Locator round-trip invariance (character offsets slice the raw file bit-for-bit), 7 parser family benchmarks (100% Citation Accuracy, 96.2% Span Precision, 100% Recall@5 on held-out messy docs), Poppler TSV line-level bounding box aggregation, streaming binder chunk generation ($O(1)$ memory on 100+ pages), clerk rubber stamp and fax header segmentation, two-column reading order resolution, tracked-changes redline isolation, cell-level table grids, borderless column gutter alignment, page truth coordinate fidelity (`pdf_page` vs `printed_page`), layout-aware block model, fail-closed empty returns below similarity threshold ($< 0.45$), 4-stage retrieval ablation, parent-exhibit lineage tracking, and cross-workspace isolation across 174 targeted automated tests (587 fleet-wide).
 - **What is designed but not broadly measured:** Arbitrary low-DPI phone camera scans and multi-column footnote disambiguation.
 - **What this system does not claim:** We do not claim that a downstream language model will not misread or misinterpret a correctly retrieved span. Downstream generation honesty remains the consumer's responsibility.
 
@@ -47,7 +47,7 @@ In a standard LangChain ingestion setup using `RecursiveCharacterTextSplitter(ch
 When an LLM retrieves this chunk, it has no record of whether Section 8.22 was on Page 1, Page 3, or in an exhibit. If prompted for a page citation, it must hallucinate one from context words.
 
 ### Step 3: What KruschNexus Emits
-Here is the actual serialized JSON emitted by KruschNexus (v0.2.4) for the query `"commercial office space Section 8.22"`:
+Here is the actual serialized JSON emitted by KruschNexus (v0.2.5) for the query `"commercial office space Section 8.22"`:
 ```json
 {
   "schema_version": "1.0",
@@ -104,7 +104,7 @@ Three specific defects in standard RAG pipelines destroy locator fidelity:
 2. **Retrieval quality (Measured & Incomplete):** The most relevant span was ranked first in the top-k results. We measure this empirically across test fixtures, but make no universal claims across unseen corpora.
 3. **Generation honesty (Consumer Responsibility):** A downstream language model will not misread, embellish, or fabricate facts from a valid span. This belongs strictly to the consumer's prompt and LLM layer.
 
-| Architecture Layer | LangChain Splitter + pgvector Cosine | KruschNexus (v0.2.4) |
+| Architecture Layer | LangChain Splitter + pgvector Cosine | KruschNexus (v0.2.5) |
 |---|---|---|
 | **Responsibility** | Full-stack wrapper (Chat UI + Prompts + Agent Loops + Vector Search) | **Dedicated Corpus Factory & Citation Spine**. Emits verified spans for other tools. |
 | **Citation Target** | Estimated page number from token index | **Physical Page, Character Offsets, & PDF Bounding Box** |
@@ -228,7 +228,7 @@ For CI pipelines, `nexus doctor --json` emits unformatted machine JSON with a si
 
 ## 10. Frontiers: What We Have Resolved & What We Will Measure Next
 
-KruschNexus v0.2.4 establishes a reproducible spine on a rigorous harness. Recent verification milestones include:
+KruschNexus v0.2.5 establishes a reproducible spine on a rigorous harness. Recent verification milestones include:
 
 - **Resolved — Nested Table Line Bounding Boxes:** Poppler TSV line extraction indexes line boxes by full hierarchical `(block_num, par_num, line_num)` tuples with spacing-aware paragraph break detection, locking in all 12 distinct rows on `heldout_sec_10k_table.pdf` (`tests/unit/test_span_locator.py`).
 - **Resolved — Overlapping Stamp Segmentation:** Multi-line noise stack scanning and expanded regex matching cleanly segment clerk rubber stamps (`RECEIVED & FILED`), date stamps, and fax banners into typed `ContentBlock` instances (`fax_stamp`, `exhibit_stamp`, `header_footer`) without body text chunk pollution (`adversarial_fax_stamp.pdf`).
@@ -236,6 +236,8 @@ KruschNexus v0.2.4 establishes a reproducible spine on a rigorous harness. Recen
 - **Resolved — Two-Column Reading Order Resolution:** Tesseract TSV line aggregation splits horizontal word gutters (`gap > max(60.0, 3.5 * height)`) and applies two-column reading order (`top_banners + left_body + right_body + bottom_footers`), resolving natural reading order and separating Column A and Column B bounding boxes on scanned two-column documents (`adversarial_twocolumn.pdf`, `heldout_twocolumn_newspaper.pdf`, `tests/unit/test_span_locator.py`).
 - **Resolved — Tracked-Changes Redline Isolation:** Native Word tracked changes (`<w:del>` and `<w:ins>`) are cleanly isolated during DOCX parsing: accepted insertions are indexed into substantive body text while deletions are excluded from chunk text and preserved as structured revision attribution (`redline_changes`) in page metadata, eliminating stale deleted text pollution across redlined agreements (`adversarial_redline.docx`, `tests/unit/test_parsers.py`, `tests/eval/test_eval_adversarial.py`).
 - **Resolved — Cell-Level Table Grids & Borderless Column Alignment:** Multi-column financial tables—both delimited with pipe tokens and borderless spreadsheets with whitespace gutters—extract structured table grids with sub-line cell-level bounding boxes and markdown representation. Baseline grouping prevents column interleaving while preserving disjoint horizontal coordinate intervals across columns (`heldout_sec_10k_table.pdf`, `heldout_borderless_financial.pdf`, `tests/unit/test_span_locator.py`, `tests/eval/test_eval_adversarial.py`).
+- **Resolved — Authority Pack Cartridge Forge & Span Grounding:** Added `nexus export-pack` to compile ingested statutory codes and commercial contracts directly into certified, schema-compliant Authority Packs with deterministic token budgets (<2,500 tokens), span-grounded numeric slots, and preemption DAG hierarchies (`tests/test_invariants.py`, `tests/unit/test_pack_exporter.py`).
+- **Resolved — Legal Hold Preservation Gating:** Added immutable legal hold gating preventing deletion, mutation, or purging of documents under active hold (HTTP 423 Locked) with append-only cryptographic audit trail integrity (`tests/unit/test_nexus_properties.py`).
 
 Our active evaluation frontiers remain:
 
