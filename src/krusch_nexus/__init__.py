@@ -62,6 +62,7 @@ from .pack_exporter import (
     SourceSpan,
     SpanGroundedSlot
 )
+from .provider_wondersearch import WondersearchProvider
 
 
 def parse_file(
@@ -168,5 +169,6 @@ __all__ = [
     "PackSku",
     "SourceSpan",
     "SpanGroundedSlot",
+    "WondersearchProvider",
     "__version__"
 ]

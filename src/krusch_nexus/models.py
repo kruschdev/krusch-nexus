@@ -523,6 +523,24 @@ class NexusConfig(BaseModel):
     airgap: bool = Field(
         default_factory=lambda: os.getenv("AIRGAP", "1") in ("1", "true", "True")
     )
+    backend: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_BACKEND", "local").lower()
+    )
+    wondersearch_api_key: Optional[str] = Field(
+        default_factory=lambda: os.getenv("WONDERSEARCH_API_KEY", os.getenv("POLYGRES_API_KEY"))
+    )
+    wondersearch_base_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "WONDERSEARCH_BASE_URL",
+            os.getenv("POLYGRES_BASE_URL", "https://api.wondersearch.ai")
+        )
+    )
+    wondersearch_workspace_id: Optional[str] = Field(
+        default_factory=lambda: os.getenv("WONDERSEARCH_WORKSPACE_ID")
+    )
+    wondersearch_drive_mapping: Dict[str, str] = Field(
+        default_factory=dict
+    )
     api_token: Optional[str] = Field(
         default_factory=lambda: os.getenv("NEXUS_API_TOKEN")
     )
@@ -593,7 +611,13 @@ class NexusConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":
-        # 1. Enforce air-gap: EMBEDDING_PROVIDER / embed_backend must be local air-gapped unless ALLOW_CLOUD=1
+        # 1. Enforce air-gap: EMBEDDING_PROVIDER / embed_backend / backend must be local air-gapped unless ALLOW_CLOUD=1
+        if self.backend == "wondersearch" and not self.allow_cloud:
+            raise AirGapViolationError(
+                "Cannot use Wondersearch cloud provider with airgap=True / allow_cloud=False. "
+                "Explicitly declare ALLOW_CLOUD=1 to enable the Wondersearch cloud backend."
+            )
+
         allowed_local = ("ollama", "dummy", "in_process", "fastembed", "sentence_transformers")
         if (self.embedding_provider not in allowed_local or self.embed_backend not in allowed_local) and not self.allow_cloud:
             bad_provider = self.embedding_provider if self.embedding_provider not in allowed_local else self.embed_backend

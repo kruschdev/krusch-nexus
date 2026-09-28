@@ -75,6 +75,11 @@ class NexusClient:
         self._sessionmaker = get_session_factory(self.engine)
         self._search_sessionmaker = get_session_factory(self.search_engine)
 
+        self._wondersearch_provider = None
+        if self.config.backend == "wondersearch":
+            from .provider_wondersearch import WondersearchProvider
+            self._wondersearch_provider = WondersearchProvider(self.config)
+
     @classmethod
     def from_env(cls, **kwargs) -> "NexusClient":
         """Instantiate a configured NexusClient from environment variables."""
@@ -104,6 +109,14 @@ class NexusClient:
         """
         if not workspace or not workspace.strip():
             raise WorkspaceRequiredError("A workspace name is required to ingest documents.")
+
+        if self.config.backend == "wondersearch" and self._wondersearch_provider:
+            return self._wondersearch_provider.ingest(
+                filepath=filepath,
+                workspace=workspace.strip(),
+                doc_type=doc_type,
+                archive=archive
+            )
 
         pipeline = self._get_pipeline()
         return pipeline.process_file(
@@ -554,6 +567,15 @@ class NexusClient:
         """
         if not workspace or not workspace.strip():
             raise WorkspaceRequiredError("A target workspace is required for search. Global multi-workspace search is disallowed.")
+
+        if self.config.backend == "wondersearch" and self._wondersearch_provider:
+            return self._wondersearch_provider.search(
+                query=query,
+                workspace=workspace.strip(),
+                doc_type=doc_type,
+                limit=limit,
+                filters=filters
+            )
 
         db = self._get_search_db()
         try:
