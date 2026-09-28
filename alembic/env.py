@@ -48,6 +48,28 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        from sqlalchemy import inspect, text
+        from alembic.migration import MigrationContext
+        from alembic.script import ScriptDirectory
+
+        if connection.dialect.name == "postgresql":
+            try:
+                connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                connection.commit()
+            except Exception:
+                pass
+
+        insp = inspect(connection)
+        tables = set(insp.get_table_names())
+        if "documents" not in tables:
+            Base.metadata.create_all(bind=connection)
+            m_ctx = MigrationContext.configure(connection)
+            script = ScriptDirectory.from_config(config)
+            head_rev = script.get_current_head()
+            m_ctx.stamp(script, head_rev)
+            connection.commit()
+            return
+
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
