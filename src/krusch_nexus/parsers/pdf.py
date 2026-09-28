@@ -164,7 +164,7 @@ def suppress_running_headers_footers(pages: List[PageData]) -> List[PageData]:
 
         if suppressed_set:
             raw_lines = (p.text or "").splitlines()
-            rebuilt = [l for l in raw_lines if l.strip() not in suppressed_set]
+            rebuilt = [ln for ln in raw_lines if ln.strip() not in suppressed_set]
             new_text = "\n".join(rebuilt).strip()
             p.text = new_text
             p.char_count = len(new_text)
