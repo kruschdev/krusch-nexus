@@ -281,7 +281,14 @@ def get_engine(db_url: Optional[str] = None):
         else:
             eng = create_engine(url, connect_args={"check_same_thread": False})
     else:
-        eng = create_engine(url)
+        target_url = url
+        if target_url.startswith("postgresql://"):
+            try:
+                import psycopg2  # noqa: F401
+                target_url = target_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            except ImportError:
+                pass
+        eng = create_engine(target_url)
 
     _ENGINES[url] = eng
     return eng

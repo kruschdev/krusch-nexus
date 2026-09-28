@@ -67,7 +67,7 @@ jobs:
 
     - name: Run Database Migrations on PostgreSQL 16
       env:
-        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
+        DATABASE_URL: "postgresql+psycopg2://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
       run: |
         python scripts/run_migrations.py
 
@@ -80,14 +80,14 @@ jobs:
 
     - name: Run Integration Tests on PostgreSQL 16 Container (HNSW, GIN, RLS)
       env:
-        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
+        DATABASE_URL: "postgresql+psycopg2://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
         NEXUS_EMBED_BACKEND: "dummy"
       run: |
         python -m pytest tests/integration/ -v
 
     - name: Run Evaluation Benchmark Suites
       env:
-        DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
+        DATABASE_URL: "postgresql+psycopg2://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
         NEXUS_EMBED_BACKEND: "dummy"
       run: |
         python -m pytest tests/eval/ -v

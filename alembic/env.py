@@ -24,7 +24,10 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 def get_url():
-    return os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url", "sqlite:///./nexus.db"))
+    raw_url = os.getenv("DATABASE_URL", config.get_main_option("sqlalchemy.url", "sqlite:///./nexus.db"))
+    if raw_url.startswith("postgresql://"):
+        return raw_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return raw_url
 
 def run_migrations_offline() -> None:
     url = get_url()

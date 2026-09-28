@@ -19,14 +19,15 @@ def run_migrations() -> None:
     db_url = os.environ.get("DATABASE_URL", "")
     print(f"[run_migrations] Target DATABASE_URL: {db_url}")
 
-    if db_url.startswith("postgres"):
+    if "postgres" in db_url:
         print("[run_migrations] Polling PostgreSQL container on 127.0.0.1:5432...")
+        pg_dsn = db_url.replace("postgresql+psycopg2://", "postgresql://", 1)
         start_time = time.time()
         ready = False
         last_err = None
         for attempt in range(1, 31):
             try:
-                conn = psycopg2.connect(db_url, connect_timeout=3)
+                conn = psycopg2.connect(pg_dsn, connect_timeout=3)
                 conn.autocommit = True
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1;")
