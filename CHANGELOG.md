@@ -5,6 +5,22 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-09-28
+
+### Summary
+Introduced decoupled Dual-Provider Substrate enabling zero vendor lock-in across local PostgreSQL pgvector and cloud Wondersearch (Polygres Cloud) retrieval. Downstream consumers (`krusch-law`, `krusch-biz`) can dynamically route passage search and document ingestion to cloud Wondersearch Drives while preserving bit-for-bit physical grounding coordinates (INV-11: `bbox`, `page_number`, `char_start`, `char_end`). Enforced INV-1 Air-Gap Protection Invariant requiring explicit `ALLOW_CLOUD=1` to prevent accidental data exfiltration. Automated test suite expanded to 180 passing tests (100% pass).
+
+### Added
+- **Wondersearch Provider (`src/krusch_nexus/provider_wondersearch.py`)**:
+  - Implemented `WondersearchProvider` translating Wondersearch Drive REST search and ingestion responses into frozen `SearchHit` v1 and `IngestReport` v1 contracts.
+  - Snapshot-pinned citation mapping with byte span and bounding box extraction.
+- **Client & Config Abstractions (`src/krusch_nexus/client.py` & `models.py`)**:
+  - Added `backend` (`local` | `wondersearch`), `wondersearch_api_key`, `wondersearch_base_url`, `wondersearch_workspace_id`, and `wondersearch_drive_mapping` to `NexusConfig`.
+  - Added automatic provider delegation in `NexusClient.search()` and `NexusClient.ingest()`.
+  - Added strict `AirGapViolationError` check when `backend="wondersearch"` and `ALLOW_CLOUD != 1`.
+- **Test Suite (`tests/unit/test_wondersearch_provider.py`)**:
+  - 6 new unit tests verifying drive resolution, search hit normalization, document ingestion, and air-gap exception gating.
+
 ## [0.2.5] - 2026-09-27
 
 ### Summary

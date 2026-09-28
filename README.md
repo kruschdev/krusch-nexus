@@ -260,7 +260,50 @@ yaml_cartridge = client.export_authority_pack(
 
 ---
 
-## 8. Public Contract & Compatibility
+## 8. Dual-Provider Substrate: Zero Vendor Lock-in (Local vs. Wondersearch)
+
+KruschNexus implements a **Zero Vendor Lock-in Provider Architecture**. Downstream engines (`krusch-law`, `krusch-biz`, or third-party agent frameworks) interact strictly with the frozen `NexusClient` interface. The underlying retrieval substrate can be swapped seamlessly between offline bare-metal and cloud acceleration without altering a single line of business logic:
+
+```
+                      ┌─────────────────────────────────┐
+                      │    NexusClient.search()         │
+                      │  (Frozen SearchHit v1 Contract) │
+                      └───────────────┬─────────────────┘
+                                      │
+                 ┌────────────────────┴────────────────────┐
+                 ▼                                         ▼
+   ┌───────────────────────────┐             ┌───────────────────────────┐
+   │    Local Substrate        │             │   Wondersearch Provider   │
+   │  • PostgreSQL + pgvector  │             │  • Wondersearch Drive     │
+   │  • Ollama (bge-large)     │             │  • Polygres Cloud Vector  │
+   │  • 100% Air-Gapped        │             │  • Zero Local GPU VRAM    │
+   │  • Default (ALLOW_CLOUD=0)│             │  • Gated by ALLOW_CLOUD=1 │
+   └───────────────────────────┘             └───────────────────────────┘
+```
+
+### Air-Gap Invariant Gate (INV-1)
+KruschNexus guarantees that client data never exfiltrates accidentally. Connecting to Wondersearch or Polygres Cloud strictly requires `ALLOW_CLOUD=1` in the ambient environment:
+```python
+from krusch_nexus import NexusClient, NexusConfig
+from krusch_nexus.exceptions import AirGapViolationError
+
+# Attempting cloud access without explicit authorization fails closed
+cfg = NexusConfig(backend="wondersearch", wondersearch_api_key="ws_key")
+# Raises AirGapViolationError if ALLOW_CLOUD is not explicitly set to "1"
+```
+
+### Zero-Friction Cloud Configuration
+When `ALLOW_CLOUD=1` is enabled, teams without dedicated GPU homelab clusters can offload dense embeddings and multi-gigabyte document drives entirely to Wondersearch:
+```bash
+export ALLOW_CLOUD=1
+export NEXUS_BACKEND=wondersearch
+export WONDERSEARCH_API_KEY="your-wondersearch-key"
+export WONDERSEARCH_WORKSPACE_ID="your-workspace-uuid"
+```
+
+---
+
+## 9. Public Contract & Compatibility
 
 See the authoritative 1-page [Compatibility Promise (v0.2.3 through 0.3.0)](docs/compatibility_promise.md) for frozen fields, deprecation policy, and SemVer commitments.
 
@@ -276,7 +319,7 @@ CI enforces schema stability against golden snapshots in `tests/unit/contracts/`
 
 ---
 
-## 9. Honest Evaluation Harness & Ungameable Benchmarks
+## 10. Honest Evaluation Harness & Ungameable Benchmarks
 
 KruschNexus rejects uncalibrated retrieval claims. We report **Citation Accuracy** (exact page and section match) and **Span Precision** as primary truth metrics, alongside bounded Recall@5, sample sizes ($n$), 95% Wilson Confidence Intervals, and fixture SHA-256 provenance on an uncollapsible evaluation matrix:
 
@@ -306,7 +349,7 @@ python -m krusch_nexus.eval_report
 
 ---
 
-## 10. Architecture & Documentation
+## 11. Architecture & Documentation
 
 - [Why We Built KruschNexus](docs/why_we_built_krusch_nexus.md) — Architecture manifesto: why citations die in local RAG and how KruschNexus preserves span truth.
 - [Compatibility Promise (v0.2.3 through 0.3.0)](docs/compatibility_promise.md) — 1-page SemVer and frozen schema contract.
