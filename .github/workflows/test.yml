@@ -69,8 +69,7 @@ jobs:
       env:
         DATABASE_URL: "postgresql://nexus_ci_user:nexus_ci_password_42@127.0.0.1:5432/nexus_ci_db"
       run: |
-        python scripts/wait_for_postgres.py
-        alembic upgrade head
+        python scripts/run_migrations.py
 
     - name: Run Unit Test Suite (SQLite In-Memory)
       env:
