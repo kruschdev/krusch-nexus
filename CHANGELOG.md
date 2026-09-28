@@ -5,6 +5,28 @@ All notable changes to the KruschNexus project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-09-27
+
+### Summary
+Engine hardening and integration of the Authority Pack Cartridge Forge (`nexus export-pack`), bridging KruschNexus with `krusch-authority-packs` to mint certified, versioned YAML rulebooks across three commercial SKUs (Jurisdiction, Standards, Playbook). Formalizes INV-12 (Authority Pack Export & Span Grounding Invariant), enforcing bit-for-bit physical coordinate grounding (`page_number`, `pdf_page`, `bbox: [x0, y0, w, h]`, `char_start`, `char_end`), verbatim `quoted_sentence` anchors, strict token budgets (<= 850 tokens/entry), and sub-line Table Grid Spine preservation. Test suite expands from 164 to 174 passing automated tests with 100% clean Ruff linting.
+
+### Added
+- **Authority Pack Cartridge Exporter (`src/krusch_nexus/pack_exporter.py`)**:
+  - Implemented `export_authority_pack()`, `PackSku`, `AuthorityPack`, `AuthorityEntry`, `SpanGroundedSlot`, and `SourceSpan`.
+  - Added slot extraction logic (`extract_grounded_slots`) with word-numeral-to-digit length-descending regex normalization across legal, finance, and enterprise contract slots.
+  - Implemented Table Grid Spine preservation in exported entries (`num_rows`, `num_cols`, markdown representation, cell-level bounding boxes).
+  - Implemented `PackValidator` enforcing schema keys, non-empty coverage, <= 850 token caps, and fail-closed slot grounding verification (`PackValidationError`).
+  - Added YAML block dumper with literal scalar `|` formatting for multi-line statutory and policy text.
+- **Client & CLI Integration**:
+  - Added `NexusClient.export_authority_pack()` supporting both direct local file paths and database-ingested document IDs with chunk aggregation.
+  - Added `nexus export-pack` subparser and command in `src/krusch_nexus/cli.py` with full options (`--sku`, `--pack-id`, `--publisher`, `--edition`, `--output`, `--json`, `--no-verify`).
+- **Core Invariant INV-12 (`docs/INVARIANTS.md`)**:
+  - Formalized INV-12: Authority Pack Export & Span Grounding Invariant with automated verification locks.
+- **Test Suite Expansion (`tests/unit/test_pack_exporter.py` & `tests/test_invariants.py`)**:
+  - Added 8 unit tests in `tests/unit/test_pack_exporter.py` testing Jurisdiction Packs, Standards Packs with PDF bounding boxes, Playbook Packs with SLAs and liability caps, database chunk exports, CLI commands, and validator rejections.
+  - Added `test_inv_11_legal_hold_preservation_gating` and `test_inv_12_authority_pack_export_and_span_grounding` in `tests/test_invariants.py`.
+  - Monorepo test count increased from 164 to 174 passing tests.
+
 ## [0.2.4] - 2026-09-26
 
 ### Summary

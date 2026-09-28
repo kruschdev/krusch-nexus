@@ -7,7 +7,7 @@ A dedicated homelab corpus factory providing:
 `file → parse → chunk with provenance → embed locally → persist → hybrid search with citations`
 """
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -50,7 +50,17 @@ from .exceptions import (
     CorruptedFileError,
     AuthenticationError,
     ModelDimensionDriftError,
-    LegalHoldActiveError
+    LegalHoldActiveError,
+    PackValidationError
+)
+from .pack_exporter import (
+    export_authority_pack,
+    extract_grounded_slots,
+    AuthorityPackExporter,
+    PackValidator,
+    PackSku,
+    SourceSpan,
+    SpanGroundedSlot
 )
 
 
@@ -150,5 +160,13 @@ __all__ = [
     "AuthenticationError",
     "ModelDimensionDriftError",
     "LegalHoldActiveError",
+    "PackValidationError",
+    "export_authority_pack",
+    "extract_grounded_slots",
+    "AuthorityPackExporter",
+    "PackValidator",
+    "PackSku",
+    "SourceSpan",
+    "SpanGroundedSlot",
     "__version__"
 ]

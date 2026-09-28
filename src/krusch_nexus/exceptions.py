@@ -101,3 +101,8 @@ class LegalHoldActiveError(NexusError):
     """Raised when an operation attempts to mutate, reparse, or delete a document or workspace under active legal hold."""
     pass
 
+
+class PackValidationError(NexusError):
+    """Raised when an Authority Pack violates schema, token budget, or grounding invariants."""
+    pass
+

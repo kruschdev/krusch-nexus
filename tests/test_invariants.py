@@ -181,3 +181,46 @@ class TestKruschNexusInvariants:
         # Deleting with valid token succeeds
         res = client.delete_document(rep.document_id, operator_token="super-secret-operator-token")
         assert res is True
+
+    def test_inv_11_legal_hold_preservation_gating(self, tmp_path):
+        """INV-11: Legal Hold Preservation Gating. Prevents mutation/deletion under active hold."""
+        from krusch_nexus.exceptions import LegalHoldActiveError
+        cfg = NexusConfig(embed_backend="dummy", database_url=f"sqlite:///{tmp_path}/hold.db")
+        client = NexusClient(config=cfg)
+
+        doc = tmp_path / "evidence.txt"
+        doc.write_text("Critical litigation evidence.")
+        rep = client.ingest(str(doc), workspace="LitigationHoldWS")
+
+        # Place workspace on legal hold
+        client.set_legal_hold("LitigationHoldWS", True)
+
+        # Deletion must be blocked
+        with pytest.raises(LegalHoldActiveError, match="under active legal hold"):
+            client.delete_document(rep.document_id)
+
+    def test_inv_12_authority_pack_export_and_span_grounding(self, tmp_path):
+        """INV-12: Authority Pack Export & Span Grounding. Exports verifiable cartridges."""
+        import os
+        import yaml
+        from krusch_nexus import export_authority_pack, PackSku, PackValidator
+
+        fixtures_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+        muni_file = os.path.join(fixtures_dir, "municipal_code.txt")
+        out_yaml = str(tmp_path / "ca_oakland_pack.yaml")
+
+        yaml_out = export_authority_pack(
+            muni_file,
+            sku=PackSku.JURISDICTION,
+            pack_id="ca_oakland_pack_v1",
+            state="CA",
+            municipality="Oakland",
+            output_path=out_yaml
+        )
+        assert os.path.exists(out_yaml)
+
+        data = yaml.safe_load(yaml_out)
+        assert data["pack_id"] == "ca_oakland_pack_v1"
+        assert data["sku"] == "jurisdiction"
+        assert "statutes" in data
+        assert PackValidator.validate_pack_dict(data, strict_grounding=True) is True

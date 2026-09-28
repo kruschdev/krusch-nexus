@@ -890,6 +890,131 @@ class NexusClient:
             doc_type=doc_type
         )
 
+    def export_authority_pack(
+        self,
+        target: Union[str, int],
+        workspace: Optional[str] = None,
+        sku: str = "jurisdiction",
+        output_path: Optional[str] = None,
+        pack_id: Optional[str] = None,
+        publisher: Optional[str] = None,
+        edition: Optional[str] = None,
+        description: Optional[str] = None,
+        domain: Optional[str] = None,
+        state: Optional[str] = None,
+        municipality: Optional[str] = None,
+        county: Optional[str] = None,
+        code_families: Optional[List[str]] = None,
+        effective_from: Optional[str] = None,
+        verify: bool = True
+    ) -> str:
+        """
+        Export a local file or ingested document into a certified Authority Pack YAML cartridge.
+        """
+        from .pack_exporter import AuthorityPackExporter, PackSku
+        from .models import PageData, ContentBlock
+
+        exporter = AuthorityPackExporter(self.config)
+        resolved_sku = PackSku(sku) if isinstance(sku, str) else sku
+
+        # Case 1: Target is an existing local file on disk
+        if isinstance(target, str) and os.path.exists(target):
+            return exporter.export_from_file(
+                file_path=target,
+                sku=resolved_sku,
+                pack_id=pack_id,
+                publisher=publisher,
+                edition=edition,
+                description=description,
+                domain=domain,
+                state=state,
+                municipality=municipality,
+                county=county,
+                code_families=code_families,
+                effective_from=effective_from,
+                output_path=output_path,
+                verify=verify
+            )
+
+        # Case 2: Target is an ingested document ID or hash in a database workspace
+        db = self._get_db()
+        try:
+            query = db.query(Document)
+            if isinstance(target, int) or str(target).isdigit():
+                doc = query.filter(Document.id == int(target)).first()
+            else:
+                doc = query.filter(Document.file_hash == str(target)).first()
+
+            if not doc:
+                raise DocumentNotFound(f"Document '{target}' not found on disk or database.")
+
+            chunks = db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == doc.id
+            ).order_by(DocumentChunk.chunk_index.asc()).all()
+
+            # Group chunks into synthetic PageData objects
+            pages_dict: Dict[Optional[int], List[DocumentChunk]] = {}
+            for c in chunks:
+                pg = c.page_number
+                if pg not in pages_dict:
+                    pages_dict[pg] = []
+                pages_dict[pg].append(c)
+
+            page_objects: List[PageData] = []
+            for pg_num, ch_list in sorted(pages_dict.items(), key=lambda x: (x[0] is None, x[0] or 0)):
+                page_text = "\n\n".join(c.content for c in ch_list)
+                page_blocks = []
+                for c in ch_list:
+                    c_bbox = json.loads(c.bbox) if (isinstance(c.bbox, str) and c.bbox.startswith("[")) else c.bbox
+                    page_blocks.append(
+                        ContentBlock(
+                            text=c.content,
+                            block_type="paragraph",
+                            bbox=c_bbox,
+                            char_start=c.char_start,
+                            char_end=c.char_end
+                        )
+                    )
+                pdf_pg = getattr(ch_list[0], "pdf_page", ch_list[0].page_number) if ch_list else None
+                printed_pg = getattr(ch_list[0], "printed_page", None) if ch_list else None
+                page_objects.append(PageData(
+                    index=pg_num,
+                    pdf_page=pdf_pg,
+                    printed_page=printed_pg,
+                    text=page_text,
+                    blocks=page_blocks
+                ))
+
+            pack = exporter.export_from_pages(
+                pages=page_objects,
+                source_filename=doc.filename,
+                source_hash=doc.file_hash,
+                pack_id=pack_id,
+                sku=resolved_sku,
+                publisher=publisher,
+                edition=edition,
+                description=description,
+                domain=domain,
+                state=state,
+                municipality=municipality,
+                county=county,
+                code_families=code_families,
+                effective_from=effective_from,
+                verify=verify
+            )
+
+            yaml_out = pack.to_yaml()
+            if output_path:
+                out_dir = os.path.dirname(os.path.abspath(output_path))
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(yaml_out)
+
+            return yaml_out
+        finally:
+            db.close()
+
 
 # Canonical thin alias for backwards-compatibility
 Nexus = NexusClient

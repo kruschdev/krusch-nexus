@@ -1,11 +1,11 @@
 # KruschNexus
 
-> **Status**: v0.2.4 — 164 passing tests, cell-level table grids, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
+> **Status**: v0.2.5 — 174 passing tests, Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Version: 0.2.4](https://img.shields.io/badge/version-0.2.4-green.svg)](docs/INVARIANTS.md)
+[![Version: 0.2.5](https://img.shields.io/badge/version-0.2.5-green.svg)](docs/INVARIANTS.md)
 
 ---
 
@@ -142,6 +142,9 @@ KruschNexus exports a frozen, versioned public API surface:
 from krusch_nexus import (
     parse_file,            # Zero-config parse (no DB or embeddings)
     parse_and_chunk_file,  # Zero-config parse & chunk with bounding boxes
+    export_authority_pack, # Authority Pack cartridge exporter
+    PackSku,               # Pack SKU enum: JURISDICTION, STANDARDS, PLAYBOOK
+    PackValidator,         # Strict slot grounding & token budget validator
     NexusClient,           # Canonical client
     NexusConfig,           # Configuration dataclass
     SearchHit,             # Versioned search hit with explainability fuse
@@ -182,6 +185,78 @@ nexus mcp
 **Operator-Gated Tools (2):**
 - `nexus_reparse(document_id, confirmation_token)`: Re-parse existing document. Requires `confirmation_token='CONFIRM_REPARSE_<id>'`.
 - `nexus_delete_document(document_id, confirmation_token)`: Delete document and cascade chunks. Requires `confirmation_token='CONFIRM_DELETE_<id>'`.
+
+---
+
+## 7.5 Authority Pack Cartridge Forge (`nexus export-pack`)
+
+KruschNexus serves as the authoritative Cartridge Forge for the [Krusch Sovereign Intelligence Platform](https://krusch.dev/articles/authority-packs). It extracts structured, span-grounded **Authority Pack YAML cartridges** directly from raw ingested documents (PDF, DOCX, TXT, tabular) across all three commercial SKUs:
+
+1. **Jurisdiction Pack (`sku: jurisdiction`)**: Legal municipal codes, statutory tenancy protections, rent caps, and eviction criteria (e.g. Oakland OMC § 8.22, CA Civil Code § 1950.5).
+2. **Standards Pack (`sku: standards`)**: Regulatory accounting, auditing, and compliance rulebooks with Table Grid Spines (e.g. US GAAP ASC 606, ASC 842, SEC 10-K disclosures).
+3. **Playbook Pack (`sku: playbook`)**: Corporate commercial contracting playbooks, standard terms, SLA targets, and liability thresholds (e.g. Enterprise SaaS MSAs).
+
+### Physical Span Grounding Guarantee (INV-12)
+Every extracted slot carries bit-for-bit physical grounding coordinates and an immutable `quoted_sentence` anchor:
+- `page_number` & `pdf_page`: 1-based physical page indices.
+- `bbox: [x0, y0, w, h]`: Exact 72-DPI coordinates for visual highlighting.
+- `char_start` & `char_end`: Exact character offsets within the document text.
+- `quoted_sentence`: Verbatim sentence from which the slot was extracted.
+- **Fail-Closed Validation**: If a numeric slot cannot be found verbatim in its anchor sentence, pack export is rejected with `PackValidationError`.
+
+### CLI Usage Examples
+
+```bash
+# 1. Export a Jurisdiction Pack from municipal code or statute
+nexus export-pack \
+  --file tests/fixtures/municipal_code.txt \
+  --sku jurisdiction \
+  --pack-id ca_oakland_pack_v1 \
+  --state CA \
+  --municipality Oakland \
+  --edition "2026.1" \
+  --output ./dist/ca_oakland.yaml
+
+# 2. Export a Standards Pack from an SEC 10-K financial table with sub-line grid preservation
+nexus export-pack \
+  --file tests/fixtures/heldout_sec_10k_table.pdf \
+  --sku standards \
+  --pack-id biz_accounting_asc606_v1 \
+  --publisher "Krusch Intelligence" \
+  --output ./dist/asc606.yaml
+
+# 3. Export a Playbook Pack directly from an already ingested database document
+nexus export-pack \
+  --doc-id doc_9a8b7c6d5e \
+  --sku playbook \
+  --pack-id biz_playbook_enterprise_saas_v1 \
+  --output ./dist/enterprise_saas.yaml
+```
+
+### Python SDK Usage
+
+```python
+from krusch_nexus import export_authority_pack, PackSku, NexusClient
+
+# Export directly from file
+yaml_cartridge = export_authority_pack(
+    source="path/to/ordinance.pdf",
+    sku=PackSku.JURISDICTION,
+    pack_id="ca_oakland_pack_v1",
+    state="CA",
+    municipality="Oakland",
+    output_path="ca_oakland.yaml"
+)
+
+# Export via client from ingested document ID
+client = NexusClient()
+yaml_cartridge = client.export_authority_pack(
+    source="doc_4f82a1b9",
+    sku=PackSku.PLAYBOOK,
+    pack_id="biz_playbook_enterprise_saas_v1",
+    output_path="saas_playbook.yaml"
+)
+```
 
 ---
 

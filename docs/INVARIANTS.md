@@ -19,6 +19,7 @@
 | **INV-9** | **Resilient 8-State Ledger** | Process crash during ingestion leaves orphaned rows, unindexed chunks, or untracked state | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_09_resilient_state_machine_ledger` | ✅ PASS |
 | **INV-10** | **Operator-Token-Gated Purge** | Unauthenticated callers delete documents or reparse without cryptographically verified audit | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_10_operator_token_gated_destruction`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_operator_audit_append_only_immutability` | ✅ PASS |
 | **INV-11** | **Legal Hold Preservation Gating** | Spoliation of evidence, unauthorized document mutation, or deletion during active legal hold | `tests/unit/test_nexus_properties.py::TestNexusProperties::test_legal_hold_blocks_client_mutations`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_legal_hold_http_423_locked_gating`<br>`tests/unit/test_nexus_properties.py::TestNexusProperties::test_export_legal_hold_bundle_integrity` | ✅ PASS |
+| **INV-12** | **Authority Pack Export & Span Grounding** | Uncertified rulebooks emit drifting, ungrounded numbers or exceed chunk token budgets | `tests/test_invariants.py::TestKruschNexusInvariants::test_inv_12_authority_pack_export_and_span_grounding`<br>`tests/unit/test_pack_exporter.py` | ✅ PASS |
 
 ---
 
@@ -117,5 +118,15 @@
 * **Verification Command**:
   ```bash
   pytest tests/unit/test_nexus_properties.py -k "test_legal_hold"
+  pytest tests/test_invariants.py -k "test_inv_11_legal_hold_preservation_gating"
+  ```
+
+### INV-12: Authority Pack Export & Span Grounding
+* **Requirement**: Authority Packs minted from KruschNexus (Jurisdiction Packs, Standards Packs, Playbook Packs) must enforce bit-for-bit physical coordinate grounding and token budget boundaries.
+* **Behavior**: Every extracted numeric slot (deposit caps, OMI percentages, duration days, SLA percentages, damages multipliers) must carry physical coordinates (`page_number`, `pdf_page`, `bbox: [x0, y0, w, h]`, `char_start`, `char_end`) and a verbatim `quoted_sentence` anchor. Any slot whose value cannot be proven against its cited sentence fails validation (`PackValidationError`). Every provision is bounded to <= 850 estimated tokens to prevent generative context overflows. Table Grid Spines preserve sub-line cell-level bounding boxes and row records.
+* **Verification Command**:
+  ```bash
+  pytest tests/test_invariants.py -k "test_inv_12_authority_pack_export_and_span_grounding"
+  pytest tests/unit/test_pack_exporter.py
   ```
 

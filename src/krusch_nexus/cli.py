@@ -631,6 +631,43 @@ def cmd_demo(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_export_pack(args: argparse.Namespace) -> int:
+    """Execute 'nexus export-pack' command to forge Authority Pack YAML cartridge."""
+    from .client import NexusClient
+
+    client = NexusClient.from_env()
+    try:
+        yaml_out = client.export_authority_pack(
+            target=args.target,
+            workspace=args.workspace,
+            sku=args.sku,
+            output_path=args.output,
+            pack_id=args.pack_id,
+            publisher=args.publisher,
+            edition=args.edition,
+            description=args.description,
+            domain=args.domain,
+            state=args.state,
+            municipality=args.municipality,
+            county=args.county,
+            effective_from=args.effective_from,
+            verify=not args.no_verify
+        )
+        if not args.output:
+            if args.json:
+                import yaml
+                data = yaml.safe_load(yaml_out)
+                sys.stdout.write(json.dumps(data, indent=2) + "\n")
+            else:
+                sys.stdout.write(yaml_out + "\n")
+        else:
+            print(f"Authority Pack exported successfully to: {args.output}")
+        return 0
+    except Exception as e:
+        print(f"Error exporting Authority Pack: {e}", file=sys.stderr)
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nexus",
@@ -758,6 +795,25 @@ def main():
     # 14. Demo (60-second headless demo)
     p_demo = subparsers.add_parser("demo", help="Run 60-second headless demonstration with zero external dependencies")
     p_demo.set_defaults(func=cmd_demo)
+
+    # 15. Export Authority Pack (Cartridge Forge)
+    p_pack = subparsers.add_parser("export-pack", help="Export document into certified Authority Pack YAML cartridge")
+    p_pack.add_argument("target", type=str, help="Path to local document (PDF, TXT, DOCX) or ingested document ID")
+    p_pack.add_argument("--workspace", "-w", type=str, default=None, help="Workspace name if target is an ingested document ID")
+    p_pack.add_argument("--sku", choices=["jurisdiction", "standards", "playbook"], default="jurisdiction", help="Authority Pack product SKU")
+    p_pack.add_argument("--pack-id", type=str, default=None, help="Custom pack identifier (e.g. ca_oakland_pack_v1)")
+    p_pack.add_argument("--publisher", type=str, default=None, help="Publisher name or official authority")
+    p_pack.add_argument("--edition", type=str, default=None, help="Statutory or standard edition description")
+    p_pack.add_argument("--description", type=str, default=None, help="Pack description")
+    p_pack.add_argument("--domain", type=str, default=None, help="Domain (legal, accounting, commercial)")
+    p_pack.add_argument("--state", type=str, default=None, help="Two-letter state abbreviation (e.g. CA)")
+    p_pack.add_argument("--municipality", type=str, default=None, help="City or municipality name")
+    p_pack.add_argument("--county", type=str, default=None, help="County name")
+    p_pack.add_argument("--effective-from", type=str, default=None, help="Effective from date (YYYY-MM-DD)")
+    p_pack.add_argument("--output", "-o", type=str, default=None, help="Destination YAML file path (defaults to stdout)")
+    p_pack.add_argument("--json", action="store_true", help="Output as JSON instead of YAML")
+    p_pack.add_argument("--no-verify", action="store_true", help="Skip schema and slot-grounding validation")
+    p_pack.set_defaults(func=cmd_export_pack)
 
     parsed = parser.parse_args()
     sys.exit(parsed.func(parsed))
