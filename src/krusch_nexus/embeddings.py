@@ -239,8 +239,11 @@ def get_embeddings_batch(
             clean_t = t.strip() if t and t.strip() else " "
             missing_texts.append(clean_t)
 
-    # 2. Check persistent disk/DB cache for items not in memory
-    if missing_hashes:
+    # 2. Check persistent disk/DB cache for items not in memory (skipped for test/dummy backends)
+    backend = getattr(conf, "embed_backend", None) or os.getenv("NEXUS_EMBED_BACKEND", "").lower()
+    is_dummy_backend = backend in ("dummy", "precomputed", "mock") or getattr(conf, "embedding_provider", "") in ("dummy", "precomputed")
+
+    if missing_hashes and not is_dummy_backend:
         persisted = _load_from_persistent_cache(missing_hashes, model=model, db=db)
         still_missing_indices: List[int] = []
         still_missing_hashes: List[str] = []
@@ -265,8 +268,7 @@ def get_embeddings_batch(
         return [r for r in results if r is not None]
 
     # 2.5 If dumb/test backend configured, synthesize deterministic vectors for missing texts
-    backend = getattr(conf, "embed_backend", None) or os.getenv("NEXUS_EMBED_BACKEND", "").lower()
-    if backend in ("dummy", "precomputed", "mock") or getattr(conf, "embedding_provider", "") in ("dummy", "precomputed"):
+    if is_dummy_backend:
         dim = conf.embedding_dim or 1024
         rec_vectors = _get_recorded_vectors()
         new_cached_records: List[tuple] = []
@@ -279,7 +281,8 @@ def get_embeddings_batch(
             if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
                 _MEM_CACHE[h] = vec
             new_cached_records.append((h, vec))
-        _save_to_persistent_cache(new_cached_records, model=model, db=db)
+        if db is not None:
+            _save_to_persistent_cache(new_cached_records, model=model, db=db)
         return [r for r in results if r is not None]
 
     # 2.6 In-process embedding backend (FastEmbed or SentenceTransformers)

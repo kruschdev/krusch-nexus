@@ -145,6 +145,8 @@ __all__ = [
     "ParserResult",
     "WorkspaceInfo",
     "DocumentInfo",
+    "TreeNode",
+    "DocumentTree",
     "NexusError",
     "AirGapViolationError",
     "PathSandboxError",
