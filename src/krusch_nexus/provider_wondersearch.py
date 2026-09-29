@@ -71,7 +71,7 @@ class WondersearchProvider:
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
         else:
-            headers["Idempotency-Key"] = f"nexus-{uuid.uuid4().hex[:16]}"
+            headers["Idempotency-Key"] = str(uuid.uuid4())
         return headers
 
     def resolve_drive_id(self, workspace_name: str) -> Optional[str]:
@@ -261,14 +261,18 @@ class WondersearchProvider:
             content_text = "\n\n".join(p.text for p in parsed.pages if p.text)
 
         payload = {
-            "external_id": filename,
-            "text": content_text,
-            "metadata": {
-                "filename": filename,
-                "doc_type": doc_type.value if hasattr(doc_type, "value") else str(doc_type),
-                "sha256": file_hash,
-                "ingested_by": "KruschNexus"
-            }
+            "documents": [
+                {
+                    "external_id": filename,
+                    "text": content_text,
+                    "metadata": {
+                        "filename": filename,
+                        "doc_type": doc_type.value if hasattr(doc_type, "value") else str(doc_type),
+                        "sha256": file_hash,
+                        "ingested_by": "KruschNexus"
+                    }
+                }
+            ]
         }
 
         url = f"{self.base_url}/v1/drives/{drive_id}/documents"
@@ -282,7 +286,8 @@ class WondersearchProvider:
             logger.error(f"Wondersearch ingestion failed: {e}")
             raise ParseError(f"Wondersearch upload failed: {e}") from e
 
-        doc_uuid = res_data.get("id") or res_data.get("document_id") or uuid.uuid4().hex
+        docs = res_data.get("documents", [])
+        doc_uuid = docs[0].get("id") if docs else (res_data.get("id") or res_data.get("document_id") or res_data.get("operation_id") or uuid.uuid4().hex)
         doc_id_int = self._uuid_to_int_id(str(doc_uuid))
 
         return IngestReport(
@@ -313,7 +318,7 @@ class WondersearchProvider:
             with httpx.Client(timeout=15.0) as client:
                 resp = client.get(list_url, headers=headers)
                 if resp.status_code == 200:
-                    drives = resp.json().get("drives", [])
+                    drives = resp.json().get("data", []) or resp.json().get("drives", [])
                     for d in drives:
                         if d.get("name") == drive_name:
                             self.drive_mapping[drive_name] = d["id"]
