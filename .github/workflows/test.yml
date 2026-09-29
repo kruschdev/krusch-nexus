@@ -107,3 +107,23 @@ jobs:
       with:
         name: eval-report-${{ matrix.python-version }}
         path: eval_report.json
+
+    - name: Instant Failure Push Notification
+      if: failure()
+      run: |
+        curl -s -X POST \
+          -H "Title: 🚨 CI Failure: ${{ github.repository }} (Python ${{ matrix.python-version }})" \
+          -H "Priority: urgent" \
+          -H "Tags: rotating_light,x" \
+          -H "Click: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          -d "Run #${{ github.run_number }} failed on ${{ github.ref_name }}. Commit: ${{ github.sha }} by ${{ github.actor }}." \
+          https://ntfy.sh/krusch-ci-alerts || true
+
+    - name: Dispatch Webhook Alert (Optional)
+      if: failure() && env.CI_WEBHOOK != ''
+      env:
+        CI_WEBHOOK: ${{ secrets.CI_FAILURE_WEBHOOK }}
+      run: |
+        curl -s -X POST -H "Content-Type: application/json" \
+          -d "{\"content\": \"🚨 **CI Failure**: [${{ github.repository }}#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed on \`${{ github.ref_name }}\` (Commit: \`${{ github.sha }}\`)\"}" \
+          "$CI_WEBHOOK" || true
