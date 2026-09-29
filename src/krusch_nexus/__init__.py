@@ -30,6 +30,8 @@ from .models import (
     ParserResult,
     WorkspaceInfo,
     DocumentInfo,
+    TreeNode,
+    DocumentTree,
     format_citation
 )
 from .exceptions import (

@@ -542,6 +542,43 @@ def cmd_lineage(args):
     return 0
 
 
+def cmd_tree(args):
+    """Display PageIndex-style hierarchical Table of Contents tree for an ingested document."""
+    client = NexusClient.from_env()
+    try:
+        tree_data = client.get_document_tree(args.document, workspace=args.workspace)
+    except Exception as e:
+        print(f"Error retrieving document tree: {e}", file=sys.stderr)
+        return 1
+
+    if getattr(args, "json", False):
+        print(tree_data.model_dump_json(indent=2))
+        return 0
+
+    print("=" * 60)
+    print(f"  📑 Document Tree: {tree_data.filename} (ID: {tree_data.document_id})")
+    print(f"  Workspace: {tree_data.workspace} | Chunks: {tree_data.total_chunks} | Pages: {tree_data.total_pages}")
+    print("=" * 60)
+
+    if not tree_data.tree:
+        print("No sections or headings found in document.")
+        return 0
+
+    def _print_nodes(nodes, prefix=""):
+        for i, node in enumerate(nodes):
+            is_last = (i == len(nodes) - 1)
+            connector = "└── " if is_last else "├── "
+            page_info = f" [p. {node.page}]" if node.page is not None else ""
+            print(f"{prefix}{connector}{node.title}{page_info}")
+            child_prefix = prefix + ("    " if is_last else "│   ")
+            if node.children:
+                _print_nodes(node.children, child_prefix)
+
+    _print_nodes(tree_data.tree)
+    print("=" * 60)
+    return 0
+
+
 def cmd_workspace(args):
     """Manage workspaces as first-class product objects."""
     client = NexusClient.from_env()
@@ -814,6 +851,13 @@ def main():
     p_pack.add_argument("--json", action="store_true", help="Output as JSON instead of YAML")
     p_pack.add_argument("--no-verify", action="store_true", help="Skip schema and slot-grounding validation")
     p_pack.set_defaults(func=cmd_export_pack)
+
+    # 16. Document Tree (PageIndex-style hierarchical Table of Contents)
+    p_tree = subparsers.add_parser("tree", help="Display PageIndex-style hierarchical Table of Contents tree for an ingested document")
+    p_tree.add_argument("document", type=str, help="Document ID (integer) or filename")
+    p_tree.add_argument("--workspace", "-w", type=str, default=None, help="Workspace name")
+    p_tree.add_argument("--json", action="store_true", help="Output tree as structured JSON")
+    p_tree.set_defaults(func=cmd_tree)
 
     parsed = parser.parse_args()
     sys.exit(parsed.func(parsed))

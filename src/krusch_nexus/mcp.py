@@ -575,6 +575,38 @@ def nexus_purge_workspace(
         return json.dumps({"status": "error", "error": str(e)})
 
 
+@mcp.tool()
+def nexus_get_document_tree(
+    document: str,
+    workspace: Optional[str] = None,
+    token: Optional[str] = None
+) -> str:
+    """
+    Extract a PageIndex-style hierarchical Table of Contents / document tree
+    for an ingested document (by ID or filename), enabling structural reasoning
+    over large contracts, statutes, or filings.
+    Runs locally on CPU in < 5ms without requiring any external LLMs.
+
+    Args:
+        document: Document ID (e.g. '1') or exact filename (e.g. 'msa_commercial.txt').
+        workspace: Optional workspace name if resolving by filename.
+        token: Optional authentication token if workspace access controls are active.
+    """
+    if workspace:
+        auth_err = verify_workspace_access(workspace, token)
+        if auth_err:
+            return json.dumps({"status": "error", "error": auth_err})
+
+    try:
+        tree = get_client().get_document_tree(document, workspace=workspace)
+        return json.dumps({
+            "status": "success",
+            "document_tree": tree.model_dump()
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
 def main():
     """Console script entrypoint for nexus-mcp."""
     transport = os.getenv("MCP_TRANSPORT", "stdio").lower()

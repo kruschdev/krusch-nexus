@@ -44,6 +44,14 @@ The **KruschNexus MCP Server** serves as the Model Context Protocol (MCP) gatewa
 - **`nexus_list_documents(workspace, limit)`**
   - **Description**: List ingested documents and metadata (page counts, chunk counts, hashes) in a workspace.
 
+- **`nexus_get_document_tree(document, workspace, token)`**
+  - **Description**: Extract a PageIndex-style hierarchical Table of Contents / document tree for an ingested document (by ID or filename), enabling structural reasoning over large contracts, statutes, or filings. Runs locally on CPU in < 5ms without external LLMs.
+  - **Parameters**:
+    - `document` (str, required): Document ID (e.g. `'1'`) or exact filename (e.g. `'msa_commercial.txt'`).
+    - `workspace` (str, optional): Target workspace name if resolving by filename.
+    - `token` (str, optional): Authentication token if workspace access controls are active.
+  - **Returns**: JSON object with `document_id`, `filename`, `workspace`, `total_chunks`, `total_pages`, and nested `tree` nodes.
+
 - **`nexus_doctor()`**
   - **Description**: Run a diagnostic environment audit inspecting Poppler binaries, Tesseract OCR, database vector extensions, and Ollama embedding status.
 

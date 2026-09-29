@@ -501,6 +501,27 @@ class DocumentInfo(BaseModel):
     created_at: Optional[str] = None
 
 
+class TreeNode(BaseModel):
+    """Hierarchical Table of Contents node representing a structural section, chapter, or article."""
+    title: str
+    level: int = 1
+    page: Optional[int] = None
+    chunk_id: Optional[int] = None
+    chunk_index: Optional[int] = None
+    locator: Optional[str] = None
+    children: List["TreeNode"] = Field(default_factory=list)
+
+
+class DocumentTree(BaseModel):
+    """Complete PageIndex-style hierarchical Table of Contents for an ingested document."""
+    document_id: int
+    filename: str
+    workspace: str
+    total_chunks: int
+    total_pages: int
+    tree: List[TreeNode] = Field(default_factory=list)
+
+
 # ─── Configuration Object ────────────────────────────────────────────────────
 
 class NexusConfig(BaseModel):

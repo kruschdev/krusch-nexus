@@ -1,6 +1,6 @@
 # KruschNexus
 
-> **Status**: v0.2.5 — 174 passing tests, Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
+> **Status**: v0.2.5 — 174 passing tests, PageIndex-style hierarchical Table of Contents trees (`nexus tree`), Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -68,6 +68,9 @@ nexus search "commercial office space" --workspace demo
 
 # 5. Inspect citation and explainability scoring breakdown
 nexus explain "commercial office space" --workspace demo
+
+# 6. Extract PageIndex-style hierarchical Table of Contents tree
+nexus tree "sample_contract.pdf" --workspace demo
 ```
 
 **Real CLI output:**
@@ -260,6 +263,64 @@ yaml_cartridge = client.export_authority_pack(
 
 ---
 
+## 7.6 PageIndex-Style Hierarchical Document Tree (TOC Reasoning)
+
+Large legal agreements, SEC filings, and complex statutes possess deep structural hierarchies (Part -> Article -> Section -> Subsection). While chunk-level vector retrieval answers point queries, reasoning agents often need **macro-structural context** to navigate documents top-down—the core premise behind tree-based retrieval systems like VectifyAI's PageIndex.
+
+Unlike external frameworks that require 1,000–4,000ms multi-step LLM calls and token spend to build and traverse trees, **KruschNexus extracts the entire hierarchical Table of Contents deterministically on local CPU in < 5ms for $0.00**.
+
+### CLI Usage
+
+```bash
+# Render ASCII Table of Contents tree
+nexus tree 1 --workspace LegalCorpus
+
+# Or query by filename with JSON output for automated agent ingestion
+nexus tree "msa_commercial.txt" --workspace LegalCorpus --json
+```
+
+**Output example:**
+```text
+Document Tree: msa_commercial.txt (ID: 1, Workspace: LegalCorpus)
+Total Chunks: 7 | Total Pages: 1
+============================================================
+├── [p. 1] ARTICLE I: RECITALS
+├── [p. 1] ARTICLE IV: FINANCIAL TERMS
+│   ├── [p. 1] Section 4.1 Invoicing
+│   └── [p. 1] Section 4.2 Payment Terms
+└── [p. 1] ARTICLE IX: LIMITATION OF LIABILITY
+    ├── [p. 1] Section 9.1 Aggregate Cap
+    └── [p. 1] Section 9.2 Consequential Damages Waiver
+============================================================
+```
+
+### Python SDK & FastMCP Tool
+
+```python
+from krusch_nexus import NexusClient, DocumentTree
+
+client = NexusClient.from_env()
+doc_tree: DocumentTree = client.get_document_tree("msa_commercial.txt", workspace="LegalCorpus")
+
+for node in doc_tree.tree:
+    print(f"[{node.level}] {node.title} (Page {node.page})")
+    for child in node.children:
+        print(f"  └── [{child.level}] {child.title} (Page {child.page})")
+```
+
+Agents can also call the native FastMCP tool:
+```json
+{
+  "name": "nexus_get_document_tree",
+  "arguments": {
+    "document": "msa_commercial.txt",
+    "workspace": "LegalCorpus"
+  }
+}
+```
+
+---
+
 ## 8. Dual-Provider Substrate: Zero Vendor Lock-in (Local vs. Wondersearch)
 
 KruschNexus implements a **Zero Vendor Lock-in Provider Architecture**. Downstream engines (`krusch-law`, `krusch-biz`, or third-party agent frameworks) interact strictly with the frozen `NexusClient` interface. The underlying retrieval substrate can be swapped seamlessly between offline bare-metal and cloud acceleration without altering a single line of business logic:
@@ -309,10 +370,10 @@ See the authoritative 1-page [Compatibility Promise (v0.2.3 through 0.3.0)](docs
 
 | Surface | Canonical Identifier | Stable Properties / Guarantees |
 |---|---|---|
-| **Client Entrypoint** | `NexusClient` (`Nexus` thin alias) | Single public entry point. Ingest, search, export, import, parse_and_chunk, explain. |
+| **Client Entrypoint** | `NexusClient` (`Nexus` thin alias) | Single public entry point. Ingest, search, export, import, parse_and_chunk, explain, get_document_tree. |
 | **DocType Enum** | `DocType` | `authority`, `work_product`, `fact_narrative`, `general` |
 | **SearchHit v1** | `SearchHit` | `schema_version` ("1.0"), `citation`, `page_number`, `header`, `locator`, `structured_locator`, `score`, `text`, `document_id`, `chunk_id`, `phrase_boost`, `lexical_boost`, `section_boost`, `heading_path`, `vector_rank`, `fts_rank`, `doc_type`, `score_vector`, `char_start`, `char_end`, `bbox`, `match_reasons` |
-| **FastMCP Tools (10)** | `mcp.tool()` | 8 user tools + 2 operator tools requiring typed confirmation tokens |
+| **FastMCP Tools (11)** | `mcp.tool()` | 9 user tools + 2 operator tools requiring typed confirmation tokens |
 | **HTTP Routes** | FastAPI OpenAPI | `POST /v1/ingest`, `POST /v1/search`, `GET /v1/documents`, `GET /v1/documents/{doc_id_or_hash}/report`, `POST /v1/documents/{doc_id}/reparse`, `DELETE /v1/documents/{doc_id}`, `GET /v1/workspaces`, `GET /health` |
 
 CI enforces schema stability against golden snapshots in `tests/unit/contracts/`.
