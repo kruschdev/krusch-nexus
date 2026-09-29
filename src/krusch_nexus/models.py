@@ -509,6 +509,10 @@ class TreeNode(BaseModel):
     chunk_id: Optional[int] = None
     chunk_index: Optional[int] = None
     locator: Optional[str] = None
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
+    bbox: Optional[List[float]] = None
+    text_preview: Optional[str] = None
     children: List["TreeNode"] = Field(default_factory=list)
 
 

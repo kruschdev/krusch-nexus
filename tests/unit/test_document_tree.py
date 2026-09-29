@@ -93,6 +93,8 @@ class TestDocumentTree:
         tree_by_name = client.get_document_tree("msa_commercial.txt", workspace="LegalCorpus")
         assert tree_by_name.document_id == tree_by_id.document_id
         assert len(tree_by_name.tree) == len(tree_by_id.tree)
+        assert tree_by_id.tree[0].text_preview is not None
+        assert "RECITALS" in tree_by_id.tree[0].text_preview
 
     def test_tree_document_not_found(self):
         """Verify proper DocumentNotFound exception on non-existent document."""

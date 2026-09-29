@@ -499,6 +499,15 @@ class NexusClient:
                 clean_title = raw_title.strip()
                 level = _parse_level(clean_title)
 
+                bbox_val = None
+                if c.bbox:
+                    try:
+                        bbox_val = json.loads(c.bbox) if isinstance(c.bbox, str) else list(c.bbox)
+                    except Exception:
+                        bbox_val = None
+
+                preview = c.content[:240].strip() if c.content else None
+
                 node = TreeNode(
                     title=clean_title,
                     level=level,
@@ -506,6 +515,10 @@ class NexusClient:
                     chunk_id=c.id,
                     chunk_index=c.chunk_index,
                     locator=c.locator,
+                    char_start=c.char_start,
+                    char_end=c.char_end,
+                    bbox=bbox_val,
+                    text_preview=preview,
                     children=[]
                 )
 
