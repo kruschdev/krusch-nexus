@@ -65,6 +65,7 @@ from .pack_exporter import (
     SpanGroundedSlot
 )
 from .provider_wondersearch import WondersearchProvider
+from .legal_cartridge import LegalAuthorityCartridge
 
 
 def parse_file(
@@ -174,5 +175,6 @@ __all__ = [
     "SourceSpan",
     "SpanGroundedSlot",
     "WondersearchProvider",
+    "LegalAuthorityCartridge",
     "__version__"
 ]

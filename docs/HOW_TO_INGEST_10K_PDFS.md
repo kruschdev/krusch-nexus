@@ -159,8 +159,8 @@ max_parallel_maintenance_workers = 4
 |---|---|---|
 | **CPU** | 8 Cores (i7 / Ryzen 7) | 16–20 Cores (Xeon E5 / Threadripper) |
 | **RAM** | 32 GB DDR4 | 64 GB DDR4 |
-| **GPU / VRAM** | RTX 2080 Ti (11 GB VRAM) | Dual RTX 2080 Ti or RTX 3060 (12–24 GB) |
-| **Disk** | NVMe SSD (PCIe 3.0 / 4.0) | Dedicated NVMe data mount (`/mnt/nvme`) |
+| **GPU / VRAM** | RTX 2080 Ti (11 GB VRAM) | Dual RTX 2080 Ti NVLink or Dual RTX 3060 (22–24 GB) |
+| **Disk** | NVMe / Enterprise SSD | Dedicated data mount (`/mnt/database` on `kruschserv` or `/mnt/data2` on `kruschdev`) |
 
 * **Ollama VRAM**: `bge-large` 1024d requires ~2.6 GB VRAM. Set `OLLAMA_NUM_PARALLEL=4` in systemd environment to allow concurrent embedding batches without serialization bottlenecks.
 * **Disk Caching**: In-flight embeddings are automatically cached to SQLite (`~/.cache/krusch_nexus/embed_cache.sqlite`). Re-running ingestion or reprocessing identical sections costs **0 GPU compute**.

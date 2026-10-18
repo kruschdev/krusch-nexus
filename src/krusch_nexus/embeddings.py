@@ -330,7 +330,8 @@ def get_embeddings_batch(
 
         payload = {
             "model": model,
-            "input": batch_slice
+            "input": batch_slice,
+            "keep_alive": -1
         }
 
         try:
@@ -358,7 +359,7 @@ def get_embeddings_batch(
                 for orig_i, h, txt in zip(batch_orig_idx, batch_h_slice, batch_slice):
                     resp_single = client.post(
                         f"{ollama_url}/api/embeddings",
-                        json={"model": model, "prompt": txt}
+                        json={"model": model, "prompt": txt, "keep_alive": -1}
                     )
                     emb = resp_single.json().get("embedding", [])
                     results[orig_i] = emb

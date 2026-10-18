@@ -27,7 +27,7 @@
 
 ### INV-1: Air-Gap & Zero Cloud Egress
 * **Requirement**: KruschNexus must operate in complete sovereign isolation. Ingestion, OCR, parsing, chunking, and embedding generation must never make unauthenticated egress calls to public third-party LLM providers.
-* **Behavior**: Default embedding generation routes to local Ollama (`nomic-embed-text`), local fastembed, or deterministic dummy embeddings (`embed_backend="dummy"`). Network attempts to external cloud APIs without explicit proxy configuration are strictly blocked.
+* **Behavior**: Default embedding generation routes to local Ollama (`bge-large:latest`, `keep_alive: -1`), local fastembed, or deterministic dummy embeddings (`embed_backend="dummy"`). Network attempts to external cloud APIs without explicit proxy configuration are strictly blocked.
 * **Verification Command**:
   ```bash
   pytest tests/test_invariants.py -k "test_inv_01_air_gap_zero_cloud_egress"
