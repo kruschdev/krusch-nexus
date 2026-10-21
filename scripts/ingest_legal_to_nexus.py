@@ -54,13 +54,13 @@ logging.basicConfig(
 logger = logging.getLogger("nexus_legal_ingest")
 
 # Database connection defaults
-DEFAULT_PG_HOST = os.getenv("POCKETLAWYER_DB_HOST", "192.168.1.225")
+DEFAULT_PG_HOST = os.getenv("POCKETLAWYER_DB_HOST", "127.0.0.1")
 DEFAULT_PG_PORT = int(os.getenv("POCKETLAWYER_DB_PORT", "5433"))
 DEFAULT_PG_USER = os.getenv("POCKETLAWYER_DB_USER", "pocketlawyer")
-DEFAULT_PG_PASS = os.getenv("POCKETLAWYER_DB_PASS", "e0be6be479c54dca658aad7e8a36309973a9461606b450c38f0a7d2d6dd74dd9")
+DEFAULT_PG_PASS = os.getenv("POCKETLAWYER_DB_PASS", "")
 DEFAULT_PG_NAME = os.getenv("POCKETLAWYER_DB_NAME", "pocketlawyer")
 
-DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_EMBED_HOST", "http://192.168.1.13:11434")
+DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_EMBED_HOST", "http://127.0.0.1:11434")
 DEFAULT_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "bge-large")
 DEFAULT_EMBED_DIM = 1024
 

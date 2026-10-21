@@ -29,7 +29,7 @@ DEFAULT_CARTRIDGE_PATHS = [
     Path.home() / "homelab" / "projects" / "krusch-nexus" / "data" / "cartridges" / "cases_nexus_authority.sqlite"
 ]
 
-DEFAULT_EMBED_URL = os.getenv("OLLAMA_EMBED_HOST", "http://192.168.1.13:11434")
+DEFAULT_EMBED_URL = os.getenv("OLLAMA_EMBED_HOST", "http://127.0.0.1:11434")
 DEFAULT_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "bge-large")
 
 
