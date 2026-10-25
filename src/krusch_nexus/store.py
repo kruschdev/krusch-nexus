@@ -125,7 +125,7 @@ class Document(Base):
     status = Column(String(50), default="completed", index=True)
     original_path = Column(String(1024), nullable=True)
     mtime = Column(Float, nullable=True)
-    embedding_model = Column(String(100), default="bge-large")
+    embedding_model = Column(String(100), default="snowflake-arctic-embed2")
     embedding_dim = Column(Integer, default=1024)
     extra = Column(Text, nullable=True)  # JSON-encoded payload
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -159,7 +159,7 @@ class DocumentChunk(Base):
     doc_hash = Column(String(64), nullable=False, index=True)
     doc_type = Column(String(50), default="general", index=True)
     chunker_version = Column(String(50), default="1.0")
-    embed_model = Column(String(100), default="bge-large")
+    embed_model = Column(String(100), default="snowflake-arctic-embed2")
     confidence = Column(Float, nullable=True)
     char_start = Column(Integer, nullable=True)
     char_end = Column(Integer, nullable=True)

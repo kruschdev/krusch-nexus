@@ -19,7 +19,7 @@ from sqlalchemy import text, or_
 
 from .models import SearchHit, StructuredLocator, NexusConfig, format_citation
 from .store import DocumentChunk, Workspace, SearchTrace, Document
-from .exceptions import WorkspaceRequiredError, ModelDimensionDriftError, NexusError
+from .exceptions import WorkspaceRequiredError, ModelDimensionDriftError, NexusError, InvalidInputError
 
 logger = logging.getLogger("krusch_nexus.retrieve")
 
@@ -99,7 +99,8 @@ def compute_local_rerank_scores(
     Falls back gracefully to deterministic lexical-overlap scoring when neural weights are unmounted.
     """
     if not texts:
-        return []
+        logger.warning("Empty text list supplied to rerank function.")
+        raise InvalidInputError("Rerank requires a non-empty list of document texts.")
     if rerank_fn is not None:
         try:
             return [float(s) for s in rerank_fn(query, texts)]
@@ -175,7 +176,8 @@ def retrieve(
     if not workspace_id or workspace_id <= 0:
         raise WorkspaceRequiredError("Search requires an explicit workspace ID.")
     if not query or not query.strip():
-        return []
+        logger.warning("Invalid search query received: %r", query)
+        raise InvalidInputError("Search query must be a non-empty string.")
 
     conf = config or NexusConfig.from_env()
     k_val = rrf_k if rrf_k is not None else conf.rrf_k

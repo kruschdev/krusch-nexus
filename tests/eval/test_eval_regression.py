@@ -160,6 +160,7 @@ class TestEvalRegression(unittest.TestCase):
         recall_hits = 0
         citation_exact_matches = 0
         reciprocal_ranks: List[float] = []
+        missed_diagnostics: List[str] = []
 
         for idx, item in enumerate(benchmark_queries):
             query = item["q"]
@@ -181,6 +182,10 @@ class TestEvalRegression(unittest.TestCase):
                 reciprocal_ranks.append(1.0 / found_rank)
             else:
                 reciprocal_ranks.append(0.0)
+                top_files = [f"{h.filename}(p={h.page_number})" for h in hits]
+                missed_diagnostics.append(
+                    f"Q#{idx} '{query}' expected={target_file}(p={target_page}) got={top_files}"
+                )
 
             top_hit = hits[0]
             # Citation accuracy:
@@ -210,11 +215,38 @@ class TestEvalRegression(unittest.TestCase):
         print(f"MRR:                       {mrr:.3f}")
         print("=========================================\n")
 
-        # Invariant regression check: recall on frozen fixtures must remain 100%
-        self.assertEqual(recall_at_5, 1.0, f"eval_regression broken: Recall@5 dropped to {recall_at_5:.1%}")
+        # Invariant regression check: recall on frozen 60-query fixtures must remain 100% (1.0)
+        # across both live Ollama and air-gapped CI nodes via recorded 1024d fixture_embeddings.json.
+        self.assertEqual(
+            recall_at_5,
+            1.0,
+            f"eval_regression broken: Recall@5 dropped to {recall_at_5:.1%}; missed={missed_diagnostics}",
+        )
         self.assertGreaterEqual(citation_accuracy, 0.80, f"Citation accuracy dropped below threshold: {citation_accuracy:.1%}")
         self.assertGreaterEqual(mrr, 0.85, f"MRR dropped below threshold: {mrr:.3f}")
+
+    def test_recorded_fixture_embeddings_coverage(self):
+        """Verify all ingested fixture chunks have pre-recorded 1024d vectors in fixture_embeddings.json for offline parity."""
+        from krusch_nexus.embeddings import _get_recorded_vectors, hash_text
+        from krusch_nexus.store import DocumentChunk
+
+        recorded = _get_recorded_vectors()
+        db = self.nexus._get_db()
+        try:
+            chunks = db.query(DocumentChunk).all()
+            self.assertGreaterEqual(len(chunks), 10)
+            for chunk in chunks:
+                h = hash_text(chunk.content)
+                self.assertIn(
+                    h,
+                    recorded,
+                    f"Missing recorded 1024d vector in fixture_embeddings.json for chunk in {chunk.filename}",
+                )
+                self.assertEqual(len(recorded[h]), 1024)
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -19,9 +19,11 @@ import shutil
 import socket
 import argparse
 import subprocess
+import traceback
 from typing import Optional, Dict, Any
 
 from .client import NexusClient
+from .exceptions import NexusError
 from .models import NexusConfig, DocType
 
 
@@ -301,16 +303,21 @@ def cmd_doctor(args):
 
 def cmd_search(args):
     """Execute hybrid search across a specific workspace."""
-    client = NexusClient.from_env()
-    hits = client.search(
-        query=args.query,
-        workspace=args.workspace,
-        doc_type=args.doc_type,
-        limit=args.limit,
-        mode=getattr(args, "mode", "hybrid"),
-        filters={"include_superseded": getattr(args, "include_superseded", False)},
-        include_low_ocr=getattr(args, "include_low_ocr", False)
-    )
+    try:
+        client = NexusClient.from_env()
+        hits = client.search(
+            query=args.query,
+            workspace=args.workspace,
+            doc_type=args.doc_type,
+            limit=args.limit,
+            mode=getattr(args, "mode", "hybrid"),
+            filters={"include_superseded": getattr(args, "include_superseded", False)},
+            include_low_ocr=getattr(args, "include_low_ocr", False)
+        )
+    except Exception as exc:
+        if not getattr(args, "quiet", False):
+            print(f"Error executing search in workspace '{getattr(args, 'workspace', '')}': {exc}", file=sys.stderr)
+        return 1
 
     if not hits:
         print(f"No matching documents found in workspace '{args.workspace}'.")
@@ -503,8 +510,12 @@ def cmd_retry(args):
                 success_count += 1
             else:
                 print(f"  [FAIL] Replay failed: {rep.error}")
-        except Exception as e:
+        except (NexusError, OSError, ValueError, RuntimeError) as e:
             print(f"  [ERROR] {e}")
+            print(traceback.format_exc(), file=sys.stderr)
+        except Exception as e:
+            print(f"  [UNEXPECTED ERROR] {e}")
+            print(traceback.format_exc(), file=sys.stderr)
 
     print(f"\nRetry completed: {success_count}/{len(files)} files recovered.")
     return 0 if success_count == len(files) else 1

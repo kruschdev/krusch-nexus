@@ -1,8 +1,10 @@
 # KruschNexus — Agent Guidelines & Architecture
 
-> **Status**: Production Core (Air-Gapped Corpus Factory)  
+> **Status**: Production Core (Air-Gapped Corpus Factory & Portable Legal Authority Cartridge Engine)  
 > **Version**: 0.2.5  
-> **Last updated**: 2026-09-22  
+> **Tests**: 185 Passing (`pytest` — includes `cartridge.py` export/import/verify/mount & `courtlistener_bulk.py` streaming ingest)  
+> **Production Cartridge**: `/mnt/media1/krusch-cartridges/krusch-legal-corpus-v1` on `kruschserv` (1.57 GB, 200 SCOTUS + 9th Cir opinions, 2,953 chunks, 100% SHA-256 verified)  
+> **Last updated**: 2026-10-18  
 
 ---
 

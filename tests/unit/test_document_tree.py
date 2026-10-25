@@ -5,7 +5,10 @@ Unit tests for PageIndex-style Hierarchical Document Tree in KruschNexus
 
 import json
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock
+
+DEMO_DB_URL = f"sqlite:///{Path(__file__).resolve().parents[2] / 'data' / 'demo.db'}"
 
 from krusch_nexus.models import (
     NexusConfig,
@@ -60,7 +63,7 @@ class TestDocumentTree:
     def test_tree_generation_on_demo_fixture(self):
         """Verify tree assembly on static SQLite fixture (data/demo.db)."""
         cfg = NexusConfig(
-            database_url="sqlite:///./data/demo.db",
+            database_url=DEMO_DB_URL,
             allow_cloud=False
         )
         client = NexusClient(config=cfg)
@@ -98,7 +101,7 @@ class TestDocumentTree:
 
     def test_tree_document_not_found(self):
         """Verify proper DocumentNotFound exception on non-existent document."""
-        cfg = NexusConfig(database_url="sqlite:///./data/demo.db", allow_cloud=False)
+        cfg = NexusConfig(database_url=DEMO_DB_URL, allow_cloud=False)
         client = NexusClient(config=cfg)
 
         with pytest.raises(DocumentNotFound, match="Document '99999' not found"):
@@ -109,7 +112,7 @@ class TestDocumentTree:
 
     def test_tree_workspace_not_found(self):
         """Verify WorkspaceNotFound when given invalid workspace."""
-        cfg = NexusConfig(database_url="sqlite:///./data/demo.db", allow_cloud=False)
+        cfg = NexusConfig(database_url=DEMO_DB_URL, allow_cloud=False)
         client = NexusClient(config=cfg)
 
         with pytest.raises(WorkspaceNotFound, match="Workspace 'NonExistentWS' not found"):
@@ -117,7 +120,7 @@ class TestDocumentTree:
 
     def test_tree_mcp_tool_execution(self):
         """Verify nexus_get_document_tree MCP tool execution."""
-        cfg = NexusConfig(database_url="sqlite:///./data/demo.db", allow_cloud=False)
+        cfg = NexusConfig(database_url=DEMO_DB_URL, allow_cloud=False)
         client = NexusClient(config=cfg)
         set_client(client)
 

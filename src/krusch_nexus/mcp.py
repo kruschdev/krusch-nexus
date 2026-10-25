@@ -32,25 +32,43 @@ except ImportError:
                 "Install it with `pip install mcp` or run within mcp_env."
             )
 
+import threading
 from .client import NexusClient
 from .models import DocType
 
 logger = logging.getLogger("krusch_nexus.mcp")
 
 mcp = FastMCP("KruschNexusMCP")
-_client: Optional[NexusClient] = None
 
 
-def set_client(client: NexusClient):
-    global _client
-    _client = client
+class _ClientHolder:
+    """Thread-safe container for the active NexusClient instance."""
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.instance: Optional[NexusClient] = None
+
+    def set(self, client: Optional[NexusClient]) -> None:
+        with self._lock:
+            self.instance = client
+
+    def get(self) -> NexusClient:
+        with self._lock:
+            if self.instance is None:
+                self.instance = NexusClient.from_env()
+            return self.instance
 
 
-def get_client() -> NexusClient:
-    global _client
-    if _client is None:
-        _client = NexusClient.from_env()
-    return _client
+_client_holder = _ClientHolder()
+
+
+def set_client(client: Optional[NexusClient]) -> None:
+    _client_holder.set(client)
+
+
+def get_client(client: Optional[NexusClient] = None) -> NexusClient:
+    if client is not None:
+        return client
+    return _client_holder.get()
 
 
 # ─── Workspace ACL Verification ───────────────────────────────────────────────

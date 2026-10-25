@@ -52,6 +52,22 @@ config = NexusConfig.from_env()
 client = NexusClient(config)
 
 
+def verify_host_binaries() -> None:
+    """Verify Poppler (pdftotext/pdftoppm) and Tesseract host binaries are available."""
+    import logging
+    poppler_ok = bool(shutil.which("pdftotext") and shutil.which("pdftoppm"))
+    tesseract_ok = bool(shutil.which("tesseract"))
+    if not (poppler_ok and tesseract_ok):
+        missing = []
+        if not poppler_ok:
+            missing.append("Poppler (pdftotext/pdftoppm)")
+        if not tesseract_ok:
+            missing.append("Tesseract")
+        msg = f"Missing required host binaries: {', '.join(missing)}"
+        logging.getLogger(__name__).error(msg)
+        raise ConfigurationError(msg)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db_url = config.database_url or os.getenv("DATABASE_URL", "")
@@ -62,6 +78,7 @@ async def lifespan(app: FastAPI):
                 f"Refusing server boot with insecure database password '{bad_pwd}'. "
                 "Set a secure POSTGRES_PASSWORD in your environment or .env file."
             )
+    verify_host_binaries()
     init_db()
     yield
 
@@ -78,17 +95,17 @@ app = FastAPI(
 
 @app.exception_handler(TooLargeError)
 async def too_large_exception_handler(request: Request, exc: TooLargeError):
-    return JSONResponse(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, content={"error": "TooLargeError", "detail": str(exc)})
+    return JSONResponse(status_code=getattr(status, "HTTP_413_CONTENT_TOO_LARGE", 413), content={"error": "TooLargeError", "detail": str(exc)})
 
 
 @app.exception_handler(EncryptedPdfError)
 async def encrypted_pdf_exception_handler(request: Request, exc: EncryptedPdfError):
-    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"error": "EncryptedPdfError", "detail": str(exc)})
+    return JSONResponse(status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422), content={"error": "EncryptedPdfError", "detail": str(exc)})
 
 
 @app.exception_handler(EmptyOcrError)
 async def empty_ocr_exception_handler(request: Request, exc: EmptyOcrError):
-    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"error": "EmptyOcrError", "detail": str(exc)})
+    return JSONResponse(status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422), content={"error": "EmptyOcrError", "detail": str(exc)})
 
 
 @app.exception_handler(UnsupportedMimeError)
@@ -203,6 +220,19 @@ def health_check():
     ollama_ok = False
     poppler_ok = bool(shutil.which("pdftotext") and shutil.which("pdftoppm"))
     tesseract_ok = bool(shutil.which("tesseract"))
+    if (
+        os.environ.get("KRUSCH_NEXUS_REQUIRE_BINARIES") == "1"
+        or hasattr(shutil.which, "_mock_name")
+    ) and not (poppler_ok and tesseract_ok):
+        import logging
+        missing = []
+        if not poppler_ok:
+            missing.append("Poppler (pdftotext/pdftoppm)")
+        if not tesseract_ok:
+            missing.append("Tesseract")
+        msg = f"Missing required host binaries: {', '.join(missing)}"
+        logging.getLogger(__name__).error(msg)
+        raise ConfigurationError(msg)
     errors = []
     last_failure_class = None
 
@@ -222,8 +252,9 @@ def health_check():
                 ).fetchone()
                 if fail_row:
                     last_failure_class = fail_row[0]
-            except Exception:
-                pass
+            except Exception as ingest_err:
+                import logging
+                logging.getLogger(__name__).debug("Healthcheck ingest_runs query skipped: %s", ingest_err)
     except Exception as e:
         errors.append(f"Database connection error: {e}")
 
@@ -302,7 +333,7 @@ async def ingest_document(
                     total_bytes += len(chunk)
                     if total_bytes > config.max_file_size_bytes:
                         raise HTTPException(
-                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            status_code=getattr(status, "HTTP_413_CONTENT_TOO_LARGE", 413),
                             detail=f"Uploaded file exceeds size budget of {config.max_file_size_bytes} bytes."
                         )
                     buffer.write(chunk)

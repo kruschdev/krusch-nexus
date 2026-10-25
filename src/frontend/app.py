@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import uuid
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.getenv("BACKEND_URL") or os.getenv("NEXUS_API_URL") or "http://localhost:8000"
 AGENT_URL = os.getenv("AGENT_URL", "http://localhost:3005")
 
 st.set_page_config(page_title="Krusch-Nexus Institutional Knowledge", page_icon="🏦", layout="wide")
@@ -87,12 +87,20 @@ if st.session_state.role == "admin":
         new_workspace_name = st.text_input("Workspace Name")
         new_workspace_desc = st.text_area("Description")
         if st.form_submit_button("Create Workspace"):
-            res = requests.post(f"{BACKEND_URL}/api/workspaces", data={"name": new_workspace_name, "description": new_workspace_desc}, headers=get_headers())
-            if res.status_code == 200:
-                st.success("Workspace created!")
-                st.rerun()
-            else:
-                st.error("Failed to create workspace")
+            try:
+                res = requests.post(
+                    f"{BACKEND_URL}/api/workspaces",
+                    data={"name": new_workspace_name, "description": new_workspace_desc},
+                    headers=get_headers(),
+                    timeout=10
+                )
+                if res.status_code == 200:
+                    st.success("Workspace created!")
+                    st.rerun()
+                else:
+                    st.error("Failed to create workspace")
+            except requests.exceptions.RequestException as e:
+                st.error(f"Unable to reach Krusch-Nexus backend: {e}")
 
 # Main Interface
 if workspaces:
@@ -113,13 +121,16 @@ if workspaces:
             if uploaded_file is not None:
                 if st.button("Ingest to Knowledge Base"):
                     with st.spinner("Parsing and embedding..."):
-                        files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-                        data = {"workspace_id": selected_workspace_id}
-                        res = requests.post(f"{BACKEND_URL}/api/upload", files=files, data=data, headers=get_headers())
-                        if res.status_code == 200:
-                            st.success(f"Successfully ingested {uploaded_file.name}")
-                        else:
-                            st.error(f"Error: {res.text}")
+                        try:
+                            files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
+                            data = {"workspace_id": selected_workspace_id}
+                            res = requests.post(f"{BACKEND_URL}/api/upload", files=files, data=data, headers=get_headers(), timeout=60)
+                            if res.status_code == 200:
+                                st.success(f"Successfully ingested {uploaded_file.name}")
+                            else:
+                                st.error(f"Error: {res.text}")
+                        except requests.exceptions.RequestException as e:
+                            st.error(f"Upload request failed: {e}")
 
     with tab_query:
         st.subheader("💬 Query Institutional Knowledge")
@@ -147,7 +158,7 @@ if workspaces:
                 with st.spinner("Reasoning..."):
                     try:
                         payload = {"query": prompt, "workspace_id": selected_workspace_id}
-                        res = requests.post(f"{BACKEND_URL}/api/query", json=payload, headers=get_headers())
+                        res = requests.post(f"{BACKEND_URL}/api/query", json=payload, headers=get_headers(), timeout=30)
                         if res.status_code == 200:
                             data = res.json()
                             response_text = data.get("response", "No answer found.")
@@ -373,8 +384,8 @@ if workspaces:
         
         all_workspace_ids = list(workspace_names.keys())
         selected_multi_workspaces = st.multiselect(
-            "Select Workspaces to Compare", 
-            options=all_workspace_ids, 
+            "Select Workspaces to Compare",
+            options=all_workspace_ids,
             default=all_workspace_ids,
             format_func=lambda x: workspace_names.get(x, str(x))
         )

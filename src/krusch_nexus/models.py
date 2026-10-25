@@ -496,7 +496,7 @@ class DocumentInfo(BaseModel):
     detected_mime: Optional[str] = "application/octet-stream"
     has_report: bool = False
     status: str = "completed"
-    embedding_model: Optional[str] = "bge-large"
+    embedding_model: Optional[str] = "snowflake-arctic-embed2"
     chunker_version: Optional[str] = "1.0"
     created_at: Optional[str] = None
 
@@ -585,7 +585,7 @@ class NexusConfig(BaseModel):
         )
     )
     embed_model: str = Field(
-        default_factory=lambda: os.getenv("OLLAMA_EMBED_MODEL", "bge-large")
+        default_factory=lambda: os.getenv("OLLAMA_EMBED_MODEL", "snowflake-arctic-embed2")
     )
     embedding_dim: int = Field(
         default_factory=lambda: int(os.getenv("EMBEDDING_DIM", "1024"))

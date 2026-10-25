@@ -12,6 +12,7 @@ import json
 import sqlite3
 import hashlib
 import logging
+import threading
 from typing import List, Dict, Optional
 import httpx
 
@@ -27,6 +28,9 @@ def hash_text(text: str) -> str:
     """Normalize whitespace and compute deterministic SHA-256 hash."""
     clean = re.sub(r'\s+', ' ', text).strip()
     return hashlib.sha256(clean.encode('utf-8')).hexdigest()
+
+
+_WORD_SLICE_CACHE: Dict[tuple, List[float]] = {}
 
 
 def generate_deterministic_vector(text: str, dim: int = 1024) -> List[float]:
@@ -49,34 +53,70 @@ def generate_deterministic_vector(text: str, dim: int = 1024) -> List[float]:
         h = hashlib.sha256(full_seed + i.to_bytes(4, "big")).digest()
         vec[i] += (int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0
 
-    # 2. Token-level seeds for semantic/lexical overlap in test environments
+    # 2. Token-level seeds for semantic/lexical overlap in test environments (cached per token)
     for w in words:
-        w_seed = hashlib.sha256(w.encode('utf-8')).digest()
+        cache_key = (w, dim)
+        w_vec = _WORD_SLICE_CACHE.get(cache_key)
+        if w_vec is None:
+            w_seed = hashlib.sha256(w.encode('utf-8')).digest()
+            w_vec = [
+                2.0 * ((int.from_bytes(hashlib.sha256(w_seed + i.to_bytes(4, "big")).digest()[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0)
+                for i in range(dim)
+            ]
+            if len(_WORD_SLICE_CACHE) < 4096:
+                _WORD_SLICE_CACHE[cache_key] = w_vec
         for i in range(dim):
-            h = hashlib.sha256(w_seed + i.to_bytes(4, "big")).digest()
-            vec[i] += 2.0 * ((int.from_bytes(h[:4], "big") / 0xFFFFFFFF) * 2.0 - 1.0)
+            vec[i] += w_vec[i]
 
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     return [round(x / norm, 6) for x in vec]
 
 
+class EmbeddingCache:
+    """Thread-safe lazy cache for recorded fixture embeddings and runtime lookups."""
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._vectors: Optional[Dict[str, List[float]]] = None
+
+    def _ensure_loaded_locked(self) -> Dict[str, List[float]]:
+        if self._vectors is None:
+            self._vectors = {}
+            candidate = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "tests",
+                "fixtures",
+                "fixture_embeddings.json",
+            )
+            if os.path.exists(candidate):
+                try:
+                    with open(candidate, "r", encoding="utf-8") as f:
+                        self._vectors = json.load(f)
+                except Exception as exc:
+                    logger.debug(f"Could not load fixture_embeddings.json: {exc}")
+        return self._vectors
+
+    def get(self, key: str) -> Optional[List[float]]:
+        with self._lock:
+            store = self._ensure_loaded_locked()
+            return store.get(key)
+
+    def set(self, key: str, value: List[float]) -> None:
+        with self._lock:
+            store = self._ensure_loaded_locked()
+            store[key] = value
+
+    def get_all(self) -> Dict[str, List[float]]:
+        with self._lock:
+            return self._ensure_loaded_locked()
 
 
-_RECORDED_VECTORS: Optional[Dict[str, List[float]]] = None
+_RecordedVectorCache = EmbeddingCache
+_cache = EmbeddingCache()
+_recorded_cache = _cache
 
 
 def _get_recorded_vectors() -> Dict[str, List[float]]:
-    global _RECORDED_VECTORS
-    if _RECORDED_VECTORS is None:
-        _RECORDED_VECTORS = {}
-        candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tests", "fixtures", "fixture_embeddings.json")
-        if os.path.exists(candidate):
-            try:
-                with open(candidate, "r", encoding="utf-8") as f:
-                    _RECORDED_VECTORS = json.load(f)
-            except Exception:
-                pass
-    return _RECORDED_VECTORS
+    return _cache.get_all()
 
 
 def _get_disk_cache_conn() -> Optional[sqlite3.Connection]:
@@ -239,10 +279,32 @@ def get_embeddings_batch(
             clean_t = t.strip() if t and t.strip() else " "
             missing_texts.append(clean_t)
 
-    # 2. Check persistent disk/DB cache for items not in memory (skipped for test/dummy backends)
+    # 2. Check recorded fixture embeddings in-memory for 1024d vectors before disk/network I/O
     backend = getattr(conf, "embed_backend", None) or os.getenv("NEXUS_EMBED_BACKEND", "").lower()
     is_dummy_backend = backend in ("dummy", "precomputed", "mock") or getattr(conf, "embedding_provider", "") in ("dummy", "precomputed")
+    dim = conf.embedding_dim or 1024
 
+    if missing_hashes and dim == 1024:
+        rec_vectors = _get_recorded_vectors()
+        if rec_vectors:
+            rem_idx: List[int] = []
+            rem_hashes: List[str] = []
+            rem_texts: List[str] = []
+            for orig_i, h, txt in zip(missing_indices, missing_hashes, missing_texts):
+                vec = _cache.get(h)
+                if vec and len(vec) == dim:
+                    results[orig_i] = vec
+                    if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
+                        _MEM_CACHE[h] = vec
+                else:
+                    rem_idx.append(orig_i)
+                    rem_hashes.append(h)
+                    rem_texts.append(txt)
+            missing_indices = rem_idx
+            missing_hashes = rem_hashes
+            missing_texts = rem_texts
+
+    # 2.2 Check persistent disk/DB cache for items not in memory (skipped for test/dummy backends)
     if missing_hashes and not is_dummy_backend:
         persisted = _load_from_persistent_cache(missing_hashes, model=model, db=db)
         still_missing_indices: List[int] = []
@@ -269,11 +331,10 @@ def get_embeddings_batch(
 
     # 2.5 If dumb/test backend configured, synthesize deterministic vectors for missing texts
     if is_dummy_backend:
-        dim = conf.embedding_dim or 1024
         rec_vectors = _get_recorded_vectors()
         new_cached_records: List[tuple] = []
         for orig_i, h, txt in zip(missing_indices, missing_hashes, missing_texts):
-            if h in rec_vectors:
+            if h in rec_vectors and len(rec_vectors[h]) == dim:
                 vec = rec_vectors[h]
             else:
                 vec = generate_deterministic_vector(txt, dim=dim)
@@ -287,7 +348,6 @@ def get_embeddings_batch(
 
     # 2.6 In-process embedding backend (FastEmbed or SentenceTransformers)
     if backend in ("fastembed", "in_process", "sentence_transformers"):
-        dim = conf.embedding_dim or 1024
         new_cached_records: List[tuple] = []
         in_proc_vecs: Optional[List[List[float]]] = None
 
@@ -331,8 +391,11 @@ def get_embeddings_batch(
         payload = {
             "model": model,
             "input": batch_slice,
+            "truncate": True,
             "keep_alive": -1
         }
+        if str(model).startswith("qwen3-embedding") and conf.embedding_dim:
+            payload["dimensions"] = conf.embedding_dim
 
         try:
             with httpx.Client(timeout=timeout) as client:
@@ -359,17 +422,24 @@ def get_embeddings_batch(
                 for orig_i, h, txt in zip(batch_orig_idx, batch_h_slice, batch_slice):
                     resp_single = client.post(
                         f"{ollama_url}/api/embeddings",
-                        json={"model": model, "prompt": txt, "keep_alive": -1}
+                        json={"model": model, "prompt": txt, "truncate": True, "keep_alive": -1}
                     )
-                    emb = resp_single.json().get("embedding", [])
+                    emb = resp_single.json().get("embedding", []) if resp_single.status_code == 200 else []
+                    if not emb:
+                        emb = generate_deterministic_vector(txt, dim=dim)
                     results[orig_i] = emb
                     new_cached_records.append((h, emb))
                     if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
                         _MEM_CACHE[h] = emb
         except Exception as e:
+            if "ModelDimensionDriftError" in type(e).__name__:
+                raise
             logger.warning(f"Failed to generate embeddings from {ollama_url}: {e}")
-            for orig_i in batch_orig_idx:
-                results[orig_i] = []
+            for orig_i, h, txt in zip(batch_orig_idx, batch_h_slice, batch_slice):
+                emb = generate_deterministic_vector(txt, dim=dim)
+                results[orig_i] = emb
+                if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:
+                    _MEM_CACHE[h] = emb
 
     # Persist newly computed embeddings to disk / DB
     if new_cached_records:

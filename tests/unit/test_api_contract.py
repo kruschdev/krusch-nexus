@@ -354,3 +354,17 @@ def test_frozen_schema_snapshots():
     )
 
 
+def test_nexus_client_lazy_init_and_database_url_override(tmp_path):
+    """Assert NexusClient honors database_url override when config is supplied and initializes DB lazily."""
+    from krusch_nexus import NexusClient, NexusConfig
+
+    default_db = str(tmp_path / "default.db")
+    override_db = f"sqlite:///{tmp_path / 'override.db'}"
+    cfg = NexusConfig(database_url=f"sqlite:///{default_db}")
+
+    client = NexusClient(config=cfg, database_url=override_db)
+    assert client.config.database_url == override_db
+    assert client._db_initialized is False
+
+    client.initialize()
+    assert client._db_initialized is True

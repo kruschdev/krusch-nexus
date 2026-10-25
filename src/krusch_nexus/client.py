@@ -11,6 +11,7 @@ import re
 import json
 import logging
 import secrets
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Tuple
 
 from .models import (
@@ -68,12 +69,13 @@ class NexusClient:
             self.config = config
         else:
             self.config = NexusConfig.from_env()
-            if database_url:
-                self.config.database_url = database_url
+
+        if database_url is not None:
+            self.config.database_url = database_url
 
         self.engine = get_engine(self.config.database_url)
         self.search_engine = get_engine(self.config.search_database_url or self.config.database_url)
-        init_db(self.engine)
+        self._db_initialized = False
         self._sessionmaker = get_session_factory(self.engine)
         self._search_sessionmaker = get_session_factory(self.search_engine)
 
@@ -82,6 +84,17 @@ class NexusClient:
             from .provider_wondersearch import WondersearchProvider
             self._wondersearch_provider = WondersearchProvider(self.config)
 
+    def _ensure_db(self) -> None:
+        """Lazily initialize database schema on first database operation."""
+        if not self._db_initialized:
+            init_db(self.engine)
+            self._db_initialized = True
+
+    def initialize(self) -> "NexusClient":
+        """Explicitly initialize the underlying database schema."""
+        self._ensure_db()
+        return self
+
     @classmethod
     def from_env(cls, **kwargs) -> "NexusClient":
         """Instantiate a configured NexusClient from environment variables."""
@@ -89,12 +102,15 @@ class NexusClient:
         return cls(config=cfg)
 
     def _get_db(self):
+        self._ensure_db()
         return self._sessionmaker()
 
     def _get_search_db(self):
+        self._ensure_db()
         return self._search_sessionmaker()
 
     def _get_pipeline(self):
+        self._ensure_db()
         from .ingest import IngestPipeline
         return IngestPipeline(self.config, engine=self.engine)
 
@@ -839,6 +855,7 @@ class NexusClient:
         Export a complete workspace as a standalone .tar.gz archive.
         Ensures corpus portability without database lock-in.
         """
+        self._ensure_db()
         from .workspace import export_workspace
         return export_workspace(
             workspace_name=workspace,
@@ -866,7 +883,7 @@ class NexusClient:
                 raise WorkspaceNotFound(f"Workspace '{workspace}' does not exist.")
 
             if not legal_hold and getattr(ws, "is_legal_hold", False):
-                expected_release_token = f"CONFIRM_RELEASE_HOLD_{ws.name}"
+                expected_release_token = self._expected_release_token(ws.name)
                 if release_confirmation_token != expected_release_token:
                     try:
                         audit = OperatorAudit(
@@ -904,6 +921,14 @@ class NexusClient:
         finally:
             db.close()
 
+    @staticmethod
+    def _expected_release_token(workspace: str) -> str:
+        return f"CONFIRM_RELEASE_HOLD_{workspace.strip()}"
+
+    @staticmethod
+    def _expected_purge_token(workspace: str) -> str:
+        return f"CONFIRM_PURGE_{workspace.strip()}"
+
     def purge_workspace(
         self,
         workspace: str,
@@ -912,10 +937,10 @@ class NexusClient:
     ) -> bool:
         """
         Purge an entire workspace and all its documents, chunks, and ingest runs.
-        Requires confirmation_token='CONFIRM_PURGE_<workspace>'.
+        Requires confirmation_token matching _expected_purge_token(workspace).
         Strictly forbidden if workspace is under active legal hold.
         """
-        expected = f"CONFIRM_PURGE_{workspace.strip()}"
+        expected = self._expected_purge_token(workspace)
         if confirmation_token != expected:
             raise ConfigurationError(f"purge_workspace requires confirmation_token='{expected}' to proceed.")
 
@@ -965,6 +990,7 @@ class NexusClient:
 
     def export_legal_hold_bundle(self, workspace: str, output_path: Optional[str] = None) -> Dict[str, Any]:
         """Generate a signed cryptographic Legal Hold bundle."""
+        self._ensure_db()
         from .workspace import export_legal_hold_bundle
         return export_legal_hold_bundle(
             workspace_name=workspace,
@@ -976,7 +1002,17 @@ class NexusClient:
     def import_workspace(self, tarball_path: str, target_workspace: Optional[str] = None) -> Dict[str, Any]:
         """
         Import a workspace archive (.tar.gz) into the local database and archival store.
+        Validates that tarball_path is a non-empty string pointing to an existing file,
+        and that target_workspace (if provided) is a non-empty string.
         """
+        if not isinstance(tarball_path, str) or not tarball_path.strip():
+            raise ValueError("tarball_path must be a non-empty string")
+        if not Path(tarball_path).exists():
+            raise ValueError(f"tarball_path does not exist: {tarball_path}")
+        if target_workspace is not None and (not isinstance(target_workspace, str) or not target_workspace.strip()):
+            raise ValueError("target_workspace must be a non-empty string when provided")
+
+        self._ensure_db()
         from .workspace import import_workspace
         return import_workspace(
             tarball_path=tarball_path,

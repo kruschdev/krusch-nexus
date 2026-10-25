@@ -173,6 +173,20 @@ class TestRetrievalContract(unittest.TestCase):
         for h in hits_filtered:
             self.assertIn("Permitted Use", f"{h.header} {h.locator}")
 
+    def test_invalid_input_error_on_empty_query_and_rerank(self):
+        """BUG-01: Verify InvalidInputError is raised when retrieve receives empty query or compute_local_rerank_scores receives empty texts."""
+        from krusch_nexus.exceptions import InvalidInputError
+        from krusch_nexus.retrieve import retrieve, compute_local_rerank_scores
+
+        with self.assertRaises(InvalidInputError):
+            compute_local_rerank_scores("query", [])
+
+        with get_db_session(self.engine) as sess:
+            from krusch_nexus.store import Workspace
+            ws = sess.query(Workspace).filter_by(name=self.rep1.workspace).first()
+            with self.assertRaises(InvalidInputError):
+                retrieve(query="   ", workspace_id=ws.id, db=sess, config=self.config)
+
     def test_score_vector_presence_on_search_hits(self):
         """Verify every SearchHit returns an explicit score_vector breakdown."""
         hits = self.nexus.search(

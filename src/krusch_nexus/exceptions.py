@@ -106,3 +106,9 @@ class PackValidationError(NexusError):
     """Raised when an Authority Pack violates schema, token budget, or grounding invariants."""
     pass
 
+
+class InvalidInputError(NexusError):
+    """Raised when a retrieval or reranking call receives an empty or invalid input."""
+    pass
+
+

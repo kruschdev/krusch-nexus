@@ -30,7 +30,7 @@ DEFAULT_CARTRIDGE_PATHS = [
 ]
 
 DEFAULT_EMBED_URL = os.getenv("OLLAMA_EMBED_HOST", "http://127.0.0.1:11434")
-DEFAULT_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "bge-large")
+DEFAULT_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "snowflake-arctic-embed2")
 
 
 class LegalAuthorityCartridge:
@@ -39,10 +39,11 @@ class LegalAuthorityCartridge:
     def __init__(self, db_path: Optional[str | Path] = None, embed_url: str = DEFAULT_EMBED_URL):
         self.db_path = self._resolve_db_path(db_path)
         self.embed_url = embed_url.rstrip("/")
+        self.embed_model = DEFAULT_EMBED_MODEL
         if not self.db_path or not self.db_path.exists():
             raise FileNotFoundError(f"Legal Authority Cartridge SQLite file not found: {self.db_path}")
 
-        # Verify database connection
+        # Verify database connection & bind query model to cartridge manifest (INV-05)
         conn = self._get_conn()
         try:
             cur = conn.cursor()
@@ -50,7 +51,17 @@ class LegalAuthorityCartridge:
             self.doc_count = cur.fetchone()[0]
             cur.execute("SELECT count(*) FROM chunks;")
             self.chunk_count = cur.fetchone()[0]
-            logger.info(f"Loaded Legal Authority Cartridge: {self.db_path} ({self.doc_count} docs, {self.chunk_count} chunks)")
+            try:
+                cur.execute("SELECT embed_model FROM cartridge_manifest LIMIT 1;")
+                mrow = cur.fetchone()
+                if mrow and mrow[0]:
+                    self.embed_model = str(mrow[0]).strip()
+            except sqlite3.OperationalError:
+                pass
+            logger.info(
+                f"Loaded Legal Authority Cartridge: {self.db_path} "
+                f"({self.doc_count} docs, {self.chunk_count} chunks, model={self.embed_model})"
+            )
         finally:
             conn.close()
 
@@ -72,12 +83,15 @@ class LegalAuthorityCartridge:
         return conn
 
     def _embed_query(self, query: str) -> List[float]:
-        """Embed search query via local Ollama bge-large."""
+        """Embed search query using the cartridge's exact recorded embedding space."""
         url = f"{self.embed_url}/api/embed"
+        formatted_q = f"query: {query}" if self.embed_model.startswith("snowflake-arctic-embed2") and not query.startswith("query: ") else query
+        keep_alive = -1 if self.embed_model.startswith("snowflake-arctic-embed2") else "5m"
         payload = {
-            "model": DEFAULT_EMBED_MODEL,
-            "input": [query],
-            "keep_alive": -1
+            "model": self.embed_model,
+            "input": [formatted_q],
+            "truncate": True,
+            "keep_alive": keep_alive
         }
         with httpx.Client(timeout=15.0) as client:
             resp = client.post(url, json=payload)
@@ -110,7 +124,7 @@ class LegalAuthorityCartridge:
             fts_match_expr = " OR ".join(words) if words else query
 
             # 1. Fetch candidate chunks via FTS5
-            sql_fts = f"""
+            sql_fts = """
                 SELECT
                     c.chunk_id,
                     c.doc_id,

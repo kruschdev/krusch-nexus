@@ -224,3 +224,32 @@ class TestKruschNexusInvariants:
         assert data["sku"] == "jurisdiction"
         assert "statutes" in data
         assert PackValidator.validate_pack_dict(data, strict_grounding=True) is True
+
+    def test_bug_01_and_bug_02_thread_safe_client_and_embedding_cache(self, tmp_path):
+        """Verify BUG-01 (MCP get_client explicit DI & lock) and BUG-02 (thread-safe EmbeddingCache get/set)."""
+        import concurrent.futures
+        from krusch_nexus.mcp import get_client, set_client
+        from krusch_nexus.embeddings import EmbeddingCache
+
+        cfg1 = NexusConfig(embed_backend="dummy", database_url=f"sqlite:///{tmp_path}/c1.db")
+        cfg2 = NexusConfig(embed_backend="dummy", database_url=f"sqlite:///{tmp_path}/c2.db")
+        c1 = NexusClient(config=cfg1)
+        c2 = NexusClient(config=cfg2)
+
+        set_client(c1)
+        assert get_client() is c1
+        assert get_client(c2) is c2
+
+        cache = EmbeddingCache()
+        def worker(idx: int):
+            key = f"thread_key_{idx}"
+            vec = [float(idx)] * 4
+            cache.set(key, vec)
+            return cache.get(key)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(worker, range(32)))
+
+        for idx, res in enumerate(results):
+            assert res == [float(idx)] * 4
+
