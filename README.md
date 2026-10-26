@@ -42,8 +42,8 @@ sudo apt-get install -y poppler-utils
 # 2. Tesseract OCR (fallback for scanned documents and image exhibits)
 sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
 
-# 3. Ollama (local vector embeddings, default: bge-large, 1024 dimensions)
-ollama pull bge-large
+# 3. Ollama (local vector embeddings, default: snowflake-arctic-embed2, 8K ctx, 1024 dimensions)
+ollama pull snowflake-arctic-embed2
 
 # 4. Verify environment with nexus doctor
 nexus doctor
@@ -336,7 +336,7 @@ KruschNexus implements a **Zero Vendor Lock-in Provider Architecture**. Downstre
    ┌───────────────────────────┐             ┌───────────────────────────┐
    │    Local Substrate        │             │   Wondersearch Provider   │
    │  • PostgreSQL + pgvector  │             │  • Wondersearch Drive     │
-   │  • Ollama (bge-large)     │             │  • Polygres Cloud Vector  │
+   │  • Ollama (arctic-embed2) │             │  • Polygres Cloud Vector  │
    │  • 100% Air-Gapped        │             │  • Zero Local GPU VRAM    │
    │  • Default (ALLOW_CLOUD=0)│             │  • Gated by ALLOW_CLOUD=1 │
    └───────────────────────────┘             └───────────────────────────┘
