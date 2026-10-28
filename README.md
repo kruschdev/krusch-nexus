@@ -23,15 +23,15 @@ When standard vector pipelines ingest PDFs, DOCX files, and contracts, they stri
 
 ### Empirical Benchmark: LegalBench-RAG (`714` Corpus Files, `6,889` Full & `776` Mini Queries)
 
-Evaluated hermetically across **100% of the un-shrunk `LegalBench-RAG` corpus** (`sort_by_document: false`, `top_k = 6`, `max_retrieved_chars = 3,600`, exact disjoint character-span Precision/Recall/F1, zero LLM judge) with local `snowflake-arctic-embed2` (`1,024d`):
+Evaluated hermetically across **100% of the un-shrunk `LegalBench-RAG` corpus** (`sort_by_document: false`, `max_retrieved_chars = 3,600`, exact disjoint character-span Precision/Recall/F1, zero LLM judge) with local `snowflake-arctic-embed2` (`1,024d`) and local Apache-2.0 `mixedbread-ai/mxbai-rerank-large-v2` contextual passage reranking (`Document + Section` headers):
 
-| Domain (`n` Full) | Fixed `160`-Tok Dense (R / F1) | **`LegalAuthorityCartridge.search` (P / R / F1)** | **`format_chunk_for_embedding` Contextual (P / R / F1)** | Lift vs. Fixed-Window Dense |
-| :--- | :---: | :---: | :---: | :---: |
-| **4-Domain Macro (`6,889` Full / `776` Mini)** | `39.70%` / `11.70%` (`11.11%` Mini) | `9.53%` / `47.68%` / **`14.36%`** (`0` crashes) | **`9.83%` / `47.71%` / `14.63%`** (`14.46%` Mini) | **`+25.0%` Full / `+30.2%` Mini F1** |
-| **PrivacyQA** (`194`) | `48.71%` / `18.12%` | `13.81%` / **`54.39%`** / `19.42%` | **`14.15%`** / `53.01%` / **`19.60%`** | `+8.2%` F1 / `+5.68 pp` R |
-| **ContractNLI** (`977`) | `68.47%` / `15.51%` | **`9.94%` / `73.39%` / `16.88%`** | `9.79%` / `72.31%` / `16.66%` | `+8.8%` F1 / `+4.92 pp` R |
-| **CUAD** (`4,042`) | `31.54%` / `7.65%` | `5.47%` / `32.90%` / `8.49%` | **`5.98%` / `36.02%` / `9.30%`** | `+21.6%` F1 / `+4.48 pp` R |
-| **MAUD** (`1,676`) | `10.07%` / `5.53%` | `8.89%` / **`30.04%`** / `12.64%` | **`9.39%`** / `29.52%` / **`12.96%`** | **`2.34x` F1 (`30.04%` R@6 > OpenAI `3-large` R@64 `28.28%`)** |
+| Domain (`n` Full) | Fixed `160`-Tok Dense (R / F1) | Bi-Encoder Contextual `k=6` (R / F1) | **`mxbai-rerank-large-v2` `k=2` (P / R / F1)** | **`mxbai-rerank-large-v2` `k=1` (P / R / F1)** | Lift vs. Fixed-Window Dense |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **4-Domain Macro (`6,889` Full / `776` Mini)** | `39.70%` / `11.70%` (`11.11%` Mini) | **`47.71%`** / `14.63%` (`14.46%` Mini) | `21.49%` / `44.72%` / **`25.81%`** (`25.32%` Mini) | **`28.18%`** / `32.83%` / **`26.74%`** (`25.92%` Mini) | **`+128.5%` (`2.29x`) Full / `+133.3%` Mini F1** |
+| **PrivacyQA** (`194`) | `48.71%` / `18.12%` | **`53.01%`** / `19.60%` | `28.39%` / `44.61%` / **`29.89%`** | **`33.22%`** / `28.21%` / `25.25%` | **`+65.0%` F1 (`29.89%`) / `54.39%` Cartridge R@6** |
+| **ContractNLI** (`977`) | `68.47%` / `15.51%` | `72.31%` / `16.66%` | `22.79%` / `63.83%` / `31.68%` | **`32.98%` / `50.06%` / `37.09%`** | **`+139.1%` (`2.39x`) F1 / `73.39%` Cartridge R@6** |
+| **CUAD** (`4,042`) | `31.54%` / `7.65%` | `36.02%` / `9.30%` | `15.94%` / **`36.49%`** / `19.50%` | **`20.34%`** / `25.34%` / **`19.80%`** | **`+158.8%` (`2.59x`) F1 / `+4.95 pp` R@2** |
+| **MAUD** (`1,676`) | `10.07%` / `5.53%` | `29.52%` / `12.96%` | `18.85%` / **`33.95%`** / `22.19%` | **`26.18%`** / `27.70%` / **`24.84%`** | **`4.49x` F1 (`33.95%` R@2 > OpenAI `3-large` + Cohere R@64 `28.28%`)** |
 
 ---
 
