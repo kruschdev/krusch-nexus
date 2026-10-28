@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from .client import NexusClient, Nexus
 from .workspace import export_workspace, import_workspace, export_legal_hold_bundle
-from .chunking import chunk_document_pages, iter_chunk_document_pages
+from .chunking import chunk_document_pages, iter_chunk_document_pages, format_chunk_for_embedding
 from .models import (
     NexusConfig,
     IngestRequest,
@@ -65,7 +65,7 @@ from .pack_exporter import (
     SpanGroundedSlot
 )
 from .provider_wondersearch import WondersearchProvider
-from .legal_cartridge import LegalAuthorityCartridge
+from .legal_cartridge import LegalAuthorityCartridge, build_safe_fts5_match_query
 
 
 def parse_file(
@@ -127,6 +127,7 @@ __all__ = [
     "parse_and_chunk_file",
     "chunk_document_pages",
     "iter_chunk_document_pages",
+    "format_chunk_for_embedding",
     "NexusConfig",
     "IngestRequest",
     "IngestReport",
@@ -176,5 +177,6 @@ __all__ = [
     "SpanGroundedSlot",
     "WondersearchProvider",
     "LegalAuthorityCartridge",
+    "build_safe_fts5_match_query",
     "__version__"
 ]

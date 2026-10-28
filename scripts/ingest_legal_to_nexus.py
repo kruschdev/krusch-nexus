@@ -42,7 +42,7 @@ from psycopg2.extras import RealDictCursor
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from krusch_nexus.chunking import chunk_document_pages, compute_chunk_hash
+from krusch_nexus.chunking import chunk_document_pages, compute_chunk_hash, format_chunk_for_embedding
 from krusch_nexus.models import PageData, DocType
 
 # Configure structured logging
@@ -507,7 +507,13 @@ def process_cases_stream(
                         "text": c.text
                     }
 
-                    pending_embed_texts.append(c.text)
+                    pending_embed_texts.append(
+                        format_chunk_for_embedding(
+                            c,
+                            doc_title=canonical_doc_citation,
+                            heading_override=heading_hierarchy
+                        )
+                    )
                     pending_chunk_records.append((c_meta, fts_meta))
 
                     if len(pending_embed_texts) >= batch_size:
@@ -781,7 +787,13 @@ def process_local_codes_stream(
                         "text": c.text
                     }
 
-                    pending_embed_texts.append(c.text)
+                    pending_embed_texts.append(
+                        format_chunk_for_embedding(
+                            c,
+                            doc_title=title,
+                            heading_override=heading_hierarchy
+                        )
+                    )
                     pending_chunk_records.append((c_meta, fts_meta))
 
                     if len(pending_embed_texts) >= batch_size:

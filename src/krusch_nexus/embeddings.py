@@ -292,6 +292,16 @@ def get_embeddings_batch(
             rem_texts: List[str] = []
             for orig_i, h, txt in zip(missing_indices, missing_hashes, missing_texts):
                 vec = _cache.get(h)
+                if vec is None and (txt.startswith("Document: ") or txt.startswith("Section: ")):
+                    lines = txt.split("\n")
+                    body_idx = 0
+                    while body_idx < len(lines) and (
+                        lines[body_idx].startswith("Document: ") or lines[body_idx].startswith("Section: ")
+                    ):
+                        body_idx += 1
+                    raw_body = "\n".join(lines[body_idx:]).strip()
+                    if raw_body:
+                        vec = _cache.get(hash_text(raw_body))
                 if vec and len(vec) == dim:
                     results[orig_i] = vec
                     if len(_MEM_CACHE) < MAX_MEM_CACHE_SIZE:

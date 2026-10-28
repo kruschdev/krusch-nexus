@@ -38,7 +38,7 @@ from ..store import (
     get_session_factory
 )
 from ..parsers import parse_document, compute_file_hash
-from ..chunking import chunk_document_pages, Chunk
+from ..chunking import chunk_document_pages, format_chunk_for_embedding, Chunk
 from ..embeddings import get_embeddings_batch
 from .sandbox import validate_safe_path, sanitize_filename, validate_file_magic_bytes, ALLOWED_EXT
 from .archival import archive_success, handle_failure
@@ -342,7 +342,10 @@ class IngestPipeline:
             db.commit()
 
             t_embed_start = time.time()
-            chunk_texts = [c.text for c in chunks]  # Embed raw text only!
+            if getattr(self.config, "contextual_embeddings", True):
+                chunk_texts = [format_chunk_for_embedding(c, doc_title=orig_filename) for c in chunks]
+            else:
+                chunk_texts = [c.text for c in chunks]
             embeddings: List[List[float]] = []
             embed_batch_size = self.config.embed_batch_size
             for b_idx in range(0, len(chunk_texts), embed_batch_size):

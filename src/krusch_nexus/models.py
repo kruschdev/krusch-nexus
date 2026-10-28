@@ -633,6 +633,9 @@ class NexusConfig(BaseModel):
     pdf_backend: str = Field(
         default_factory=lambda: os.getenv("NEXUS_PDF_BACKEND", "poppler").lower()
     )
+    contextual_embeddings: bool = Field(
+        default_factory=lambda: os.getenv("NEXUS_CONTEXTUAL_EMBEDDINGS", "1") in ("1", "true", "True")
+    )
 
     @model_validator(mode="after")
     def validate_security_and_airgap(self) -> "NexusConfig":
