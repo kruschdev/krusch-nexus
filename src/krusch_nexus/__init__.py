@@ -7,13 +7,19 @@ A dedicated homelab corpus factory providing:
 `file → parse → chunk with provenance → embed locally → persist → hybrid search with citations`
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 from typing import Optional, List, Dict, Any, Tuple
 
 from .client import NexusClient, Nexus
 from .workspace import export_workspace, import_workspace, export_legal_hold_bundle
 from .chunking import chunk_document_pages, iter_chunk_document_pages, format_chunk_for_embedding
+from .retrieve import (
+    DEFAULT_RERANKER_MODEL,
+    compute_local_rerank_scores,
+    format_chunk_for_reranking,
+    get_cached_cross_encoder,
+)
 from .models import (
     NexusConfig,
     IngestRequest,
@@ -128,6 +134,10 @@ __all__ = [
     "chunk_document_pages",
     "iter_chunk_document_pages",
     "format_chunk_for_embedding",
+    "DEFAULT_RERANKER_MODEL",
+    "compute_local_rerank_scores",
+    "format_chunk_for_reranking",
+    "get_cached_cross_encoder",
     "NexusConfig",
     "IngestRequest",
     "IngestReport",

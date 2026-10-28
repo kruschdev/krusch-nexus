@@ -680,6 +680,8 @@ class NexusClient:
         mode: str = "hybrid",
         rerank: bool = False,
         rerank_fn: Optional[Any] = None,
+        rerank_candidates: int = 30,
+        rerank_top_k: Optional[int] = None,
         include_low_ocr: bool = False
     ) -> List[SearchHit]:
         """
@@ -729,6 +731,8 @@ class NexusClient:
                 mode=mode,
                 rerank=rerank,
                 rerank_fn=rerank_fn,
+                rerank_candidates=rerank_candidates,
+                rerank_top_k=rerank_top_k,
                 include_low_ocr=include_low_ocr
             )
         finally:
@@ -744,6 +748,8 @@ class NexusClient:
         mode: str = "hybrid",
         rerank: bool = False,
         rerank_fn: Optional[Any] = None,
+        rerank_candidates: int = 30,
+        rerank_top_k: Optional[int] = None,
         include_low_ocr: bool = False
     ) -> Dict[str, Any]:
         """
@@ -760,6 +766,8 @@ class NexusClient:
             mode=mode,
             rerank=rerank,
             rerank_fn=rerank_fn,
+            rerank_candidates=rerank_candidates,
+            rerank_top_k=rerank_top_k,
             include_low_ocr=include_low_ocr
         )
         elapsed_ms = round((time.time() - start_time) * 1000, 2)

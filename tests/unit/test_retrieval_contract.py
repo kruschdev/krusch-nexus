@@ -326,3 +326,168 @@ class TestRetrievalContract(unittest.TestCase):
         hits_dict = self.nexus.search("quarantined", workspace="RetrievalTest", filters={"filename": "quarantined_notice.txt", "include_low_ocr": True})
         self.assertGreater(len(hits_dict), 0, "filters dict include_low_ocr=True must return quarantined pages")
 
+    def test_format_chunk_for_reranking_contextual_headers_preserve_raw_text(self):
+        """Verify format_chunk_for_reranking prepends Document + Section headers without mutating raw text."""
+        from krusch_nexus import format_chunk_for_reranking
+
+        raw_body = "Receiving Party shall protect Confidential Information for three (3) years."
+        formatted = format_chunk_for_reranking(
+            text=raw_body,
+            filename="contractnli/Acme_Mutual_NDA_2025.txt",
+            header="Section 4.2",
+            locator="Page 3 > Article IV > Section 4.2",
+            heading_path='["Page 3", "Article IV", "Section 4.2"]',
+        )
+        self.assertTrue(formatted.startswith("Document: contractnli Acme Mutual NDA 2025\n"))
+        self.assertIn("Section: Article IV > Section 4.2\n", formatted)
+        self.assertTrue(formatted.endswith(raw_body))
+        self.assertNotIn("Page 3", formatted)
+
+    def test_cross_encoder_singleton_cache_and_causal_lm_pad_token_guard(self):
+        """Verify get_cached_cross_encoder caches singletons and assigns eos_token when pad_token is None."""
+        import sys
+        import types
+        from unittest.mock import MagicMock
+        from krusch_nexus.retrieve import get_cached_cross_encoder, _CROSS_ENCODER_CACHE
+
+        fake_torch = types.ModuleType("torch")
+        fake_torch.float16 = "float16"
+        fake_torch.cuda = types.SimpleNamespace(is_available=lambda: True)
+        fake_torch.nn = types.SimpleNamespace(Identity=lambda: "identity_fn")
+
+        created_instances = []
+
+        class FakeCrossEncoder:
+            def __init__(self, model_id, device=None, max_length=None, activation_fn=None, model_kwargs=None):
+                self.model_id = model_id
+                self.device = device
+                self.max_length = max_length
+                self.model_kwargs = model_kwargs or {}
+                self.tokenizer = types.SimpleNamespace(pad_token=None, eos_token="<|endoftext|>", pad_token_id=151643)
+                self.model = types.SimpleNamespace(config=types.SimpleNamespace(pad_token_id=None))
+                created_instances.append(self)
+
+        fake_st = types.ModuleType("sentence_transformers")
+        fake_st.CrossEncoder = FakeCrossEncoder
+
+        _CROSS_ENCODER_CACHE.clear()
+        with unittest.mock.patch.dict(sys.modules, {"torch": fake_torch, "sentence_transformers": fake_st}):
+            ce1 = get_cached_cross_encoder("mixedbread-ai/mxbai-rerank-large-v2", max_length=1024, device="cuda")
+            ce2 = get_cached_cross_encoder("mixedbread-ai/mxbai-rerank-large-v2", max_length=1024, device="cuda")
+
+        self.assertIs(ce1, ce2)
+        self.assertEqual(len(created_instances), 1)
+        self.assertEqual(ce1.tokenizer.pad_token, "<|endoftext|>")
+        self.assertEqual(ce1.model.config.pad_token_id, 151643)
+        self.assertEqual(ce1.model_kwargs.get("dtype"), "float16")
+        _CROSS_ENCODER_CACHE.clear()
+
+    def test_rerank_contextual_passage_forwarding_and_top_k_pruning(self):
+        """Verify NexusClient.search(rerank=True, rerank_top_k=1) passes contextual passages and prunes output."""
+        seen_passages = []
+
+        def spy_reranker(query, texts):
+            seen_passages.extend(texts)
+            # Score municipal_code highest when contextual Document header is present
+            return [0.95 if "Document: municipal code" in t else 0.12 for t in texts]
+
+        hits = self.nexus.search(
+            query="lease notice deposit",
+            workspace="RetrievalTest",
+            limit=5,
+            rerank=True,
+            rerank_fn=spy_reranker,
+            rerank_candidates=6,
+            rerank_top_k=1,
+        )
+        self.assertEqual(len(hits), 1)
+        self.assertGreater(len(seen_passages), 0)
+        self.assertTrue(any(p.startswith("Document: ") for p in seen_passages))
+        self.assertEqual(hits[0].filename, "municipal_code.txt")
+        self.assertIn("cross_encoder_rerank", hits[0].match_reasons)
+        # Ensure returned SearchHit.text remains exact raw chunk text (no Document: prefix mutation)
+        self.assertFalse(hits[0].text.startswith("Document: "))
+
+    def test_legal_cartridge_optional_rerank_contract(self):
+        """Verify LegalAuthorityCartridge.search supports optional rerank_fn while keeping rerank=False unchanged."""
+        import sqlite3
+        import struct
+        from krusch_nexus import LegalAuthorityCartridge
+
+        cart_path = os.path.join(self.temp_dir, "mini_authority.sqlite")
+        conn = sqlite3.connect(cart_path)
+        conn.executescript(
+            """
+            CREATE TABLE documents (
+                id INTEGER PRIMARY KEY,
+                title TEXT,
+                jurisdiction TEXT,
+                court TEXT,
+                decision_year INTEGER,
+                source_table TEXT
+            );
+            CREATE TABLE chunks (
+                chunk_id TEXT PRIMARY KEY,
+                doc_id INTEGER,
+                chunk_index INTEGER,
+                citation TEXT,
+                heading_path TEXT,
+                locator TEXT,
+                text TEXT,
+                source_hash TEXT,
+                char_start INTEGER,
+                char_end INTEGER,
+                embedding BLOB
+            );
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(chunk_id UNINDEXED, title, citation, locator, text);
+            """
+        )
+        vec_a = struct.pack("4f", 1.0, 0.0, 0.0, 0.0)
+        vec_b = struct.pack("4f", 0.7, 0.7, 0.0, 0.0)
+        conn.execute("INSERT INTO documents VALUES (1, 'Alpha Corp NDA', 'DE', 'Contract', 2025, 'contracts')")
+        conn.execute("INSERT INTO documents VALUES (2, 'Beta Holdings NDA', 'NY', 'Contract', 2025, 'contracts')")
+        conn.execute(
+            "INSERT INTO chunks VALUES ('chk_0', 1, 0, 'Alpha p.1', '[\"Section 1\"]', 'Section 1', 'Confidentiality survival term is two years.', 'h1', 0, 43, ?)",
+            (vec_a,),
+        )
+        conn.execute(
+            "INSERT INTO chunks VALUES ('chk_1', 2, 0, 'Beta p.1', '[\"Section 9\"]', 'Section 9', 'Confidentiality survival term is five years.', 'h2', 0, 44, ?)",
+            (vec_b,),
+        )
+        conn.execute("INSERT INTO chunks_fts VALUES ('chk_0', 'Alpha Corp NDA', 'Alpha p.1', 'Section 1', 'Confidentiality survival term is two years.')")
+        conn.execute("INSERT INTO chunks_fts VALUES ('chk_1', 'Beta Corp NDA', 'Beta p.1', 'Section 9', 'Confidentiality survival term is five years.')")
+        conn.commit()
+        conn.close()
+
+        cart = LegalAuthorityCartridge(
+            db_path=cart_path,
+            embed_fn=lambda _q: [1.0, 0.0, 0.0, 0.0],
+        )
+        stock_hits = cart.search("Confidentiality survival term", limit=2, rerank=False)
+        self.assertEqual(stock_hits[0]["chunk_id"], "chk_0")
+
+        reranked_hits = cart.search(
+            "Beta Holdings confidentiality survival term",
+            limit=1,
+            rerank=True,
+            rerank_fn=lambda _q, texts: [0.99 if "Beta Holdings NDA" in t else 0.05 for t in texts],
+        )
+        self.assertEqual(len(reranked_hits), 1)
+        self.assertEqual(reranked_hits[0]["chunk_id"], "chk_1")
+        self.assertAlmostEqual(reranked_hits[0]["rerank_score"], 0.99, places=4)
+
+    def test_airgap_rejects_cloud_reranker_backend_and_model(self):
+        """Verify NexusConfig rejects cloud rerankers when allow_cloud=False."""
+        from krusch_nexus.exceptions import AirGapViolationError
+
+        with self.assertRaises(AirGapViolationError):
+            NexusConfig(reranker_backend="cohere", allow_cloud=False)
+
+        with self.assertRaises(AirGapViolationError):
+            NexusConfig(
+                reranker_backend="sentence_transformers",
+                reranker_model="rerank-english-v3.0",
+                allow_cloud=False,
+            )
+
+

@@ -107,9 +107,15 @@ def _safe_cosine_similarity(q_vec: List[float], doc_vec: tuple | List[float]) ->
 class LegalAuthorityCartridge:
     """Client for high-speed hybrid retrieval over the KruschNexus Legal Cartridge."""
 
-    def __init__(self, db_path: Optional[str | Path] = None, embed_url: str = DEFAULT_EMBED_URL):
+    def __init__(
+        self,
+        db_path: Optional[str | Path] = None,
+        embed_url: str = DEFAULT_EMBED_URL,
+        embed_fn: Optional[Any] = None,
+    ):
         self.db_path = self._resolve_db_path(db_path)
         self.embed_url = embed_url.rstrip("/")
+        self.embed_fn = embed_fn
         self.embed_model = DEFAULT_EMBED_MODEL
         if not self.db_path or not self.db_path.exists():
             raise FileNotFoundError(f"Legal Authority Cartridge SQLite file not found: {self.db_path}")
@@ -155,6 +161,8 @@ class LegalAuthorityCartridge:
 
     def _embed_query(self, query: str) -> List[float]:
         """Embed search query using the cartridge's exact recorded embedding space."""
+        if self.embed_fn is not None:
+            return [float(x) for x in self.embed_fn(query)]
         url = f"{self.embed_url}/api/embed"
         formatted_q = f"query: {query}" if self.embed_model.startswith("snowflake-arctic-embed2") and not query.startswith("query: ") else query
         keep_alive = -1 if self.embed_model.startswith("snowflake-arctic-embed2") else "5m"
@@ -176,13 +184,19 @@ class LegalAuthorityCartridge:
         limit: int = 5,
         jurisdiction: Optional[str] = None,
         source_table: Optional[str] = None,
-        candidate_pool_size: int = 300
+        candidate_pool_size: int = 300,
+        rerank: bool = False,
+        rerank_model: Optional[str] = None,
+        rerank_candidates: int = 16,
+        rerank_fn: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Execute sub-50ms hybrid BM25 + dense vector retrieval:
+        Execute sub-50ms hybrid BM25 + dense vector retrieval (with optional local CrossEncoder reranking):
         1. FTS5 pre-selects top BM25-ranked candidate chunks matching quoted query keywords.
         2. If FTS yields candidates, rerank candidates by vector cosine similarity + BM25 RRF tie-break.
         3. If FTS yields 0 candidates (out-of-vocabulary or punctuation-only query), fall back to vector scan.
+        4. When `rerank=True` (or `rerank_fn` is provided), score the top `rerank_candidates` hits with
+           contextual Document + Section provenance via `compute_local_rerank_scores` and prune to `limit`.
         """
         t0 = time.time()
         pool_size = max(1, int(candidate_pool_size or 300))
@@ -348,10 +362,49 @@ class LegalAuthorityCartridge:
                     })
                 scored_hits.sort(key=lambda x: x["score"], reverse=True)
 
+            if (rerank or rerank_fn is not None) and scored_hits:
+                from .retrieve import (
+                    DEFAULT_RERANKER_MODEL,
+                    compute_local_rerank_scores,
+                    format_chunk_for_reranking,
+                )
+
+                rerank_pool_n = max(top_limit, int(rerank_candidates or 16))
+                target_slice = scored_hits[:rerank_pool_n]
+                formatted_passages = [
+                    format_chunk_for_reranking(
+                        text=h["text"],
+                        filename=h.get("title") or h.get("citation"),
+                        locator=h.get("locator"),
+                        heading_path=h.get("heading_path"),
+                    )
+                    for h in target_slice
+                ]
+                ce_scores = compute_local_rerank_scores(
+                    query=query,
+                    texts=formatted_passages,
+                    backend="sentence_transformers",
+                    model_name=rerank_model or DEFAULT_RERANKER_MODEL,
+                    rerank_fn=rerank_fn,
+                )
+                reranked_tuples = []
+                for rank_i, (hit_dict, ce_s) in enumerate(zip(target_slice, ce_scores)):
+                    prior_s = float(hit_dict.get("score", 0.0))
+                    updated_hit = {
+                        **hit_dict,
+                        "dense_score": prior_s,
+                        "rerank_score": round(float(ce_s), 6),
+                        "score": round(float(ce_s), 6),
+                    }
+                    reranked_tuples.append((float(ce_s), prior_s, -rank_i, updated_hit))
+                reranked_tuples.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+                scored_hits = [x[3] for x in reranked_tuples] + scored_hits[rerank_pool_n:]
+
             elapsed_ms = (time.time() - t0) * 1000.0
             logger.debug(f"Search for '{query}' returned {len(scored_hits[:top_limit])} hits in {elapsed_ms:.2f}ms")
             return scored_hits[:top_limit]
 
         finally:
             conn.close()
+
 

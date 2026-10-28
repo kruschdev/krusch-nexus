@@ -630,6 +630,20 @@ class NexusConfig(BaseModel):
     reranker_backend: str = Field(
         default_factory=lambda: os.getenv("NEXUS_RERANKER_BACKEND", "none").lower()
     )
+    reranker_model: str = Field(
+        default_factory=lambda: os.getenv("NEXUS_RERANKER_MODEL", "mixedbread-ai/mxbai-rerank-large-v2")
+    )
+    reranker_top_k: Optional[int] = Field(
+        default_factory=lambda: int(os.getenv("NEXUS_RERANKER_TOP_K"))
+        if os.getenv("NEXUS_RERANKER_TOP_K", "").strip()
+        else None
+    )
+    reranker_max_length: int = Field(
+        default_factory=lambda: int(os.getenv("NEXUS_RERANKER_MAX_LENGTH", "1024"))
+    )
+    reranker_batch_size: int = Field(
+        default_factory=lambda: int(os.getenv("NEXUS_RERANKER_BATCH_SIZE", "32"))
+    )
     pdf_backend: str = Field(
         default_factory=lambda: os.getenv("NEXUS_PDF_BACKEND", "poppler").lower()
     )
@@ -655,6 +669,15 @@ class NexusConfig(BaseModel):
                 "Set ALLOW_CLOUD=1 and install cloud extras if external egress is explicitly intended."
             )
 
+        allowed_local_rerankers = (
+            "none", "", "false", "0", "cross_encoder", "sentence_transformers", "mxbai", "fastembed", "lexical", "dummy"
+        )
+        if self.reranker_backend not in allowed_local_rerankers and not self.allow_cloud:
+            raise AirGapViolationError(
+                f"Insecure reranker backend '{self.reranker_backend}' rejected. "
+                "KruschNexus requires local air-gapped rerankers (sentence_transformers, cross_encoder, fastembed, none)."
+            )
+
         # 2. Refuse startup if cloud keys present under AIRGAP=1
         if self.airgap and not self.allow_cloud and os.getenv("OPENROUTER_API_KEY"):
             raise AirGapViolationError(
@@ -675,6 +698,9 @@ class NexusConfig(BaseModel):
             base64.b64decode(b"Z2VtaW5pLQ==").decode("ascii"),
             base64.b64decode(b"Y2xhdWRlLQ==").decode("ascii")
         )
+        cloud_rerank_prefixes = (
+            "rerank-english-", "rerank-multilingual-", "voyage-rerank-"
+        )
         if not self.allow_cloud:
             for cd in cloud_domains:
                 if cd in self.ollama_url.lower():
@@ -685,6 +711,10 @@ class NexusConfig(BaseModel):
             if self.embed_model.lower().startswith(cloud_prefixes):
                 raise AirGapViolationError(
                     f"Air-gap violation: configured cloud embed model '{self.embed_model}'."
+                )
+            if self.reranker_model.lower().startswith(cloud_rerank_prefixes):
+                raise AirGapViolationError(
+                    f"Air-gap violation: configured cloud reranker model '{self.reranker_model}'."
                 )
 
         # 4. Reject default insecure credentials (kruschpassword)

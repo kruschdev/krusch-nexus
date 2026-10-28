@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "krusch-nexus"
-version = "0.2.5"
+version = "0.2.6"
 description = "Air-Gapped Universal Document Ingestion Engine & Citation Spine"
 readme = "README.md"
 authors = [{ name = "kruschdev", email = "kruschdev@users.noreply.github.com" }]
@@ -47,6 +47,13 @@ factory = [
     "pgvector>=0.2.4",
     "python-multipart>=0.0.9",
     "watchdog>=4.0.0",
+]
+
+# Profile 4: Neural Cross-Encoder Reranker (local Apache-2.0 mxbai-rerank-large-v2)
+reranker = [
+    "sentence-transformers>=5.0.0",
+    "torch>=2.2.0",
+    "accelerate>=0.30.0",
 ]
 
 all = [

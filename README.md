@@ -1,11 +1,11 @@
 # KruschNexus
 
-> **Status**: v0.2.5 — 201 passing tests, PageIndex-style hierarchical Table of Contents trees (`nexus tree`), Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
+> **Status**: v0.2.6 — 206 passing tests, local Apache-2.0 neural cross-encoder reranking (`mixedbread-ai/mxbai-rerank-large-v2` with contextual Document + Section passage grounding), PageIndex-style hierarchical Table of Contents trees (`nexus tree`), Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Version: 0.2.5](https://img.shields.io/badge/version-0.2.5-green.svg)](docs/INVARIANTS.md)
+[![Version: 0.2.6](https://img.shields.io/badge/version-0.2.6-green.svg)](docs/INVARIANTS.md)
 
 ---
 

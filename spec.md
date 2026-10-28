@@ -1,6 +1,6 @@
 # KruschNexus — System Specification
 
-> **Version**: 0.2.5  
+> **Version**: 0.2.6  
 > **Status**: 0.2 — usable spine, small corpus  
 > **Architecture**: Local-First / Air-Gapped Document Ingestion & Page-Faithful Citation Spine  
 > **Author**: kruschdev  
