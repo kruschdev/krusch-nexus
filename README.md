@@ -1,6 +1,6 @@
 # KruschNexus
 
-> **Status**: v0.2.5 — 174 passing tests, PageIndex-style hierarchical Table of Contents trees (`nexus tree`), Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
+> **Status**: v0.2.5 — 201 passing tests, PageIndex-style hierarchical Table of Contents trees (`nexus tree`), Authority Pack Cartridge Forge (`nexus export-pack`), span-grounded slot extraction, Table Grid Spines, cell-level bounding boxes, borderless column alignment, tracked-changes redline isolation, two-column reading order resolution, Poppler TSV line-level bounding boxes, streaming binder chunking, legal hold preservation, zero-config parse library mode, append-only immutable audit trail
 
 [![CI](https://github.com/kruschdev/krusch-nexus/actions/workflows/test.yml/badge.svg)](https://github.com/kruschdev/krusch-nexus/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -20,6 +20,18 @@ When standard vector pipelines ingest PDFs, DOCX files, and contracts, they stri
 - **Structure-First**: Preserves statutory subsection integrity (`§ 1950.5`, `Section 8.22.030`, `Art. IV`) and carries hierarchical heading stacks (`Article IV > Section 8.22.030`).
 - **Explainable Hybrid Retrieval**: Combines pgvector dense cosine search with PostgreSQL full-text search (`tsvector`), statutory section boosting, quoted phrase matching (`"liquidated damages"`), hard tenant isolation (`workspace_id`), and explicit scoring breakdown (`vector_rank`, `fts_rank`, `section_boost`, `phrase_boost`, `score`, `score_vector`).
 - **Air-Gapped & Local**: Zero external API calls, zero telemetry, zero cloud egress. Runs entirely on local CPU/GPU with Ollama and PostgreSQL.
+
+### Empirical Benchmark: LegalBench-RAG (`714` Corpus Files, `6,889` Full & `776` Mini Queries)
+
+Evaluated hermetically across **100% of the un-shrunk `LegalBench-RAG` corpus** (`sort_by_document: false`, `top_k = 6`, `max_retrieved_chars = 3,600`, exact disjoint character-span Precision/Recall/F1, zero LLM judge) with local `snowflake-arctic-embed2` (`1,024d`):
+
+| Domain (`n` Full) | Fixed `160`-Tok Dense (R / F1) | **`LegalAuthorityCartridge.search` (P / R / F1)** | **`format_chunk_for_embedding` Contextual (P / R / F1)** | Lift vs. Fixed-Window Dense |
+| :--- | :---: | :---: | :---: | :---: |
+| **4-Domain Macro (`6,889` Full / `776` Mini)** | `39.70%` / `11.70%` (`11.11%` Mini) | `9.53%` / `47.68%` / **`14.36%`** (`0` crashes) | **`9.83%` / `47.71%` / `14.63%`** (`14.46%` Mini) | **`+25.0%` Full / `+30.2%` Mini F1** |
+| **PrivacyQA** (`194`) | `48.71%` / `18.12%` | `13.81%` / **`54.39%`** / `19.42%` | **`14.15%`** / `53.01%` / **`19.60%`** | `+8.2%` F1 / `+5.68 pp` R |
+| **ContractNLI** (`977`) | `68.47%` / `15.51%` | **`9.94%` / `73.39%` / `16.88%`** | `9.79%` / `72.31%` / `16.66%` | `+8.8%` F1 / `+4.92 pp` R |
+| **CUAD** (`4,042`) | `31.54%` / `7.65%` | `5.47%` / `32.90%` / `8.49%` | **`5.98%` / `36.02%` / `9.30%`** | `+21.6%` F1 / `+4.48 pp` R |
+| **MAUD** (`1,676`) | `10.07%` / `5.53%` | `8.89%` / **`30.04%`** / `12.64%` | **`9.39%`** / `29.52%` / **`12.96%`** | **`2.34x` F1 (`30.04%` R@6 > OpenAI `3-large` R@64 `28.28%`)** |
 
 ---
 
